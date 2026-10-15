@@ -467,32 +467,37 @@ body.theme-light .drop-overlay {
     border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 14px 18px;
-    text-align: left;
+    text-align: center;
     cursor: pointer;
     transition: all 0.2s ease;
     display: flex;
     align-items: center;
+    justify-content: center;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .suggestion-card:hover {
     background: var(--bg-card-hover);
     border-color: var(--accent-sky);
-    transform: translateY(-3px);
+    transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
 }
 
 .card-icon-tag {
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
+    gap: 10px;
     color: var(--accent-sky);
+    width: 100%;
+    text-align: center;
 }
 
 .suggestion-title {
     font-size: 0.88rem;
     font-weight: 600;
     color: var(--text-primary);
+    text-align: center;
 }
 
 .suggestion-desc {
@@ -889,8 +894,8 @@ body.theme-light .drop-overlay {
 /* Giriş Satırı */
 .input-row {
     display: flex;
-    align-items: flex-end;
-    gap: 10px;
+    align-items: center;
+    gap: 8px;
     width: 100%;
 }
 
@@ -906,6 +911,7 @@ body.theme-light .drop-overlay {
     justify-content: center;
     cursor: pointer;
     flex-shrink: 0;
+    margin: 0;
     transition: all 0.15s ease;
 }
 
@@ -921,12 +927,14 @@ body.theme-light .drop-overlay {
     border: none;
     color: var(--text-primary);
     font-family: var(--font-sans);
-    font-size: 0.95rem;
+    font-size: 16px;
     resize: none;
     outline: none;
-    max-height: 180px;
-    line-height: 1.45;
+    max-height: 140px;
+    line-height: 1.4;
     padding: 6px 0;
+    margin: 0;
+    display: block;
 }
 
 #messageInput::placeholder {
@@ -946,6 +954,7 @@ body.theme-light .drop-overlay {
     justify-content: center;
     cursor: not-allowed;
     flex-shrink: 0;
+    margin: 0;
     transition: all 0.15s ease;
 }
 
@@ -1031,7 +1040,7 @@ body.theme-light .drop-overlay {
     padding: 10px 14px;
     color: var(--text-primary);
     font-family: var(--font-mono);
-    font-size: 0.9rem;
+    font-size: 16px;
     outline: none;
     transition: border-color 0.15s ease;
 }
@@ -2402,20 +2411,37 @@ body.theme-light .drop-overlay {
     }
 
     .suggestion-cards {
-        grid-template-columns: 1fr 1fr !important;
+        display: flex !important;
+        flex-direction: column !important;
         gap: 8px !important;
-        margin-top: 8px !important;
+        margin-top: 10px !important;
         max-width: 100% !important;
+        width: 100% !important;
     }
 
     .suggestion-card {
-        padding: 10px 10px !important;
-        border-radius: 10px !important;
+        width: 100% !important;
+        padding: 12px 14px !important;
+        border-radius: 12px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+    }
+
+    .card-icon-tag {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 10px !important;
+        width: 100% !important;
+        text-align: center !important;
     }
 
     .suggestion-title {
-        font-size: 0.78rem !important;
-        line-height: 1.35 !important;
+        font-size: 0.85rem !important;
+        text-align: center !important;
+        font-weight: 600 !important;
     }
 
     /* 6. Mesaj Listesi ve Baloncuklar */
@@ -2494,16 +2520,29 @@ body.theme-light .drop-overlay {
         border-radius: 14px !important;
     }
 
+    .input-row {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        width: 100% !important;
+    }
+
     #messageInput {
-        font-size: 0.88rem !important;
-        padding: 4px 0 !important;
+        font-size: 16px !important; /* 16px iOS Safari auto-zoom'u tamamen engeller */
+        padding: 5px 0 !important;
         line-height: 1.35 !important;
+        margin: 0 !important;
     }
 
     .attach-btn, #sendButton {
-        width: 32px !important;
-        height: 32px !important;
-        border-radius: 8px !important;
+        width: 34px !important;
+        height: 34px !important;
+        border-radius: 9px !important;
+        flex-shrink: 0 !important;
+        margin: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
 
     /* 9. Canlı Bülten Modülü */

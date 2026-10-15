@@ -508,6 +508,9 @@ async function submitCurrentMessage() {
     adjustTextarea();
     updateSendButtonState();
     updateView();
+    if (window.innerWidth <= 768) {
+        messageInput.blur();
+    }
 
     sendButton.disabled = true;
     await streamAiResponse();
