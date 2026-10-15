@@ -73,6 +73,7 @@ body {
     color: var(--text-primary);
     font-family: var(--font-sans);
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
     transition: background-color 0.25s ease, color 0.25s ease;
@@ -82,6 +83,8 @@ body {
     display: flex;
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
+    position: relative;
 }
 
 /* Sol Geçmiş Bölümü */
@@ -2222,4 +2225,344 @@ body.theme-light .drop-overlay {
     color: var(--text-secondary);
     font-size: 0.72rem;
 }
+
+/* ==========================================================================
+   MOBİL VE TABLET UYUMLULUK STİLLERİ (RESPONSIVE ENGINE)
+   ========================================================================== */
+
+/* Mobil Karartma Perdesi */
+.sidebar-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    background: rgba(0, 0, 0, 0.68);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+
+.sidebar-backdrop.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+@media (max-width: 768px) {
+    /* 1. Genel Ekran ve Kapsayıcı */
+    html, body {
+        height: 100% !important;
+        height: 100dvh !important;
+        overflow: hidden !important;
+        overscroll-behavior: none !important;
+    }
+
+    .app-layout {
+        position: relative !important;
+        width: 100vw !important;
+        height: 100% !important;
+        height: 100dvh !important;
+        overflow: hidden !important;
+    }
+
+    /* 2. Sol Menü (Off-Canvas Çekmece) */
+    .sidebar {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        height: 100% !important;
+        height: 100dvh !important;
+        width: 290px !important;
+        max-width: 82vw !important;
+        z-index: 1000 !important;
+        background-color: var(--bg-sidebar) !important;
+        box-shadow: 6px 0 30px rgba(0, 0, 0, 0.6) !important;
+        transform: translateX(0) !important;
+        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    }
+
+    .sidebar.collapsed {
+        transform: translateX(-100%) !important;
+        width: 290px !important;
+        min-width: 290px !important;
+        padding: 16px 14px !important;
+        margin-left: 0 !important;
+        border-right: 1px solid var(--border-color) !important;
+        opacity: 1 !important;
+        pointer-events: none !important;
+    }
+
+    /* Menü Butonu Mobilde Her Zaman Görünür */
+    .sidebar-toggle-nav-btn {
+        display: inline-flex !important;
+        width: 34px !important;
+        height: 34px !important;
+        border-radius: 8px !important;
+        margin-right: 4px !important;
+    }
+
+    /* 3. Ana Çalışma Alanı */
+    .chat-main {
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 8px 10px max(8px, env(safe-area-inset-bottom)) 10px !important;
+        height: 100% !important;
+        height: 100dvh !important;
+        border-radius: 0 !important;
+    }
+
+    .app-layout.sidebar-collapsed .chat-main {
+        max-width: 100% !important;
+    }
+
+    /* 4. Üst Navigasyon Çubuğu (2 Satır: Marka ve 3 Eşit Sekme) */
+    .app-top-nav {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+        padding-bottom: 8px !important;
+        margin-bottom: 4px !important;
+        border-bottom: 1px solid var(--border-color) !important;
+    }
+
+    .nav-brand {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        width: 100% !important;
+    }
+
+    .brand-title {
+        font-size: 0.98rem !important;
+        font-weight: 700 !important;
+    }
+
+    .nav-tabs {
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 4px !important;
+        padding: 3px !important;
+        background: var(--bg-card) !important;
+        border-radius: 10px !important;
+        border: 1px solid var(--border-color) !important;
+    }
+
+    .nav-tab {
+        flex: 1 1 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 8px 4px !important;
+        font-size: 0.78rem !important;
+        font-weight: 600 !important;
+        gap: 5px !important;
+        white-space: nowrap !important;
+        border-radius: 7px !important;
+    }
+
+    .nav-tab svg {
+        width: 15px !important;
+        height: 15px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .tab-badge {
+        display: none !important; /* Mobilde rozet gizlenir ki 3 sekme sığsın */
+    }
+
+    .tab-badge-count {
+        font-size: 0.65rem !important;
+        padding: 1px 5px !important;
+    }
+
+    /* 5. Boş Karşılama Ekranı (Yusuf AI) */
+    .empty-state {
+        padding-bottom: 24px !important;
+        gap: 12px !important;
+    }
+
+    .empty-icon-box {
+        width: 52px !important;
+        height: 52px !important;
+        border-radius: 14px !important;
+    }
+
+    .empty-state h2 {
+        font-size: 1.35rem !important;
+    }
+
+    .suggestion-cards {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 8px !important;
+        margin-top: 8px !important;
+        max-width: 100% !important;
+    }
+
+    .suggestion-card {
+        padding: 10px 10px !important;
+        border-radius: 10px !important;
+    }
+
+    .suggestion-title {
+        font-size: 0.78rem !important;
+        line-height: 1.35 !important;
+    }
+
+    /* 6. Mesaj Listesi ve Baloncuklar */
+    .chat-messages {
+        padding-top: 6px !important;
+        padding-bottom: 16px !important;
+        gap: 12px !important;
+    }
+
+    .message-row {
+        gap: 8px !important;
+    }
+
+    .msg-avatar {
+        width: 26px !important;
+        height: 26px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .msg-bubble {
+        padding: 10px 12px !important;
+        font-size: 0.86rem !important;
+        line-height: 1.52 !important;
+        border-radius: 14px !important;
+        gap: 6px !important;
+    }
+
+    /* 7. Chat İçi Tablo (Mobilde Kesinlikle Taşma/Kesilme Yapmaz) */
+    .table-responsive {
+        width: 100% !important;
+        margin: 6px 0 !important;
+        border-radius: 8px !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    .msg-bubble table {
+        width: 100% !important;
+        min-width: 100% !important;
+        font-size: 0.76rem !important;
+        table-layout: auto !important;
+    }
+
+    .msg-bubble th, .msg-bubble td {
+        padding: 6px 5px !important;
+        font-size: 0.76rem !important;
+    }
+
+    /* Sıra (#) sütunu dar */
+    .msg-bubble th:nth-child(1), .msg-bubble td:nth-child(1) {
+        width: 18px !important;
+        padding: 6px 2px !important;
+        text-align: center;
+    }
+
+    /* Saat sütunu */
+    .msg-bubble th:nth-child(2), .msg-bubble td:nth-child(2) {
+        width: 42px !important;
+        white-space: nowrap !important;
+    }
+
+    /* Tercih sütunu */
+    .msg-bubble th:nth-child(4), .msg-bubble td:nth-child(4) {
+        white-space: nowrap !important;
+        font-weight: 600;
+    }
+
+    /* 8. Alt Giriş Çubuğu (Input Bar) */
+    .chat-input-wrapper {
+        padding-top: 4px !important;
+        margin-bottom: 2px !important;
+    }
+
+    .chat-form {
+        padding: 8px 10px !important;
+        border-radius: 14px !important;
+    }
+
+    #messageInput {
+        font-size: 0.88rem !important;
+        padding: 4px 0 !important;
+        line-height: 1.35 !important;
+    }
+
+    .attach-btn, #sendButton {
+        width: 32px !important;
+        height: 32px !important;
+        border-radius: 8px !important;
+    }
+
+    /* 9. Canlı Bülten Modülü */
+    .matches-filter-bar {
+        padding: 8px 10px !important;
+        gap: 8px !important;
+    }
+
+    .filter-search-wrap {
+        width: 100% !important;
+        min-width: 100% !important;
+    }
+
+    .filter-btn-group {
+        width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding-bottom: 2px !important;
+    }
+
+    .filter-btn {
+        padding: 5px 8px !important;
+        font-size: 0.74rem !important;
+        white-space: nowrap !important;
+    }
+
+    .category-filter-select {
+        width: 100% !important;
+    }
+
+    .category-filter-select select {
+        width: 100% !important;
+    }
+
+    /* 10. Modallar */
+    .modal-box {
+        width: 94% !important;
+        max-width: 94% !important;
+        padding: 16px !important;
+        border-radius: 14px !important;
+    }
+
+    .modal-detail-box {
+        width: 96% !important;
+        max-width: 96% !important;
+        max-height: 92vh !important;
+        max-height: 92dvh !important;
+        padding: 14px !important;
+    }
+
+    .facts-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+@media (max-width: 420px) {
+    .suggestion-cards {
+        grid-template-columns: 1fr !important;
+    }
+}
+
 

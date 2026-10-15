@@ -139,22 +139,45 @@ function init() {
 }
 
 function initSidebar() {
-    const isCollapsed = localStorage.getItem('sidebar_collapsed') === 'true';
+    const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+    const isMobile = window.innerWidth <= 768;
+    const isCollapsed = isMobile ? true : (localStorage.getItem('sidebar_collapsed') === 'true');
+
     if (isCollapsed) {
         sidebar.classList.add('collapsed');
         appLayout.classList.add('sidebar-collapsed');
-    }
-
-    sidebarCollapseBtn.addEventListener('click', () => {
-        sidebar.classList.add('collapsed');
-        appLayout.classList.add('sidebar-collapsed');
-        localStorage.setItem('sidebar_collapsed', 'true');
-    });
-
-    sidebarExpandBtn.addEventListener('click', () => {
+    } else {
         sidebar.classList.remove('collapsed');
         appLayout.classList.remove('sidebar-collapsed');
-        localStorage.setItem('sidebar_collapsed', 'false');
+    }
+
+    function closeSidebar() {
+        sidebar.classList.add('collapsed');
+        appLayout.classList.add('sidebar-collapsed');
+        if (sidebarBackdrop) sidebarBackdrop.classList.remove('active');
+        if (window.innerWidth > 768) localStorage.setItem('sidebar_collapsed', 'true');
+    }
+
+    function openSidebar() {
+        sidebar.classList.remove('collapsed');
+        appLayout.classList.remove('sidebar-collapsed');
+        if (sidebarBackdrop && window.innerWidth <= 768) {
+            sidebarBackdrop.classList.add('active');
+        }
+        if (window.innerWidth > 768) localStorage.setItem('sidebar_collapsed', 'false');
+    }
+
+    sidebarCollapseBtn.addEventListener('click', closeSidebar);
+    sidebarExpandBtn.addEventListener('click', openSidebar);
+
+    if (sidebarBackdrop) {
+        sidebarBackdrop.addEventListener('click', closeSidebar);
+    }
+
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 768 && sidebarBackdrop) {
+            sidebarBackdrop.classList.remove('active');
+        }
     });
 }
 
@@ -256,6 +279,12 @@ function bindEvents() {
         updateSendButtonState();
         updateView();
         updateActiveHistoryItem();
+        if (window.innerWidth <= 768) {
+            sidebar.classList.add('collapsed');
+            appLayout.classList.add('sidebar-collapsed');
+            const backdrop = document.getElementById('sidebarBackdrop');
+            if (backdrop) backdrop.classList.remove('active');
+        }
         messageInput.focus();
     });
 
@@ -654,6 +683,13 @@ function loadChat(id) {
     chatMessages.innerHTML = '';
     updateActiveHistoryItem();
 
+    if (window.innerWidth <= 768) {
+        sidebar.classList.add('collapsed');
+        appLayout.classList.add('sidebar-collapsed');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        if (backdrop) backdrop.classList.remove('active');
+    }
+
     const activeChat = chats.find(c => c.id === id);
     if (!activeChat) return;
 
@@ -801,7 +837,7 @@ function bindFootballModule() {
     });
 
     askAiSurpriseBtn.addEventListener('click', () => {
-        const prompt = '50 TL bütçe ile hazırlanan günün yüksek değer sürpriz kuponunu analiz et. İY/MS ve ilk yarı tercihlerinin istatistiksel avantajını açıkla. 3-4-5 sistem mi yoksa kombine mi oynamalıyım?';
+        const prompt = 'Günün yüksek değer sürpriz kuponunu analiz et. İY/MS ve ilk yarı tercihlerinin istatistiksel avantajını açıkla. 3-4-5 sistem mi yoksa kombine mi oynamalıyım?';
         askAiDirectly(prompt);
     });
 
