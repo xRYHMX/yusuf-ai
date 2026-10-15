@@ -89,11 +89,13 @@ const server = http.createServer(async (req, res) => {
         req.on('end', async () => {
             try {
                 const { messages, apiKey } = JSON.parse(body);
-                const activeKey = (apiKey && apiKey.trim()) ? apiKey.trim() : '';
+                const activeKey = (apiKey && apiKey.trim()) ? apiKey.trim() : (process.env.GROQ_API_KEY || '').trim();
 
                 if (!activeKey) {
                     res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-                    res.end(JSON.stringify({ error: 'API anahtarı bulunamadı.' }));
+                    res.end(JSON.stringify({ 
+                        error: 'API anahtarı bulunamadı. Sol menünün altındaki "API Anahtarı Yapıştır" butonuna tıklayıp Groq API anahtarınızı (gsk_...) kaydedin veya Render ayarlarından GROQ_API_KEY değişkeni olarak ekleyin.' 
+                    }));
                     return;
                 }
 
@@ -184,7 +186,7 @@ Yanıtlarını net, derli toplu ve okunaklı Markdown formatında ver.`;
                         body: JSON.stringify({
                             model: modelToTry,
                             messages: finalMessages,
-                            max_tokens: 950,
+                            max_tokens: 2800,
                             stream: true
                         })
                     });

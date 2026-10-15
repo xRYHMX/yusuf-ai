@@ -559,30 +559,33 @@ async function streamAiResponse() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let fullAiText = '';
+        let streamBuffer = '';
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
+            streamBuffer += decoder.decode(value, { stream: true });
+            const lines = streamBuffer.split('\n');
+            streamBuffer = lines.pop();
 
             for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const dataStr = line.slice(6).trim();
-                    if (dataStr === '[DONE]') break;
-
+                const trimmed = line.trim();
+                if (!trimmed || trimmed === 'data: [DONE]') continue;
+                if (trimmed.startsWith('data: ')) {
+                    const dataStr = trimmed.slice(6).trim();
                     try {
                         const parsed = JSON.parse(dataStr);
                         const token = parsed.choices[0]?.delta?.content || '';
-                        fullAiText += token;
-
-                        if (window.marked) {
-                            bubble.innerHTML = renderMarkdown(fullAiText);
-                        } else {
-                            bubble.textContent = fullAiText;
+                        if (token) {
+                            fullAiText += token;
+                            if (window.marked) {
+                                bubble.innerHTML = renderMarkdown(fullAiText);
+                            } else {
+                                bubble.textContent = fullAiText;
+                            }
+                            chatMessages.scrollTop = chatMessages.scrollHeight;
                         }
-                        chatMessages.scrollTop = chatMessages.scrollHeight;
                     } catch (_) {}
                 }
             }
