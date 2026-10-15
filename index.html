@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analizci Kuponcu AI | Profesyonel Futbol Analizi</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Markdown ve Tablo Ayrıştırıcı -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="theme-dark">
+    <div class="app-layout">
+        <!-- Sol Geçmiş Bölümü -->
+        <aside class="sidebar">
+            <div class="sidebar-top">
+                <button id="newChatBtn" class="new-chat-btn">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    <span>Yeni Analiz / Sohbet</span>
+                </button>
+                <button type="button" id="sidebarCollapseBtn" class="sidebar-icon-btn" title="Menüyü Kapat">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="9" y1="3" x2="9" y2="21"></line>
+                        <path d="M15 10l-2 2 2 2"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="history-container">
+                <div class="history-header">
+                    <span>Geçmiş Analizler</span>
+                    <button id="clearAllBtn" class="clear-all-btn" title="Tüm Geçmişi Temizle">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+                <div id="historyList" class="history-list"></div>
+            </div>
+
+            <!-- Alt Kısım: Tema ve API Anahtarı Ayarı -->
+            <div class="sidebar-bottom">
+                <button id="themeToggleBtn" class="theme-toggle-btn" title="Temayı Değiştir">
+                    <span id="themeIcon">
+                        <!-- Ay İkonu (Koyu tema aktifken görünür) -->
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                    </span>
+                    <span id="themeBtnText">Karanlık Tema</span>
+                </button>
+                <button id="setApiKeyBtn" class="api-key-btn">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 2l-2 2m-1.5 1.5L16 7l-1.5-1.5L13 7l-2-2-4 4a5.5 5.5 0 0 0 7.78 7.78l8.44-8.44A1.5 1.5 0 0 0 21 2z"/>
+                    </svg>
+                    <span id="apiKeyBtnText">API Anahtarı</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Ana Alan -->
+        <main class="chat-main" id="chatMain">
+            <!-- Üst Navigasyon / Sekme Çubuğu -->
+            <header class="app-top-nav">
+                <div class="nav-brand">
+                    <button type="button" id="sidebarExpandBtn" class="sidebar-toggle-nav-btn" title="Menüyü Aç">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="9" y1="3" x2="9" y2="21"></line>
+                            <path d="M13 10l2 2-2 2"></path>
+                        </svg>
+                    </button>
+                    <div class="brand-badge">PRO</div>
+                    <span class="brand-title">Analizci Kuponcu</span>
+                </div>
+                <div class="nav-tabs">
+                    <button type="button" class="nav-tab active" data-tab="chat">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        <span>AI Analist</span>
+                    </button>
+                    <button type="button" class="nav-tab" data-tab="coupons">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="5" width="20" height="14" rx="2"></rect>
+                            <line x1="2" y1="10" x2="22" y2="10"></line>
+                        </svg>
+                        <span>Günün Kuponları</span>
+                        <span class="tab-badge" id="couponBadge">Banko & Sürpriz</span>
+                    </button>
+                    <button type="button" class="nav-tab" data-tab="matches">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
+                            <path d="M2 12h20"></path>
+                        </svg>
+                        <span>Canlı Bülten</span>
+                        <span class="tab-badge-count" id="matchCountBadge">...</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- 1. GÖRÜNÜM: AI SOHBET ALANI -->
+            <section id="chatView" class="view-panel active-view">
+                <!-- Sürükle Bırak Katmanı -->
+                <div id="dropOverlay" class="drop-overlay">
+                    <div class="drop-box">
+                        <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <h3>Dosyaları Buraya Bırakın</h3>
+                        <p>Fotoğraf veya belgelerinizi eklemek için bırakın</p>
+                    </div>
+                </div>
+
+                <!-- Boş Durum Karşılama Ekranı -->
+                <div id="emptyState" class="empty-state">
+                    <div class="empty-icon-box">
+                        <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M12 6v6l4 2"></path>
+                        </svg>
+                    </div>
+                    <h2>Yusuf AI</h2>
+                    <div class="suggestion-cards">
+                        <button class="suggestion-card" data-prompt="Bugünkü maçlardan en güvendiğin 4 maçlık günün banko kuponunu çıkar ve taktik gerekçelerini açıkla.">
+                            <div class="card-icon-tag banko-tag">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                <span class="suggestion-title">Günün Banko Kuponu</span>
+                            </div>
+                        </button>
+                        <button class="suggestion-card" data-prompt="50 TL bütçe ile oynanabilecek, İY/MS, ilk yarı skoru ve yüksek potansiyelli sürpriz kupon hazırla. Nasıl oynamalıyım?">
+                            <div class="card-icon-tag surprise-tag">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                                <span class="suggestion-title">50 TL Sürpriz Kuponu</span>
+                            </div>
+                        </button>
+                        <button class="suggestion-card" data-prompt="Bugün ilk yarısında kesinlikle gol beklediğin, İY 0.5 ve 1.5 Üst potansiyeli en yüksek maçları listele.">
+                            <div class="card-icon-tag goals-tag">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                                <span class="suggestion-title">İlk Yarı Gol Maçları</span>
+                            </div>
+                        </button>
+                        <button class="suggestion-card" data-prompt="Bugünkü Avrupa Ligi ve Türk takımlarının maçlarını beklenen goller, karşılıklı gol ve muhtemel skorlarla derinlemesine analiz et.">
+                            <div class="card-icon-tag analysis-tag">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+                                <span class="suggestion-title">Avrupa Maçları Analizi</span>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Mesaj Listesi -->
+                <div id="chatMessages" class="chat-messages"></div>
+                
+                <!-- Giriş Çubuğu -->
+                <div class="chat-input-wrapper">
+                    <form id="chatForm" class="chat-form">
+                        <div id="filePreviewContainer" class="file-preview-container"></div>
+
+                        <div class="input-row">
+                            <button type="button" id="attachBtn" class="attach-btn" title="Fotoğraf veya belge ekle">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                            </button>
+                            <input type="file" id="fileInput" multiple style="display: none;" accept="image/*,.txt,.pdf,.csv,.json,.js,.py,.c,.cpp,.html,.css,.md">
+
+                            <textarea id="messageInput" placeholder="Kupon isteyin veya bir maçı analiz ettirin (örn: Beşiktaş maçı, 50 TL sürpriz kupon)..." rows="1"></textarea>
+
+                            <button type="submit" id="sendButton" disabled title="Gönder">
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                                    <polyline points="5 12 12 5 19 12"></polyline>
+                                </svg>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- 2. GÖRÜNÜM: GÜNÜN KUPONLARI -->
+            <section id="couponsView" class="view-panel">
+                <div class="coupons-scroll-container">
+                    <div class="coupons-header-bar">
+                        <div class="coupons-title-group">
+                            <h2>Günün Analiz Kuponları</h2>
+                            <p>Poisson Dixon-Coles istatistik modeli tarafından çıkarılan canlı günün kuponları. Oran yok, saf matematik ve taktik analiz.</p>
+                        </div>
+                        <div class="coupons-actions">
+                            <button type="button" id="refreshCouponsBtn" class="btn-refresh" title="Kuponları Yenile">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M23 4v6h-6"></path>
+                                    <path d="M1 20v-6h6"></path>
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                </svg>
+                                <span>Yenile</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="couponsLoading" class="panel-loading">
+                        <div class="spinner"></div>
+                        <span>Model maçları inceliyor ve kuponları hazırlıyor...</span>
+                    </div>
+
+                    <div id="couponsContent" class="coupons-cards-grid" style="display: none;">
+                        <!-- Günün Banko Kuponu Kartı -->
+                        <div class="coupon-card banko-card">
+                            <div class="coupon-card-header">
+                                <div class="coupon-badge-title">
+                                    <span class="badge-icon">🛡️</span>
+                                    <div>
+                                        <h3 id="bankoTitle">Günün Banko Kuponu</h3>
+                                        <span class="coupon-subtitle" id="bankoStrategy">Yüksek Güven Kombinesi</span>
+                                    </div>
+                                </div>
+                                <div class="coupon-stat-pill">
+                                    <span class="stat-label">Ort. Güven:</span>
+                                    <span class="stat-val" id="bankoConfidenceVal">%88</span>
+                                </div>
+                            </div>
+                            <div class="coupon-instruction-box" id="bankoInstruction">
+                                Düz 4 maçlık kombine kupon olarak oynanması tavsiye edilir.
+                            </div>
+                            <div class="coupon-matches-list" id="bankoMatchesList"></div>
+                            <div class="coupon-footer-action">
+                                <button type="button" class="btn-coupon-ask" id="askAiBankoBtn">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                                    <span>Bu Kuponu AI ile Detaylandır</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 50 TL Yüksek Değer Sürpriz Kuponu Kartı -->
+                        <div class="coupon-card surprise-card">
+                            <div class="coupon-card-header">
+                                <div class="coupon-badge-title">
+                                    <span class="badge-icon">🎯</span>
+                                    <div>
+                                        <h3 id="surpriseTitle">50 TL Yüksek Değer Sürpriz Kuponu</h3>
+                                        <span class="coupon-subtitle" id="surpriseStrategy">İstatistiksel Avantajlı İY/MS & İY Tercihleri</span>
+                                    </div>
+                                </div>
+                                <div class="coupon-stat-pill gold">
+                                    <span class="stat-label">Ort. Değer Katı:</span>
+                                    <span class="stat-val" id="surpriseLiftVal">2.1x</span>
+                                </div>
+                            </div>
+                            <div class="coupon-instruction-box gold-border" id="surpriseInstruction">
+                                50 TL bütçe ile 3-4-5 sistem kuponu veya sürpriz kombine olarak oynanması tavsiye edilir.
+                            </div>
+                            <div class="coupon-matches-list" id="surpriseMatchesList"></div>
+                            <div class="coupon-footer-action">
+                                <button type="button" class="btn-coupon-ask gold-btn" id="askAiSurpriseBtn">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                                    <span>50 TL Kuponu AI ile Detaylandır</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3. GÖRÜNÜM: CANLI MAÇ BÜLTENİ & DETAYLI ANALİZ -->
+            <section id="matchesView" class="view-panel">
+                <div class="matches-view-container">
+                    <!-- Üst Filtre ve Arama Barı -->
+                    <div class="matches-filter-bar">
+                        <div class="filter-search-wrap">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            <input type="text" id="matchSearchInput" placeholder="Takım veya lig ara... (Örn: Beşiktaş, U21, Fransa)">
+                        </div>
+
+                        <!-- Durum Filtre Butonları -->
+                        <div class="filter-btn-group" id="stateFilterGroup">
+                            <button type="button" class="filter-btn active" data-state="all">Tümü (<span id="countTotal">0</span>)</button>
+                            <button type="button" class="filter-btn" data-state="pre">Yaklaşan (<span id="countPre">0</span>)</button>
+                            <button type="button" class="filter-btn live-filter-btn" data-state="live">🔴 Canlı (<span id="countLive">0</span>)</button>
+                            <button type="button" class="filter-btn" data-state="post">Biten (<span id="countPost">0</span>)</button>
+                        </div>
+
+                        <!-- Kategori Filtresi (U Takımları / Kadın / Tümü) -->
+                        <div class="category-filter-select">
+                            <select id="categorySelect">
+                                <option value="all">Tüm Kategoriler</option>
+                                <option value="standard">Ana Ligler</option>
+                                <option value="youth">Gençlik / U Takımları (U17-U23)</option>
+                                <option value="women">Kadın Ligleri (K)</option>
+                            </select>
+                        </div>
+
+                        <button type="button" id="refreshMatchesBtn" class="btn-refresh-icon" title="Bülteni Yenile">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 4v6h-6"></path>
+                                <path d="M1 20v-6h6"></path>
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Yükleniyor Göstergesi -->
+                    <div id="matchesLoading" class="panel-loading">
+                        <div class="spinner"></div>
+                        <span>Maçlar ve model olasılıkları yükleniyor...</span>
+                    </div>
+
+                    <!-- Maç Listesi Tablosu / Grid -->
+                    <div id="matchesListContainer" class="matches-table-wrapper" style="display: none;">
+                        <table class="matches-table">
+                            <thead>
+                                <tr>
+                                    <th>Saat / Durum</th>
+                                    <th>Lig</th>
+                                    <th>Ev Sahibi</th>
+                                    <th>Skor</th>
+                                    <th>Deplasman</th>
+                                    <th>Beklenen Gol</th>
+                                    <th>Model MS (1 - X - 2)</th>
+                                    <th>Gol Olasılığı</th>
+                                    <th>İşlem</th>
+                                </tr>
+                            </thead>
+                            <tbody id="matchesTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- MAÇ DETAY DERİN ANALİZ MODALI -->
+    <div id="matchDetailModal" class="modal-overlay">
+        <div class="modal-box modal-detail-box">
+            <div class="modal-header">
+                <div class="detail-match-header-info">
+                    <span class="detail-league-badge" id="detailLeagueName">UEFA Avrupa Ligi</span>
+                    <h3 id="detailMatchTitle">Salzburg vs Milan</h3>
+                    <div class="detail-status-row" id="detailStatusRow">22:00 | Yaklaşan</div>
+                </div>
+                <button type="button" id="closeDetailModalBtn" class="modal-close">&times;</button>
+            </div>
+
+            <div id="matchDetailLoading" class="panel-loading">
+                <div class="spinner"></div>
+                <span>Detaylı Poisson olasılıkları ve takım formları çıkarılıyor...</span>
+            </div>
+
+            <div id="matchDetailContent" class="detail-body-grid" style="display: none;">
+                <!-- Beklenen Goller (xG) Çubuğu -->
+                <div class="detail-card xg-card">
+                    <h4>Beklenen Goller (Poisson Lambda xG)</h4>
+                    <div class="xg-bar-container">
+                        <div class="xg-team">
+                            <span class="xg-name" id="detailHomeXgName">Ev</span>
+                            <span class="xg-val" id="detailHomeXgVal">1.45</span>
+                        </div>
+                        <div class="xg-track">
+                            <div class="xg-fill-home" id="detailXgHomeFill" style="width: 50%;"></div>
+                            <div class="xg-fill-away" id="detailXgAwayFill" style="width: 50%;"></div>
+                        </div>
+                        <div class="xg-team right">
+                            <span class="xg-val" id="detailAwayXgVal">1.25</span>
+                            <span class="xg-name" id="detailAwayXgName">Dep</span>
+                        </div>
+                    </div>
+                    <div class="xg-total-label">Toplam Beklenen Gol: <strong id="detailTotalXg">2.70</strong></div>
+                </div>
+
+                <!-- Temel Olasılıklar Izgarası -->
+                <div class="detail-card probs-card">
+                    <h4>Temel Pazar Olasılıkları</h4>
+                    <div class="prob-meters-grid" id="detailProbsGrid"></div>
+                </div>
+
+                <!-- En Olası Skorlar ve İY Skorları -->
+                <div class="detail-card scores-card">
+                    <h4>En Yüksek Olasılıklı Skorlar</h4>
+                    <div class="scores-columns">
+                        <div>
+                            <h5>Maç Sonu Skorları</h5>
+                            <div class="score-pill-list" id="detailTopScoresList"></div>
+                        </div>
+                        <div>
+                            <h5>İlk Yarı Skorları</h5>
+                            <div class="score-pill-list" id="detailTopHtScoresList"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- İY / MS Dağılım Matrisi -->
+                <div class="detail-card htft-card">
+                    <h4>İY / MS Olasılık Dağılımı</h4>
+                    <div class="htft-grid" id="detailHtftGrid"></div>
+                </div>
+
+                <!-- Takım Form & İstatistikleri -->
+                <div class="detail-card facts-card" id="detailFactsCard">
+                    <h4>Takım İstatistikleri & Son Maçlar</h4>
+                    <div class="facts-grid" id="detailFactsGrid"></div>
+                </div>
+            </div>
+
+            <div class="modal-actions detail-actions">
+                <button type="button" id="closeDetailActionBtn" class="btn-modal-cancel">Kapat</button>
+                <button type="button" id="askAiAboutMatchBtn" class="btn-modal-save">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    <span>Bu Maçı AI Analiste Yorumlat</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Özel Şık Modal (API Anahtarı) -->
+    <div id="apiKeyModal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>API Anahtarı</h3>
+                <button type="button" id="closeModalBtn" class="modal-close">&times;</button>
+            </div>
+            <p class="modal-desc">Groq API anahtarınızı (gsk_...) girin. Tarayıcınızda güvenle saklanır.</p>
+            <input type="password" id="apiKeyModalInput" class="modal-input" placeholder="gsk_...">
+            <div class="modal-actions">
+                <button type="button" id="cancelModalBtn" class="btn-modal-cancel">İptal</button>
+                <button type="button" id="saveModalBtn" class="btn-modal-save">Kaydet</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Geçmişi Temizleme Onay Modalı (Şık Uyarı Kartı) -->
+    <div id="clearHistoryModal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <div class="danger-title-row">
+                    <div class="danger-icon-circle">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </div>
+                    <h3>Tüm Geçmişi Sil</h3>
+                </div>
+                <button type="button" id="closeClearModalBtn" class="modal-close">&times;</button>
+            </div>
+            <p class="modal-desc">Tüm sohbet geçmişiniz kalıcı olarak silinecektir. Bu işlem geri alınamaz. Emin misiniz?</p>
+            <div class="modal-actions">
+                <button type="button" id="cancelClearBtn" class="btn-modal-cancel">Vazgeç</button>
+                <button type="button" id="confirmClearBtn" class="btn-modal-danger">Evet, Tümünü Sil</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tam Ekran Resim Büyütücü (Lightbox) -->
+    <div id="imageLightbox" class="image-lightbox">
+        <button type="button" id="closeLightboxBtn" class="lightbox-close" title="Kapat">&times;</button>
+        <img id="lightboxImg" src="" alt="Büyütülmüş Görsel">
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,2225 @@
+/* Koyu Tema Değişkenleri (Varsayılan) */
+body.theme-dark {
+    --bg-main: #090d16;
+    --bg-sidebar: #0f1523;
+    --bg-card: #151d2f;
+    --bg-card-hover: #1c263d;
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-focus: rgba(56, 189, 248, 0.5);
+
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+
+    --bubble-user: #2563eb;
+    --bubble-user-text: #ffffff;
+    --bubble-ai: #131b2e;
+    --bubble-ai-border: rgba(255, 255, 255, 0.08);
+
+    --accent-blue: #2563eb;
+    --accent-sky: #38bdf8;
+    --accent-gradient: linear-gradient(135deg, #2563eb, #0284c7);
+    --ambient-glow: radial-gradient(circle at 50% 20%, rgba(56, 189, 248, 0.07) 0%, transparent 60%);
+    --code-bg: #05080e;
+}
+
+/* Açık Tema Değişkenleri (Gözü yormayan yumuşak zemin & yüksek kontrast) */
+body.theme-light {
+    --bg-main: #f1f4f9;
+    --bg-sidebar: #e5e9f0;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f8fafc;
+    --border-color: #cbd5e1;
+    --border-focus: #2563eb;
+
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #475569;
+
+    --bubble-user: #2563eb;
+    --bubble-user-text: #ffffff;
+    --bubble-ai: #ffffff;
+    --bubble-ai-border: #cbd5e1;
+
+    --accent-blue: #2563eb;
+    --accent-sky: #0284c7;
+    --accent-gradient: linear-gradient(135deg, #2563eb, #0284c7);
+    --ambient-glow: none;
+    --code-bg: #1e293b;
+}
+
+:root {
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    scrollbar-width: none; /* Firefox kaydırma çubuğunu gizle */
+    -ms-overflow-style: none; /* Edge/IE */
+}
+
+/* Tüm kaydırma çubuklarını gizle (fare tekerleğiyle kaydırma aktif kalır) */
+::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+.app-layout {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+}
+
+/* Sol Geçmiş Bölümü */
+.sidebar {
+    width: 270px;
+    background-color: var(--bg-sidebar);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 14px;
+    flex-shrink: 0;
+    transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), margin-left 0.25s cubic-bezier(0.16, 1, 0.3, 1), padding 0.25s ease, opacity 0.2s ease;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+/* Yan Menü Kapandığında */
+.sidebar.collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    margin-left: 0 !important;
+    border-right: none !important;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.sidebar-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.new-chat-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background-color: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.88rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.new-chat-btn:hover {
+    background-color: var(--bg-card-hover);
+    border-color: var(--border-focus);
+    transform: translateY(-1px);
+}
+
+.sidebar-icon-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.sidebar-icon-btn:hover {
+    background-color: var(--bg-card-hover);
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+}
+
+/* Menü Açma Butonu (Üst Navigasyon Çubuğunun Başında - Sadece Menü Kapalıyken Çıkar) */
+.sidebar-toggle-nav-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-right: 4px;
+    transition: all 0.15s ease;
+}
+
+.sidebar-toggle-nav-btn:hover {
+    background-color: var(--bg-card-hover);
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+    transform: scale(1.05);
+}
+
+.app-layout.sidebar-collapsed .sidebar-toggle-nav-btn {
+    display: inline-flex;
+}
+
+.history-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 6px 10px 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.clear-all-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    transition: color 0.15s ease;
+}
+
+.clear-all-btn:hover {
+    color: #ef4444;
+}
+
+.history-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.history-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: 8px;
+    padding: 2px 4px;
+    transition: background-color 0.15s ease;
+}
+
+.history-row:hover {
+    background-color: var(--bg-card);
+}
+
+.history-row.active {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+}
+
+.history-item {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px 6px;
+    font-size: 0.86rem;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: inherit;
+}
+
+.history-row.active .history-item {
+    color: var(--accent-sky);
+    font-weight: 500;
+}
+
+.history-row:hover .history-item {
+    color: var(--text-primary);
+}
+
+.history-item svg {
+    flex-shrink: 0;
+    opacity: 0.6;
+}
+
+.delete-chat-btn {
+    opacity: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    transition: all 0.15s ease;
+}
+
+.history-row:hover .delete-chat-btn {
+    opacity: 1;
+}
+
+.delete-chat-btn:hover {
+    color: #ef4444;
+    background-color: rgba(239, 68, 68, 0.1);
+}
+
+.sidebar-bottom {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.theme-toggle-btn, .api-key-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+}
+
+.theme-toggle-btn:hover, .api-key-btn:hover {
+    background-color: var(--bg-card);
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+}
+
+/* Ana Chat Alanı */
+.chat-main {
+    flex: 1;
+    height: 100vh;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 14px 20px 20px 20px;
+    background-image: var(--ambient-glow);
+    background-repeat: no-repeat;
+    transition: max-width 0.25s ease;
+}
+
+.app-layout.sidebar-collapsed .chat-main {
+    max-width: 980px;
+}
+
+/* Sürükle Bırak Katmanı (Drag & Drop Overlay) */
+.drop-overlay {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    background: rgba(9, 13, 22, 0.88);
+    backdrop-filter: blur(6px);
+    border-radius: 20px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+    pointer-events: none;
+    transition: all 0.2s ease;
+}
+
+body.theme-light .drop-overlay {
+    background: rgba(241, 244, 249, 0.92);
+}
+
+.drop-overlay.active {
+    display: flex;
+}
+
+.drop-box {
+    border: 2px dashed var(--accent-sky);
+    background: var(--bg-card);
+    border-radius: 18px;
+    padding: 36px 50px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    color: var(--accent-sky);
+    text-align: center;
+    animation: pulseBorder 1.5s infinite alternate;
+}
+
+@keyframes pulseBorder {
+    from { transform: scale(0.98); }
+    to { transform: scale(1.02); }
+}
+
+.drop-box h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.drop-box p {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* Boş Durum (Empty State) */
+.empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 16px;
+    padding-bottom: 80px;
+}
+
+.empty-icon-box {
+    width: 64px;
+    height: 64px;
+    border-radius: 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-sky);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease;
+}
+
+.empty-icon-box:hover {
+    transform: rotate(10deg) scale(1.05);
+}
+
+.empty-state h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+}
+
+.suggestion-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    max-width: 560px;
+    width: 100%;
+    margin-top: 16px;
+}
+
+.suggestion-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 14px 18px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.suggestion-card:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--accent-sky);
+    transform: translateY(-3px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+}
+
+.card-icon-tag {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--accent-sky);
+}
+
+.suggestion-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.suggestion-desc {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+/* Mesajlar */
+.chat-messages {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: none;
+    flex-direction: column;
+    gap: 20px;
+    padding-top: 16px;
+    padding-right: 4px;
+    padding-bottom: 24px;
+}
+
+.chat-messages.has-messages {
+    display: flex;
+}
+
+.message-row {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+}
+
+.message-row.user {
+    justify-content: flex-end;
+}
+
+.message-row.ai {
+    justify-content: flex-start;
+}
+
+.msg-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.message-row.ai .msg-avatar {
+    background: var(--accent-gradient);
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(37, 99, 235, 0.35);
+}
+
+.msg-bubble-wrapper {
+    max-width: 84%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.message-row.user .msg-bubble-wrapper {
+    align-items: flex-end;
+}
+
+/* Resim ve Dosya Galerisi (Mavi kutudan bağımsız, saf ve temiz) */
+.msg-attachments-gallery {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 100%;
+}
+
+.message-row.user .msg-attachments-gallery {
+    align-items: flex-end;
+}
+
+.msg-attachment-img {
+    max-width: 340px;
+    width: auto;
+    max-height: 240px;
+    border-radius: 14px;
+    object-fit: cover;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    display: block;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.msg-attachment-img:hover {
+    transform: scale(1.02);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.msg-attachment-doc {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+}
+
+/* Metin Balonu */
+.msg-bubble {
+    padding: 14px 20px;
+    font-size: 0.94rem;
+    line-height: 1.6;
+    word-break: normal;
+    overflow-wrap: break-word;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    min-width: 0;
+}
+
+/* Kullanıcı Mesajı: Sadece metni saran derli toplu şık balon */
+.message-row.user .msg-bubble {
+    background-color: var(--bubble-user);
+    color: var(--bubble-user-text);
+    border-radius: 18px 18px 4px 18px;
+    width: fit-content;
+    max-width: 100%;
+}
+
+/* AI Mesajı */
+.message-row.ai .msg-bubble {
+    background-color: var(--bubble-ai);
+    border: 1px solid var(--bubble-ai-border);
+    color: var(--text-primary);
+    border-radius: 18px 18px 18px 4px;
+}
+
+/* Mesaj Altı Eylem Butonu (Sadece üzerine gelince/hover görünür) */
+.msg-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-left: 4px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+
+.message-row.ai:hover .msg-actions {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.copy-msg-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.copy-msg-btn:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-card);
+}
+
+/* Markdown Biçimlendirmeleri */
+.msg-bubble h1, .msg-bubble h2, .msg-bubble h3, .msg-bubble h4 {
+    color: var(--text-primary);
+    margin-top: 8px;
+    margin-bottom: 4px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.msg-bubble h1 { font-size: 1.25rem; }
+.msg-bubble h2 { font-size: 1.15rem; }
+.msg-bubble h3 { font-size: 1.05rem; }
+
+.msg-bubble p {
+    margin: 0;
+    word-break: normal;
+}
+
+.msg-bubble ul, .msg-bubble ol {
+    margin: 4px 0;
+    padding-left: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.msg-bubble li {
+    line-height: 1.5;
+}
+
+.msg-bubble hr {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 8px 0;
+}
+
+/* Tablolar ve Kayma Engelleyici Kapsayıcı */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    margin: 10px 0;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    scrollbar-width: thin;
+}
+
+.msg-bubble table {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    background: transparent;
+    border: none;
+    margin: 0;
+    table-layout: auto;
+}
+
+.msg-bubble th, .msg-bubble td {
+    padding: 9px 13px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    white-space: normal;
+    vertical-align: middle;
+}
+
+/* Tablo başlıkları ASLA bölünmez veya kaymaz */
+.msg-bubble th {
+    background-color: rgba(56, 189, 248, 0.09);
+    font-weight: 600;
+    color: var(--accent-sky);
+    white-space: nowrap !important;
+    border-top: none;
+}
+
+/* Sıra (#) sütunu */
+.msg-bubble td:first-child,
+.msg-bubble th:first-child {
+    white-space: nowrap !important;
+    width: 1%;
+    text-align: center;
+}
+
+/* Saat sütunu (22:00, 21:00 asla bölünemez) */
+.msg-bubble td:nth-child(2),
+.msg-bubble th:nth-child(2) {
+    white-space: nowrap !important;
+}
+
+/* Maç / Takımlar sütunu */
+.msg-bubble td:nth-child(3) {
+    white-space: nowrap !important;
+    font-weight: 600;
+}
+
+/* Tercih, Model Olasılığı, Değer Katı sütunları */
+.msg-bubble td:nth-child(4),
+.msg-bubble td:nth-child(5),
+.msg-bubble td:nth-child(6) {
+    white-space: nowrap !important;
+    font-family: var(--font-mono);
+}
+
+.msg-bubble tr:last-child td {
+    border-bottom: none;
+}
+
+.msg-bubble tr:hover {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* Kod Blokları */
+.msg-bubble pre {
+    background-color: var(--code-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--accent-sky);
+    margin: 6px 0;
+}
+
+.msg-bubble code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 2px 5px;
+    border-radius: 4px;
+}
+
+.msg-bubble pre code {
+    background: transparent;
+    padding: 0;
+}
+
+/* Giriş Alanı */
+.chat-input-wrapper {
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-form {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chat-form:focus-within {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+}
+
+/* Dosya Önizleme Çipleri */
+.file-preview-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.file-preview-container:empty {
+    display: none;
+}
+
+.preview-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    max-width: 220px;
+}
+
+.preview-chip img {
+    width: 24px;
+    height: 24px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.preview-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.remove-file-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    border-radius: 4px;
+}
+
+.remove-file-btn:hover {
+    color: #ef4444;
+}
+
+/* Giriş Satırı */
+.input-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    width: 100%;
+}
+
+.attach-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-sidebar);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.attach-btn:hover {
+    background-color: var(--bg-card-hover);
+    color: var(--accent-sky);
+    border-color: var(--border-focus);
+}
+
+#messageInput {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    resize: none;
+    outline: none;
+    max-height: 180px;
+    line-height: 1.45;
+    padding: 6px 0;
+}
+
+#messageInput::placeholder {
+    color: var(--text-muted);
+    opacity: 0.85;
+}
+
+#sendButton {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    border: none;
+    background-color: var(--bg-sidebar);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: not-allowed;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+#sendButton:not(:disabled) {
+    background: var(--accent-gradient);
+    color: #ffffff;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(37, 99, 235, 0.4);
+}
+
+#sendButton:not(:disabled):hover {
+    transform: scale(1.05);
+}
+
+/* Özel Modal */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-overlay.active {
+    display: flex;
+}
+
+.modal-box {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 24px;
+    max-width: 440px;
+    width: 90%;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.modal-header h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.modal-close {
+    background: transparent;
+    border: none;
+    font-size: 1.4rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.15s ease;
+}
+
+.modal-close:hover {
+    color: var(--text-primary);
+}
+
+.modal-desc {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.modal-input {
+    background-color: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.modal-input:focus {
+    border-color: var(--accent-sky);
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.btn-modal-cancel {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-modal-cancel:hover {
+    background-color: var(--bg-card-hover);
+    color: var(--text-primary);
+}
+
+.btn-modal-save {
+    background: var(--accent-gradient);
+    border: none;
+    color: #ffffff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.btn-modal-save:hover {
+    opacity: 0.9;
+}
+
+.danger-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.danger-icon-circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.btn-modal-danger {
+    background: #ef4444;
+    border: none;
+    color: #ffffff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.btn-modal-danger:hover {
+    background: #dc2626;
+    transform: scale(1.02);
+}
+
+/* Tam Ekran Resim Büyütücü (Lightbox) */
+.image-lightbox {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.88);
+    backdrop-filter: blur(10px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    cursor: pointer;
+    animation: fadeIn 0.15s ease;
+}
+
+.image-lightbox.active {
+    display: flex;
+}
+
+.image-lightbox img {
+    max-width: 90vw;
+    max-height: 85vh;
+    border-radius: 14px;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7);
+    object-fit: contain;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    animation: zoomIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.lightbox-close {
+    position: absolute;
+    top: 24px;
+    right: 30px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    font-size: 1.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    z-index: 2001;
+    line-height: 1;
+}
+
+.lightbox-close:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: scale(1.08);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes zoomIn {
+    from { transform: scale(0.92); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+/* ==========================================================================
+   FUTBOL ANALİZ VE KUPON MODÜLÜ STİLLERİ
+   ========================================================================== */
+
+/* Üst Navigasyon Çubuğu */
+.app-top-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.brand-badge {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #ffffff;
+    font-size: 0.68rem;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.6px;
+}
+
+.brand-title {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.2px;
+}
+
+.nav-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg-card);
+    padding: 3px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+}
+
+.nav-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-weight: 500;
+    padding: 6px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+}
+
+.nav-tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-card-hover);
+}
+
+.nav-tab.active {
+    background: var(--accent-blue);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+
+.tab-badge {
+    background: rgba(16, 185, 129, 0.18);
+    color: #10b981;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+}
+
+.nav-tab.active .tab-badge {
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+}
+
+.tab-badge-count {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+}
+
+.nav-tab.active .tab-badge-count {
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+}
+
+/* Görünüm Panelleri */
+.view-panel {
+    display: none;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    position: relative;
+    width: 100%;
+}
+
+.view-panel.active-view {
+    display: flex;
+}
+
+#chatView {
+    align-items: center;
+}
+
+#chatView .empty-state,
+#chatView .chat-messages,
+#chatView .chat-input-wrapper {
+    width: 100%;
+    max-width: 780px;
+    margin: 0 auto;
+}
+
+/* Öneri Kartları Renkleri */
+.card-icon-tag.banko-tag { color: #10b981; }
+.card-icon-tag.surprise-tag { color: #f59e0b; }
+.card-icon-tag.goals-tag { color: #ec4899; }
+.card-icon-tag.analysis-tag { color: #38bdf8; }
+
+.empty-subtitle {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    max-width: 520px;
+    margin: -6px 0 6px 0;
+    line-height: 1.5;
+}
+
+/* Panel Yükleniyor */
+.panel-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(56, 189, 248, 0.2);
+    border-top-color: var(--accent-sky);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ----------------------------------------------------
+   Kuponlar Görünümü
+   ---------------------------------------------------- */
+.coupons-scroll-container {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.coupons-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+}
+
+.coupons-title-group h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.coupons-title-group p {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.btn-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-refresh:hover {
+    color: var(--text-primary);
+    border-color: var(--accent-sky);
+}
+
+.coupons-cards-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    padding-bottom: 24px;
+}
+
+@media (max-width: 860px) {
+    .coupons-cards-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.coupon-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    position: relative;
+    overflow: hidden;
+}
+
+.coupon-card.banko-card {
+    border-color: rgba(16, 185, 129, 0.35);
+    background: radial-gradient(circle at 100% 0%, rgba(16, 185, 129, 0.08) 0%, var(--bg-card) 60%);
+}
+
+.coupon-card.surprise-card {
+    border-color: rgba(245, 158, 11, 0.35);
+    background: radial-gradient(circle at 100% 0%, rgba(245, 158, 11, 0.08) 0%, var(--bg-card) 60%);
+}
+
+.coupon-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.coupon-badge-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.coupon-badge-title .badge-icon {
+    font-size: 1.6rem;
+}
+
+.coupon-badge-title h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.coupon-subtitle {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.coupon-stat-pill {
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 4px 10px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.coupon-stat-pill.gold {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+.coupon-stat-pill .stat-label {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.coupon-stat-pill .stat-val {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #10b981;
+}
+
+.coupon-stat-pill.gold .stat-val {
+    color: #f59e0b;
+}
+
+.coupon-instruction-box {
+    background: rgba(16, 185, 129, 0.08);
+    border-left: 3px solid #10b981;
+    padding: 8px 12px;
+    border-radius: 4px 8px 8px 4px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.coupon-instruction-box.gold-border {
+    background: rgba(245, 158, 11, 0.08);
+    border-left-color: #f59e0b;
+}
+
+.coupon-matches-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.coupon-match-item {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: all 0.15s ease;
+}
+
+.coupon-match-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.match-item-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.76rem;
+    color: var(--text-muted);
+}
+
+.match-item-time {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.match-item-league {
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.match-item-teams {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.match-item-pick-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--bg-card);
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+
+.match-pick-badge {
+    background: var(--accent-blue);
+    color: #ffffff;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}
+
+.match-pick-badge.gold-badge {
+    background: linear-gradient(135deg, #d97706, #b45309);
+}
+
+.match-pick-conf {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #10b981;
+}
+
+.match-pick-conf.lift-tag {
+    color: #f59e0b;
+}
+
+.match-item-rationale {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.match-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+}
+
+.btn-item-action {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-item-action:hover {
+    color: var(--text-primary);
+    border-color: var(--accent-sky);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.coupon-footer-action {
+    margin-top: auto;
+    padding-top: 6px;
+}
+
+.btn-coupon-ask {
+    width: 100%;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    border: none;
+    color: #ffffff;
+    padding: 9px;
+    border-radius: 9px;
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.15s ease;
+}
+
+.btn-coupon-ask:hover {
+    opacity: 0.92;
+    transform: translateY(-1px);
+}
+
+.btn-coupon-ask.gold-btn {
+    background: linear-gradient(135deg, #d97706, #b45309);
+}
+
+/* ----------------------------------------------------
+   Canlı Bülten Görünümü (Maç Tablosu)
+   ---------------------------------------------------- */
+.matches-view-container {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.matches-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    background: var(--bg-card);
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+
+.filter-search-wrap {
+    flex: 1;
+    min-width: 180px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    padding: 6px 12px;
+    border-radius: 8px;
+}
+
+.filter-search-wrap svg {
+    color: var(--text-muted);
+}
+
+.filter-search-wrap input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 0.84rem;
+    font-family: inherit;
+}
+
+.filter-btn-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.filter-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 6px 10px;
+    border-radius: 7px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+}
+
+.filter-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-card-hover);
+}
+
+.filter-btn.active {
+    background: var(--accent-blue);
+    color: #ffffff;
+    border-color: var(--accent-blue);
+}
+
+.filter-btn.live-filter-btn {
+    color: #ef4444;
+}
+
+.filter-btn.live-filter-btn.active {
+    background: #ef4444;
+    color: #ffffff;
+    border-color: #ef4444;
+}
+
+.category-filter-select select {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    border-radius: 7px;
+    font-size: 0.78rem;
+    outline: none;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.btn-refresh-icon {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-refresh-icon:hover {
+    color: var(--text-primary);
+    border-color: var(--accent-sky);
+}
+
+.matches-table-wrapper {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    overflow-x: auto !important;
+    overflow-y: auto !important;
+    background: var(--bg-card);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(56, 189, 248, 0.4) rgba(0, 0, 0, 0.2) !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+.matches-table-wrapper::-webkit-scrollbar {
+    display: block !important;
+    height: 8px !important;
+    width: 8px !important;
+}
+
+.matches-table-wrapper::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.25) !important;
+    border-radius: 4px;
+}
+
+.matches-table-wrapper::-webkit-scrollbar-thumb {
+    background: rgba(56, 189, 248, 0.4) !important;
+    border-radius: 4px;
+}
+
+.matches-table-wrapper::-webkit-scrollbar-thumb:hover {
+    background: rgba(56, 189, 248, 0.7) !important;
+}
+
+.matches-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    text-align: left;
+    table-layout: auto;
+}
+
+.matches-table th {
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-weight: 600;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.matches-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.matches-table tr:hover td {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+    font-size: 0.75rem;
+}
+
+.status-live {
+    color: #ef4444;
+}
+
+.live-dot {
+    width: 6px;
+    height: 6px;
+    background: #ef4444;
+    border-radius: 50%;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+.status-post {
+    color: var(--text-muted);
+}
+
+.status-pre {
+    color: var(--accent-sky);
+}
+
+.league-tag-cell {
+    max-width: 160px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.team-cell {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.team-tags {
+    font-size: 0.65rem;
+    padding: 1px 4px;
+    border-radius: 4px;
+    margin-left: 4px;
+}
+
+.tag-youth {
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+}
+
+.tag-women {
+    background: rgba(236, 72, 153, 0.15);
+    color: #ec4899;
+}
+
+.score-cell {
+    font-weight: 700;
+    font-family: var(--font-mono);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.score-pill {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    padding: 3px 8px;
+    border-radius: 6px;
+    color: #10b981;
+}
+
+.xg-cell {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.probs-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.74rem;
+    font-family: var(--font-mono);
+}
+
+.prob-chip {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    padding: 2px 5px;
+    border-radius: 4px;
+    color: var(--text-secondary);
+}
+
+.prob-chip.highlight {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.4);
+    color: var(--accent-sky);
+    font-weight: 600;
+}
+
+.btn-detail-table {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--accent-sky);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.btn-detail-table:hover {
+    background: var(--accent-sky);
+    color: #090d16;
+}
+
+/* ----------------------------------------------------
+   Maç Detay Modalı (Deep Inspection)
+   ---------------------------------------------------- */
+.modal-detail-box {
+    max-width: 720px;
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.detail-match-header-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.detail-league-badge {
+    font-size: 0.74rem;
+    color: var(--accent-sky);
+    font-weight: 600;
+}
+
+.detail-status-row {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.detail-body-grid {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-right: 4px;
+}
+
+.detail-card {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.detail-card h4 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.detail-card h5 {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+/* xG Çubuğu */
+.xg-bar-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.xg-team {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 90px;
+}
+
+.xg-team.right {
+    justify-content: flex-end;
+}
+
+.xg-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.xg-val {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--accent-sky);
+}
+
+.xg-track {
+    flex: 1;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    display: flex;
+    overflow: hidden;
+}
+
+.xg-fill-home {
+    background: #3b82f6;
+    height: 100%;
+}
+
+.xg-fill-away {
+    background: #ec4899;
+    height: 100%;
+}
+
+.xg-total-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+/* Olasılık Göstergeleri */
+.prob-meters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px;
+}
+
+.prob-meter-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.prob-meter-label {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.prob-meter-bar-wrap {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.prob-meter-bar-fill {
+    height: 100%;
+    background: var(--accent-sky);
+}
+
+.prob-meter-val {
+    font-size: 0.82rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    text-align: right;
+}
+
+/* Skorlar Kolonları */
+.scores-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.score-pill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.score-tag-pill {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.score-tag-pill strong {
+    color: var(--accent-sky);
+}
+
+/* İY/MS Grid */
+.htft-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+
+.htft-cell {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.76rem;
+    font-family: var(--font-mono);
+}
+
+.htft-cell.top-pick {
+    border-color: rgba(245, 158, 11, 0.5);
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    font-weight: 700;
+}
+
+/* Takım Form Grid */
+.facts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.fact-team-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.76rem;
+}
+
+.fact-form-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.form-pill {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.form-pill.G { background: #10b981; }
+.form-pill.B { background: #64748b; }
+.form-pill.M { background: #ef4444; }
+
+.fact-matches-mini {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+}
+
