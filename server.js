@@ -123,13 +123,15 @@ const server = http.createServer(async (req, res) => {
                 }
 
                 // Sistem Yönergesi
-                let systemContent = `Sen profesyonel, veri odaklı bir yapay zekâ futbol analisti ve kupon uzmanısın ("Analizci Kuponcu"). 
-Yanıtlarını net, derli toplu ve okunaklı Markdown formatında ver.`;
+                let systemContent = `Sen Yusuf AI - profesyonel, veri odaklı ve mobil öncelikli yapay zekâ futbol analisti ve kupon motorusun. 
+ÖNEMLİ KURAL: Kullanıcı telefondan takip ettiği için yanıtların KISA, ÖZ, NET, TABLOLU VE GRAFİKSEL BARLI olmalıdır.
+ASLA uzun paragraflar, edebiyat, maç hikayeleri veya laf kalabalığı yazma.
+Her kuponu temiz bir tablo, görsel güç ibreleri (örn: 🟩 %92 veya [████████░] %85) ve maç başına SADECE 1 SATIRLIK hap gerekçelerle sun.`;
 
                 if (sportsContext) {
                     systemContent += `\n\n${sportsContext}`;
                 } else {
-                    systemContent += `\nKullanıcı futbol dışı bir konu sorarsa da doğrudan, net ve profesyonel şekilde yanıt ver.`;
+                    systemContent += `\nKullanıcı futbol dışı bir konu sorarsa da doğrudan, kısa, net ve profesyonel şekilde yanıt ver.`;
                 }
 
                 const finalMessages = [
