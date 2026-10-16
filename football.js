@@ -319,14 +319,21 @@ function formatDeepMatchDetails(m, an) {
         }
     }
 
-    return parts.length ? '   • ' + parts.join('\n   • ') : '';
+    return parts.length ? '   • Detay: ' + parts.join(' || ') : '';
 }
 
 // AI Sohbeti için %100 bağımsız derin analiz, güncel İddaa bülteni ve kupon bağlamı
-async function buildAiSportsContext(userMessage = '') {
+async function buildAiSportsContext(userMessage = '', opts = {}) {
+    const isCompact = Boolean(opts.compact);
     const today = mk.trToday();
     const day = await getAnalyzedDay(today);
-    const qNorm = normTr(userMessage);
+    const qNorm = normTr(userMessage).trim();
+
+    // Kullanıcı sadece kısa selamlaşma yazdıysa (örn: "merhaba", "selam", "naber") gereksiz token harcama
+    const isPureGreeting = qNorm.length <= 22 && /^(merhaba|selam|slm|sa|as|naber|nasilsin|hey|hi|hello|knk|kanka|tesekkurler|eyvallah|iyi gunler|iyi aksamlar)[?!.\s]*$/.test(qNorm);
+    if (isPureGreeting) {
+        return `[YUSUF AI DURUMU]: Bugün resmi İddaa bülteninde ${day.matches.filter(x => x.inBulletin).length} maç analiz edildi. Günün Banko Kuponu (%${day.coupons.banko?.confidence || 85} güven) ve Sürpriz Kuponu (${day.coupons.surprise?.avgLift || '2.0'}x değer) hazır. Kullanıcıya kısa, samimi yanıt ver ve isterse Günün Banko Kuponunu, Sürpriz Kuponu veya istediği bir maçın derin analizini çıkarabileceğini söyle.`;
+    }
 
     // Kullanıcı "yarın" diye sorarsa veya bugünün maçları azaldıysa yarını da havuza kat
     let activePool = day.couponItems || day.items;
@@ -346,27 +353,31 @@ async function buildAiSportsContext(userMessage = '') {
     if (day.coupons.banko && day.coupons.banko.matches.length) {
         day.coupons.banko.matches.forEach((b, i) => {
             bankoSummary += `${i + 1}. [${b.m.time}] ${b.m.home} - ${b.m.away} (${b.m.league.full}) | Tercih: ${b.label} (Model Güveni: %${Math.round(b.p * 100)})\n   Gerekçe: ${b.rationale}\n`;
-            const deepLine = formatDeepMatchDetails(b.m, b.an);
-            if (deepLine) bankoSummary += `${deepLine}\n`;
+            if (!isCompact) {
+                const deepLine = formatDeepMatchDetails(b.m, b.an);
+                if (deepLine) bankoSummary += `${deepLine}\n`;
+            }
         });
         bankoSummary += `Strateji: ${day.coupons.banko.instruction}\n`;
     } else {
         bankoSummary += 'Şu an yaklaşan uygun banko maç bulunamadı.\n';
     }
 
-    let surpSummary = 'Günün %100 Bağımsız Yüksek Değer Sürpriz Kuponu (Resmi İddaa Bülteni):\n';
+    let surpSummary = 'Günün %100 Bağımsız Sürpriz Kuponu (Resmi İddaa Bülteni):\n';
     if (day.coupons.surprise && day.coupons.surprise.matches.length) {
         day.coupons.surprise.matches.forEach((s, i) => {
             surpSummary += `${i + 1}. [${s.m.time}] ${s.m.home} - ${s.m.away} (${s.m.league.full}) | Tercih: ${s.label} (Model Olasılığı: %${Math.round(s.p * 100)}, Değer Katı: ${s.lift ? s.lift.toFixed(1) + 'x' : '1.5x'})\n   Gerekçe: ${s.rationale}\n`;
-            const deepLine = formatDeepMatchDetails(s.m, s.an);
-            if (deepLine) surpSummary += `${deepLine}\n`;
+            if (!isCompact) {
+                const deepLine = formatDeepMatchDetails(s.m, s.an);
+                if (deepLine) surpSummary += `${deepLine}\n`;
+            }
         });
         surpSummary += `Strateji: ${day.coupons.surprise.instruction}\n`;
     } else {
         surpSummary += 'Şu an yaklaşan uygun sürpriz maç bulunamadı.\n';
     }
 
-    // 2. Yalnızca İddaa Bülteninde Yer Alan, Başlamamış ve Ana Bülten Öncelikli Maç Havuzu (40 Maç)
+    // 2. Yalnızca İddaa Bülteninde Yer Alan, Başlamamış ve Ana Bülten Öncelikli Maç Havuzu
     const nowMs = Date.now();
     const qOrder = { A: 0, B: 1, C: 2 };
     const preBulletin = activePool
@@ -380,25 +391,26 @@ async function buildAiSportsContext(userMessage = '') {
             return (a.m.order || 999) - (b.m.order || 999);
         });
 
-    let upcomingPoolSummary = `\n[RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU - NESİNE & MAÇKOLİK ONAYLI (${preBulletin.length} aktif maçtan en kaliteli ${Math.min(40, preBulletin.length)} maç)]:\n`;
-    preBulletin.slice(0, 40).forEach(({ m, an }, i) => {
+    const poolLimit = isCompact ? 12 : 22;
+    let upcomingPoolSummary = `\n[RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU - NESİNE & MAÇKOLİK ONAYLI (${preBulletin.length} aktif maçtan en kaliteli ${Math.min(poolLimit, preBulletin.length)} maç)]:\n`;
+    preBulletin.slice(0, poolLimit).forEach(({ m, an }, i) => {
         const topSc = an.topScores && an.topScores[0] ? an.topScores[0].s : '1-1';
         const hf = an.facts?.home, af = an.facts?.away;
         const splitMini = (hf && af && hf.homeGf !== null && af.awayGf !== null)
-            ? ` | EvGol:${hf.homeGf}/${hf.homeGa} DepGol:${af.awayGf}/${af.awayGa} Form:${hf.formStr || '-'}/${af.formStr || '-'}`
+            ? ` | Ev:${hf.homeGf}/${hf.homeGa}(${hf.formStr || '-'}) Dep:${af.awayGf}/${af.awayGa}(${af.formStr || '-'})`
             : '';
-        const wMini = an.intel?.weather ? ` | 🌤️${an.intel.weather.temp}°C ${an.intel.weather.condition}` : '';
-        const cMini = an.commonSummary ? ` | ${an.commonSummary}` : (an.h2hSummary ? ` | ${an.h2hSummary}` : '');
+        const wMini = an.intel?.weather ? ` | 🌤️${an.intel.weather.temp}°C` : '';
         const lMini = (an.intel?.homeLeaders?.[0] || an.intel?.awayLeaders?.[0])
-            ? ` | ⭐${[an.intel?.homeLeaders?.[0], an.intel?.awayLeaders?.[0]].filter(Boolean).join(' / ')}`
+            ? ` | ⭐${[an.intel?.homeLeaders?.[0], an.intel?.awayLeaders?.[0]].filter(Boolean).join('/')}`
             : '';
 
-        upcomingPoolSummary += `${i + 1}. [${m.time}] ${m.home} - ${m.away} (${m.league.full}) [K:${an.quality}] | Bağımsız xG:${an.lh.toFixed(2)}-${an.la.toFixed(2)} | MS1:%${Math.round(an.p.ms1 * 100)} X:%${Math.round(an.p.msx * 100)} MS2:%${Math.round(an.p.ms2 * 100)} | 1.5Ü:%${Math.round(an.p.ust15 * 100)} 2.5Ü:%${Math.round(an.p.ust25 * 100)} KGV:%${Math.round(an.p.kgv * 100)} İY0.5Ü:%${Math.round(an.p.iyust05 * 100)} İY1:%${Math.round(an.p.iy1 * 100)} İY2:%${Math.round(an.p.iy2 * 100)} | Skor:${topSc}${splitMini}${wMini}${cMini}${lMini}\n`;
+        upcomingPoolSummary += `${i + 1}. [${m.time}] ${m.home}-${m.away} (${m.league.full}) | xG:${an.lh.toFixed(2)}-${an.la.toFixed(2)} | MS1:%${Math.round(an.p.ms1 * 100)} X:%${Math.round(an.p.msx * 100)} MS2:%${Math.round(an.p.ms2 * 100)} 1.5Ü:%${Math.round(an.p.ust15 * 100)} 2.5Ü:%${Math.round(an.p.ust25 * 100)} KGV:%${Math.round(an.p.kgv * 100)} İY0.5Ü:%${Math.round(an.p.iyust05 * 100)} İY1:%${Math.round(an.p.iy1 * 100)} İY2:%${Math.round(an.p.iy2 * 100)} Skor:${topSc}${splitMini}${wMini}${lMini}\n`;
     });
 
     // 3. Kullanıcının sorduğu spesifik bir takım veya lig varsa (Türkçe karakter duyarsız eşleştirme + anlık derin istihbarat)
     let relevantMatches = '';
-    const words = qNorm.split(/\s+/).filter(w => w.length >= 3 && !['mac', 'maci', 'maclar', 'kupon', 'kuponu', 'analiz', 'bugun', 'yarin', 'icin', 'nasil', 'olur', 'bana', 'yap', 'ver', 'ust', 'alt', 'gol', 'ilk', 'yari'].includes(w));
+    const stopWords = new Set(['mac', 'maci', 'maclar', 'maclari', 'kupon', 'kuponu', 'analiz', 'bugun', 'bugunku', 'yarin', 'icin', 'nasil', 'olur', 'bana', 'yap', 'ver', 'ust', 'alt', 'gol', 'ilk', 'yari', 'gunun', 'banko', 'surpriz', 'yuksek', 'deger', 'resmi', 'iddaa', 'bulteninden', 'oranlardan', 'bagimsiz', 'deplasman', 'karnesi', 'son', 'formu', 'ortak', 'rakipler', 'saha', 'hava', 'sartlari', 'kilit', 'oyuncularini', 'inceleyerek', 'guvendigin', 'maclik', 'tablolu', 'grafik', 'barli', 'olarak', 'cikar', 'hazirla', 'devre', 'karakteri', 'firsati', 'firsatlari', 'sistem', 'kombine', 'oynamaliyim', 'detayli']);
+    const words = qNorm.split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !stopWords.has(w));
     if (words.length > 0) {
         const matchedItems = activePool.filter(({ m }) => {
             const target = normTr(`${m.home} ${m.away} ${m.league.full} ${m.league.country}`);
@@ -406,8 +418,8 @@ async function buildAiSportsContext(userMessage = '') {
         });
 
         if (matchedItems.length > 0) {
-            const topMatched = matchedItems.slice(0, 6);
-            await runWithConcurrency(topMatched, 6, async (item) => {
+            const topMatched = matchedItems.slice(0, isCompact ? 3 : 5);
+            await runWithConcurrency(topMatched, 5, async (item) => {
                 if (!item.m.intel || !item.m.intel.standings) {
                     item.m.intel = await intel.enrichMatch(item.m, { fetchDeepSummary: true, fetchLineup: true });
                     item.an = engine.analyze(day.model, item.m, { facts: true, intel: item.m.intel });

@@ -121,46 +121,65 @@ BAĞIMSIZ ANALİZ İLKESİ: İddaa oranlarına veya dış yorumculara ASLA bakma
 ASLA uzun paragraflar, edebiyat veya laf kalabalığı yazma; her maçın gerekçesinde incelediğin somut verileri (ev/dep gol ortalaması, ortak rakipler, hava durumu, form, kilit oyuncu) 1-2 satırda net olarak yaz.
 KESİNLİKLE SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] LİSTESİNDEKİ MAÇLARI KULLAN. LİSTEDE OLMAYAN MAÇ YAZMAK YASAKTIR.`;
 
-                if (sportsContext) {
-                    systemContent += `\n\n${sportsContext}`;
-                }
-                systemContent += `\nKullanıcı futbol dışı bir konu sorarsa da doğrudan, kısa, net ve profesyonel şekilde yanıt ver.`;
+                const recentHistory = (messages || []).slice(-6).map(m => ({
+                    role: m.role === 'user' ? 'user' : 'assistant',
+                    content: String(m.content || '').slice(0, 2200)
+                }));
 
-                const finalMessages = [
-                    { role: 'system', content: systemContent },
-                    ...(messages || [])
-                ];
+                const buildFinalMessages = (ctxStr, histArr) => {
+                    let sys = systemContent;
+                    if (ctxStr) sys += `\n\n${ctxStr}`;
+                    sys += `\nKullanıcı futbol dışı bir konu sorarsa da doğrudan, kısa, net ve profesyonel şekilde yanıt ver.`;
+                    return [
+                        { role: 'system', content: sys },
+                        ...histArr
+                    ];
+                };
 
-                // Modelleri listele
+                let finalMessages = buildFinalMessages(sportsContext, recentHistory);
+                let compactFallbacked = false;
+
+                // En yüksek TPM (dakikalık token) limitli sohbet modelleri öncelikli
                 let candidateModels = [
-                    'qwen/qwen3.8-27b',
+                    'meta-llama/llama-4-scout-17b-16e-instruct',
+                    'llama-3.3-70b-versatile',
+                    'meta-llama/llama-4-maverick-17b-128e-instruct',
+                    'qwen/qwen3-32b',
                     'openai/gpt-oss-120b',
                     'openai/gpt-oss-20b',
-                    'allam-2-7b',
-                    'llama-3.3-70b-versatile',
-                    'llama-3.1-8b-instant'
+                    'llama-3.1-8b-instant',
+                    'allam-2-7b'
                 ];
 
                 try {
                     const modelsRes = await fetch('https://api.groq.com/openai/v1/models', {
                         headers: { 'Authorization': `Bearer ${activeKey}` }
                     });
+                    if (modelsRes.status === 401) {
+                        res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ error: 'Groq API anahtarınız geçersiz veya hatalı (401). Sol alttaki API Anahtarı butonundan anahtarınızı kontrol edin.' }));
+                        return;
+                    }
                     if (modelsRes.ok) {
                         const modelsJson = await modelsRes.json();
                         const modelIds = (modelsJson.data || []).map(m => m.id);
                         
-                        const cleanChatModels = modelIds.filter(id => 
-                            !id.includes('whisper') && 
-                            !id.includes('guard') && 
-                            !id.startsWith('canopylabs')
-                        );
+                        const cleanChatModels = modelIds.filter(id => {
+                            const low = id.toLowerCase();
+                            return !low.includes('whisper') &&
+                                !low.includes('guard') &&
+                                !low.includes('tts') &&
+                                !low.includes('orpheus') &&
+                                !low.includes('embed') &&
+                                !low.includes('playai') &&
+                                !low.startsWith('canopylabs');
+                        });
 
                         if (cleanChatModels.length > 0) {
-                            const sorted = [
+                            candidateModels = [
                                 ...candidateModels.filter(m => cleanChatModels.includes(m)),
                                 ...cleanChatModels.filter(m => !candidateModels.includes(m))
                             ];
-                            candidateModels = sorted;
                         }
                     }
                 } catch (e) {
@@ -169,6 +188,7 @@ KESİNLİKLE SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ H
 
                 // Modelleri sırayla dene
                 let success = false;
+                let lastGroqError = '';
                 for (const modelToTry of candidateModels) {
                     console.log(`Deneniyor: ${modelToTry}...`);
                     const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -180,7 +200,7 @@ KESİNLİKLE SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ H
                         body: JSON.stringify({
                             model: modelToTry,
                             messages: finalMessages,
-                            max_tokens: 2800,
+                            max_tokens: compactFallbacked ? 950 : 1400,
                             stream: true
                         })
                     });
@@ -204,13 +224,25 @@ KESİNLİKLE SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ H
                         break;
                     } else {
                         const errText = await groqRes.text();
-                        console.log(`${modelToTry} başarısız oldu:`, errText);
+                        lastGroqError = errText;
+                        console.log(`${modelToTry} başarısız oldu (${groqRes.status}):`, errText);
+
+                        // Token / Boyut limiti (413 veya 429) yaşanırsa bağlamı otomatik kompakt moda küçült
+                        if (!compactFallbacked && (groqRes.status === 413 || groqRes.status === 429 || errText.includes('too large') || errText.includes('rate_limit'))) {
+                            compactFallbacked = true;
+                            try {
+                                const compactCtx = await football.buildAiSportsContext(lastUserMessage, { compact: true });
+                                finalMessages = buildFinalMessages(compactCtx, recentHistory.slice(-2));
+                            } catch (_) {
+                                finalMessages = buildFinalMessages('', recentHistory.slice(-2));
+                            }
+                        }
                     }
                 }
 
                 if (!success) {
                     res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-                    res.end(JSON.stringify({ error: 'Kullanılabilir açık sohbet modeli bulunamadı.' }));
+                    res.end(JSON.stringify({ error: 'Groq yanıt hatası: ' + (lastGroqError ? lastGroqError.slice(0, 220) : 'Kullanılabilir açık sohbet modeli bulunamadı.') }));
                 }
 
             } catch (err) {
