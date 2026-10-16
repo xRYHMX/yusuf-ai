@@ -741,6 +741,8 @@ function appendMessage(sender, text, attachments = []) {
             const textSpan = document.createElement('span');
             textSpan.textContent = text;
             bubble.appendChild(textSpan);
+        } else if (sender === 'ai') {
+            bubble.innerHTML = `<div class="typing-wave" aria-label="Yanıt hazırlanıyor"><span></span><span></span><span></span></div>`;
         }
 
         wrapper.appendChild(bubble);
@@ -793,14 +795,14 @@ function bindFootballModule() {
 
     if (askAiBankoBtn) {
         askAiBankoBtn.addEventListener('click', () => {
-            const prompt = 'Günün banko kuponunu taktiksel ve istatistiksel olarak derinlemesine açıkla. Maçların beklenen golleri, risk dağılımı ve nasıl oynanması gerektiği hakkında detay ver.';
+            const prompt = 'Günün Banko Kuponunu ev/deplasman karnesi, son 5 maç formu, ortak rakipler, saha/hava şartları ve kilit oyuncularıyla tablolu ve grafik barlı olarak analiz et.';
             askAiDirectly(prompt);
         });
     }
 
     if (askAiSurpriseBtn) {
         askAiSurpriseBtn.addEventListener('click', () => {
-            const prompt = 'Günün yüksek değer sürpriz kuponunu analiz et. İY/MS ve ilk yarı tercihlerinin istatistiksel avantajını açıkla. 3-4-5 sistem mi yoksa kombine mi oynamalıyım?';
+            const prompt = 'Günün Sürpriz Kuponunu ev/deplasman karnesi, devre karakteri, H2H, ortak rakipler ve hava şartlarıyla tablolu ve grafik barlı olarak analiz et. Sistem mi yoksa kombine mi oynamalıyım?';
             askAiDirectly(prompt);
         });
     }
@@ -855,7 +857,7 @@ function renderCoupons(data) {
     const banko = data.banko;
     if (banko) {
         bankoTitle.textContent = banko.title || 'Günün Banko Kuponu';
-        bankoStrategy.textContent = banko.strategy || 'Yüksek Güven Kombinesi';
+        bankoStrategy.textContent = banko.strategy || 'Bağımsız Derin Analiz • Yüksek Güven Kombinesi';
         bankoConfidenceVal.textContent = `%${banko.confidence || 85}`;
         bankoInstruction.textContent = banko.instruction || 'Düz 4 maçlık kombine kupon olarak oynanması tavsiye edilir.';
 
@@ -873,10 +875,10 @@ function renderCoupons(data) {
     // 2. SÜRPRİZ KUPONU
     const surp = data.surprise;
     if (surp) {
-        surpriseTitle.textContent = surp.title || '50 TL Yüksek Değer Sürpriz Kuponu';
-        surpriseStrategy.textContent = surp.strategy || 'İstatistiksel Avantajlı İY/MS & İY Tercihleri';
+        surpriseTitle.textContent = surp.title || 'Sürpriz Kupon';
+        surpriseStrategy.textContent = surp.strategy || 'Bağımsız Derin Analiz • İY/MS & İlk Yarı Fırsatları';
         surpriseLiftVal.textContent = `${surp.avgLift || '2.0'}x`;
-        surpriseInstruction.textContent = surp.instruction || '50 TL bütçe ile 3-4-5 sistem kuponu veya sürpriz kombine olarak oynanması tavsiye edilir.';
+        surpriseInstruction.textContent = surp.instruction || 'Sistem (3-4-5) veya sürpriz kombine olarak oynanması tavsiye edilir.';
 
         surpriseMatchesList.innerHTML = '';
         if (surp.matches && surp.matches.length) {

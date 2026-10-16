@@ -121,28 +121,16 @@
                     </div>
                     <h2>Yusuf AI</h2>
                     <div class="suggestion-cards">
-                        <button class="suggestion-card" data-prompt="Bugünkü maçlardan en güvendiğin 4 maçlık günün banko kuponunu çıkar ve taktik gerekçelerini açıkla.">
+                        <button class="suggestion-card" data-prompt="Bugünkü resmi İddaa bülteninden oranlardan bağımsız; ev/deplasman karnesi, son 5 maç formu, ortak rakipler, saha/hava şartları ve kilit oyuncularını inceleyerek en güvendiğin 4 maçlık Günün Banko Kuponunu tablolu ve grafik barlı olarak çıkar.">
                             <div class="card-icon-tag banko-tag">
                                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
                                 <span class="suggestion-title">Günün Banko Kuponu</span>
                             </div>
                         </button>
-                        <button class="suggestion-card" data-prompt="Düşük bütçeyle değerlendirilebilecek, İY/MS, ilk yarı skoru ve istatistiksel avantajı en yüksek sürpriz kupon hazırla. Taktiksel olarak nasıl oynamalıyım?">
+                        <button class="suggestion-card" data-prompt="Bugünkü resmi İddaa bülteninden ev/deplasman karnesi, devre karakteri, H2H, ortak rakipler ve hava şartlarına göre istatistiksel değeri en yüksek 5 maçlık Sürpriz Kuponu (İY/MS ve ilk yarı fırsatları) tablolu ve grafik barlı olarak hazırla.">
                             <div class="card-icon-tag surprise-tag">
                                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-                                <span class="suggestion-title">Yüksek Değer Sürpriz Kuponu</span>
-                            </div>
-                        </button>
-                        <button class="suggestion-card" data-prompt="Bugün ilk yarısında kesinlikle gol beklediğin, İY 0.5 ve 1.5 Üst potansiyeli en yüksek maçları listele.">
-                            <div class="card-icon-tag goals-tag">
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                                <span class="suggestion-title">İlk Yarı Gol Maçları</span>
-                            </div>
-                        </button>
-                        <button class="suggestion-card" data-prompt="Bugünkü Avrupa Ligi ve Türk takımlarının maçlarını beklenen goller, karşılıklı gol ve muhtemel skorlarla derinlemesine analiz et.">
-                            <div class="card-icon-tag analysis-tag">
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line></svg>
-                                <span class="suggestion-title">Avrupa Maçları Analizi</span>
+                                <span class="suggestion-title">Sürpriz Kupon</span>
                             </div>
                         </button>
                     </div>
@@ -184,7 +172,7 @@
                     <div class="coupons-header-bar">
                         <div class="coupons-title-group">
                             <h2>Günün Analiz Kuponları</h2>
-                            <p>Poisson Dixon-Coles istatistik modeli tarafından çıkarılan canlı günün kuponları. Oran yok, saf matematik ve taktik analiz.</p>
+                            <p>%100 bağımsız derin analiz motoru: Ev/deplasman karnesi, son 5 maç formu, ortak rakipler, H2H, hava şartları ve kilit oyuncular incelenerek hazırlanır.</p>
                         </div>
                         <div class="coupons-actions">
                             <button type="button" id="refreshCouponsBtn" class="btn-refresh" title="Kuponları Yenile">
@@ -200,7 +188,7 @@
 
                     <div id="couponsLoading" class="panel-loading">
                         <div class="spinner"></div>
-                        <span>Model maçları inceliyor ve kuponları hazırlıyor...</span>
+                        <span>Model maçları, saha/hava şartlarını ve geçmiş verileri inceliyor...</span>
                     </div>
 
                     <div id="couponsContent" class="coupons-cards-grid" style="display: none;">
@@ -211,7 +199,7 @@
                                     <span class="badge-icon">🛡️</span>
                                     <div>
                                         <h3 id="bankoTitle">Günün Banko Kuponu</h3>
-                                        <span class="coupon-subtitle" id="bankoStrategy">Yüksek Güven Kombinesi</span>
+                                        <span class="coupon-subtitle" id="bankoStrategy">Bağımsız Derin Analiz • Yüksek Güven Kombinesi</span>
                                     </div>
                                 </div>
                                 <div class="coupon-stat-pill">
@@ -231,14 +219,14 @@
                             </div>
                         </div>
 
-                        <!-- 50 TL Yüksek Değer Sürpriz Kuponu Kartı -->
+                        <!-- Günün Sürpriz Kuponu Kartı -->
                         <div class="coupon-card surprise-card">
                             <div class="coupon-card-header">
                                 <div class="coupon-badge-title">
                                     <span class="badge-icon">🎯</span>
                                     <div>
-                                        <h3 id="surpriseTitle">50 TL Yüksek Değer Sürpriz Kuponu</h3>
-                                        <span class="coupon-subtitle" id="surpriseStrategy">İstatistiksel Avantajlı İY/MS & İY Tercihleri</span>
+                                        <h3 id="surpriseTitle">Sürpriz Kupon</h3>
+                                        <span class="coupon-subtitle" id="surpriseStrategy">Bağımsız Derin Analiz • İY/MS & İlk Yarı Fırsatları</span>
                                     </div>
                                 </div>
                                 <div class="coupon-stat-pill gold">

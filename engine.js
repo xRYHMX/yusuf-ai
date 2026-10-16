@@ -713,7 +713,7 @@ function buildCoupons(items, model, opts = {}) {
             matches: banko
         },
         surprise: {
-            title: 'Günün Yüksek Değer Sürpriz Kuponu',
+            title: 'Sürpriz Kupon',
             type: 'surprise',
             strategy: 'Bağımsız Derin Analiz • İY/MS & İlk Yarı Fırsatları',
             instruction: surpInstruction,
