@@ -30,6 +30,7 @@ const chatMain = document.getElementById('chatMain');
 
 const apiKeyModal = document.getElementById('apiKeyModal');
 const apiKeyModalInput = document.getElementById('apiKeyModalInput');
+const apiKeyProviderInfo = document.getElementById('apiKeyProviderInfo');
 const closeModalBtn = document.getElementById('closeModalBtn');
 const cancelModalBtn = document.getElementById('cancelModalBtn');
 const saveModalBtn = document.getElementById('saveModalBtn');
@@ -188,9 +189,46 @@ function toggleTheme() {
     applyTheme(nextTheme);
 }
 
+function inspectKeyProvider(key) {
+    if (!key) return null;
+    const clean = key.trim();
+    if (clean.startsWith('sk-')) {
+        return {
+            name: 'OpenAI (ChatGPT)',
+            badge: '🟢 OpenAI ChatGPT (GPT-4o Vision & 4096 Token)',
+            btn: '🟢 OpenAI (GPT-4o)'
+        };
+    }
+    if (clean.startsWith('gsk_')) {
+        return {
+            name: 'Groq',
+            badge: '🟢 Groq (Llama-3.3-70b & Llama-4-Scout)',
+            btn: '🟢 Groq Aktif'
+        };
+    }
+    return {
+        name: 'Özel API',
+        badge: '🟢 API Anahtarı Tanımlı',
+        btn: '🟢 API Kayıtlı'
+    };
+}
+
+function updateApiKeyProviderInfo(key) {
+    if (!apiKeyProviderInfo) return;
+    const p = inspectKeyProvider(key);
+    if (p) {
+        apiKeyProviderInfo.style.display = 'block';
+        apiKeyProviderInfo.textContent = p.badge;
+    } else {
+        apiKeyProviderInfo.style.display = 'none';
+        apiKeyProviderInfo.textContent = '';
+    }
+}
+
 function updateApiKeyButtonState() {
-    if (savedApiKey) {
-        apiKeyBtnText.textContent = 'API Anahtarı: Kayıtlı';
+    const p = inspectKeyProvider(savedApiKey);
+    if (p) {
+        apiKeyBtnText.textContent = p.btn;
     } else {
         apiKeyBtnText.textContent = 'API Anahtarı Yapıştır';
     }
@@ -201,8 +239,13 @@ function bindEvents() {
 
     setApiKeyBtn.addEventListener('click', () => {
         apiKeyModalInput.value = savedApiKey;
+        updateApiKeyProviderInfo(savedApiKey);
         apiKeyModal.classList.add('active');
         apiKeyModalInput.focus();
+    });
+
+    apiKeyModalInput.addEventListener('input', () => {
+        updateApiKeyProviderInfo(apiKeyModalInput.value);
     });
 
     closeModalBtn.addEventListener('click', () => { apiKeyModal.classList.remove('active'); });

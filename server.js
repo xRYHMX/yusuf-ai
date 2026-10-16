@@ -92,15 +92,21 @@ const server = http.createServer(async (req, res) => {
         req.on('end', async () => {
             try {
                 const { messages, apiKey } = JSON.parse(body);
-                const activeKey = (apiKey && apiKey.trim()) ? apiKey.trim() : (process.env.GROQ_API_KEY || '').trim();
+                const activeKey = (apiKey && apiKey.trim()) 
+                    ? apiKey.trim() 
+                    : (process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || '').trim();
 
                 if (!activeKey) {
                     res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
                     res.end(JSON.stringify({ 
-                        error: 'API anahtarı bulunamadı. Sol menünün altındaki "API Anahtarı Yapıştır" butonuna tıklayıp Groq API anahtarınızı (gsk_...) kaydedin veya Render ayarlarından GROQ_API_KEY değişkeni olarak ekleyin.' 
+                        error: 'API anahtarı bulunamadı. Sol menünün altındaki "API Anahtarı" butonuna tıklayıp OpenAI (sk-...) veya Groq (gsk_...) API anahtarınızı kaydedin veya Render ayarlarından OPENAI_API_KEY / GROQ_API_KEY değişkeni olarak ekleyin.' 
                     }));
                     return;
                 }
+
+                const isOpenAi = activeKey.startsWith('sk-');
+                const providerName = isOpenAi ? 'OpenAI' : 'Groq';
+                const providerBaseUrl = isOpenAi ? 'https://api.openai.com/v1' : 'https://api.groq.com/openai/v1';
 
                 // Kullanıcının son mesajını ve varsa eklediği görselleri (base64 dataUrl) al
                 const userMessages = (messages || []).filter(m => m.role === 'user');
@@ -114,10 +120,12 @@ const server = http.createServer(async (req, res) => {
                 // AŞAMA 1: Kullanıcı fotoğraf / ekran görüntüsü attıysa Vision modeliyle görseldeki maçları, tercihleri ve istatistikleri oku
                 let visionExtractedText = '';
                 if (hasImages) {
-                    const visionModels = [
-                        'meta-llama/llama-4-scout-17b-16e-instruct',
-                        'meta-llama/llama-4-maverick-17b-128e-instruct'
-                    ];
+                    const visionModels = isOpenAi
+                        ? ['gpt-4o-mini', 'gpt-4o']
+                        : [
+                            'meta-llama/llama-4-scout-17b-16e-instruct',
+                            'meta-llama/llama-4-maverick-17b-128e-instruct'
+                        ];
                     const visionContent = [
                         {
                             type: 'text',
@@ -136,34 +144,36 @@ Kullanıcının sorusu: "${lastUserMessage || 'Görseli incele ve analiz et'}"`
 
                     for (const vModel of visionModels) {
                         try {
-                            console.log(`[Vision Engine] Görsel okunuyor (${vModel})...`);
-                            const vRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                            console.log(`[Vision Engine - ${providerName}] Görsel okunuyor (${vModel})...`);
+                            const vReqBody = {
+                                model: vModel,
+                                messages: [{ role: 'user', content: visionContent }],
+                                max_tokens: 1200,
+                                temperature: 0.1,
+                                stream: false
+                            };
+
+                            const vRes = await fetch(`${providerBaseUrl}/chat/completions`, {
                                 method: 'POST',
                                 headers: {
                                     'Authorization': `Bearer ${activeKey}`,
                                     'Content-Type': 'application/json'
                                 },
-                                body: JSON.stringify({
-                                    model: vModel,
-                                    messages: [{ role: 'user', content: visionContent }],
-                                    max_tokens: 900,
-                                    temperature: 0.1,
-                                    stream: false
-                                })
+                                body: JSON.stringify(vReqBody)
                             });
                             if (vRes.ok) {
                                 const vJson = await vRes.json();
                                 visionExtractedText = (vJson.choices?.[0]?.message?.content || '').trim();
                                 if (visionExtractedText) {
-                                    console.log(`[Vision Engine] Görsel başarıyla okundu (${visionExtractedText.length} karakter).`);
+                                    console.log(`[Vision Engine - ${providerName}] Görsel başarıyla okundu (${visionExtractedText.length} karakter).`);
                                     break;
                                 }
                             } else {
                                 const vErr = await vRes.text();
-                                console.log(`[Vision Engine] ${vModel} hata (${vRes.status}):`, vErr.slice(0, 160));
+                                console.log(`[Vision Engine - ${providerName}] ${vModel} hata (${vRes.status}):`, vErr.slice(0, 160));
                             }
                         } catch (ve) {
-                            console.log(`[Vision Engine] ${vModel} bağlantı hatası:`, ve.message);
+                            console.log(`[Vision Engine - ${providerName}] ${vModel} bağlantı hatası:`, ve.message);
                         }
                     }
                 }
@@ -189,7 +199,7 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
 
                 const recentHistory = (messages || []).slice(-6).map((m, idx, arr) => {
                     const isLastUser = (idx === arr.length - 1) && m.role === 'user';
-                    let textContent = String(m.content || '').slice(0, 2200);
+                    let textContent = String(m.content || '').slice(0, 2600);
                     if (isLastUser && visionExtractedText) {
                         textContent = `${textContent || 'Görseli incele ve analiz et.'}\n\n[GÖRSELDEN OKUNAN DETAYLI VERİLER]:\n${visionExtractedText}`;
                     }
@@ -225,84 +235,101 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                 let currentContextStr = sportsContext;
                 let compactFallbacked = false;
 
-                // Görsel varsa Vision destekli Llama-4 modelleri ve 70B modeli en önde çalışır
-                let candidateModels = hasImages
-                    ? [
-                        'meta-llama/llama-4-scout-17b-16e-instruct',
-                        'meta-llama/llama-4-maverick-17b-128e-instruct',
-                        'llama-3.3-70b-versatile',
-                        'llama-3.1-8b-instant'
-                    ]
-                    : [
-                        'llama-3.3-70b-versatile',
-                        'meta-llama/llama-4-scout-17b-16e-instruct',
-                        'meta-llama/llama-4-maverick-17b-128e-instruct',
-                        'llama-3.1-8b-instant',
-                        'qwen/qwen3-32b',
-                        'openai/gpt-oss-120b',
-                        'openai/gpt-oss-20b',
-                        'allam-2-7b'
-                    ];
+                // Modellerin belirlenmesi (OpenAI ChatGPT veya Groq)
+                let candidateModels = [];
+                if (isOpenAi) {
+                    // ChatGPT Modelleri: gpt-4o en zeki ve en güçlü görsel/metin modeli
+                    candidateModels = hasImages
+                        ? ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
+                        : ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
+                } else {
+                    // Groq Modelleri
+                    candidateModels = hasImages
+                        ? [
+                            'meta-llama/llama-4-scout-17b-16e-instruct',
+                            'meta-llama/llama-4-maverick-17b-128e-instruct',
+                            'llama-3.3-70b-versatile',
+                            'llama-3.1-8b-instant'
+                        ]
+                        : [
+                            'llama-3.3-70b-versatile',
+                            'meta-llama/llama-4-scout-17b-16e-instruct',
+                            'meta-llama/llama-4-maverick-17b-128e-instruct',
+                            'llama-3.1-8b-instant',
+                            'qwen/qwen3-32b',
+                            'openai/gpt-oss-120b',
+                            'openai/gpt-oss-20b',
+                            'allam-2-7b'
+                        ];
 
-                try {
-                    const modelsRes = await fetch('https://api.groq.com/openai/v1/models', {
-                        headers: { 'Authorization': `Bearer ${activeKey}` }
-                    });
-                    if (modelsRes.status === 401) {
-                        res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
-                        res.end(JSON.stringify({ error: 'Groq API anahtarınız geçersiz veya hatalı (401). Sol alttaki API Anahtarı butonundan anahtarınızı kontrol edin.' }));
-                        return;
-                    }
-                    if (modelsRes.ok) {
-                        const modelsJson = await modelsRes.json();
-                        const modelIds = (modelsJson.data || []).map(m => m.id);
-                        
-                        const cleanChatModels = modelIds.filter(id => {
-                            const low = id.toLowerCase();
-                            return !low.includes('whisper') &&
-                                !low.includes('guard') &&
-                                !low.includes('tts') &&
-                                !low.includes('orpheus') &&
-                                !low.includes('embed') &&
-                                !low.includes('playai') &&
-                                !low.startsWith('canopylabs');
+                    try {
+                        const modelsRes = await fetch(`${providerBaseUrl}/models`, {
+                            headers: { 'Authorization': `Bearer ${activeKey}` }
                         });
-
-                        if (cleanChatModels.length > 0) {
-                            candidateModels = [
-                                ...candidateModels.filter(m => cleanChatModels.includes(m)),
-                                ...cleanChatModels.filter(m => !candidateModels.includes(m))
-                            ];
+                        if (modelsRes.status === 401) {
+                            res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+                            res.end(JSON.stringify({ error: `${providerName} API anahtarınız geçersiz veya hatalı (401). Sol alttaki API Anahtarı butonundan anahtarınızı kontrol edin.` }));
+                            return;
                         }
+                        if (modelsRes.ok) {
+                            const modelsJson = await modelsRes.json();
+                            const modelIds = (modelsJson.data || []).map(m => m.id);
+                            
+                            const cleanChatModels = modelIds.filter(id => {
+                                const low = id.toLowerCase();
+                                return !low.includes('whisper') &&
+                                    !low.includes('guard') &&
+                                    !low.includes('tts') &&
+                                    !low.includes('orpheus') &&
+                                    !low.includes('embed') &&
+                                    !low.includes('playai') &&
+                                    !low.startsWith('canopylabs');
+                            });
+
+                            if (cleanChatModels.length > 0) {
+                                candidateModels = [
+                                    ...candidateModels.filter(m => cleanChatModels.includes(m)),
+                                    ...cleanChatModels.filter(m => !candidateModels.includes(m))
+                                ];
+                            }
+                        }
+                    } catch (e) {
+                        console.log('Model sorgusu atlandı:', e.message);
                     }
-                } catch (e) {
-                    console.log('Model sorgusu atlandı:', e.message);
                 }
 
                 // Modelleri sırayla dene
                 let success = false;
-                let lastGroqError = '';
+                let lastApiError = '';
                 for (const modelToTry of candidateModels) {
-                    console.log(`Deneniyor: ${modelToTry}...`);
-                    const isReasoningModel = modelToTry.includes('gpt-oss') || modelToTry.includes('qwen3') || modelToTry.includes('deepseek');
-                    const isVisionModel = modelToTry.includes('llama-4-scout') || modelToTry.includes('llama-4-maverick');
+                    console.log(`Deneniyor [${providerName}]: ${modelToTry}...`);
+                    const isReasoningModel = modelToTry.includes('gpt-oss') || modelToTry.includes('qwen3') || modelToTry.includes('deepseek') || modelToTry.startsWith('o1') || modelToTry.startsWith('o3');
+                    const isNativeVision = isOpenAi || modelToTry.includes('llama-4-scout') || modelToTry.includes('llama-4-maverick');
                     const activeHist = compactFallbacked ? recentHistory.slice(-2) : recentHistory;
-                    // Eğer Stage 1'de visionExtractedText zaten alındıysa tekrar büyük base64 göndermeye gerek kalmadan hızlıca yanıt üretir;
-                    // eğer Stage 1 boş döndüyse ve model Vision destekliyse doğrudan multimodal gönderir.
-                    const sendRawImageInStage2 = hasImages && isVisionModel && !visionExtractedText;
+                    
+                    // OpenAI gpt-4o'da doğrudan multimodal görsel de iletilir
+                    const sendRawImageInStage2 = hasImages && isNativeVision && (isOpenAi || !visionExtractedText);
                     const finalMessages = buildFinalMessages(currentContextStr, activeHist, sendRawImageInStage2);
 
                     const reqPayload = {
                         model: modelToTry,
                         messages: finalMessages,
-                        max_tokens: isReasoningModel ? 4096 : (compactFallbacked ? 1600 : 2200),
                         stream: true
                     };
-                    if (isReasoningModel) {
-                        reqPayload.reasoning_effort = 'low';
+
+                    // Token limitleri: OpenAI'da 4096 tam token verilir; kesinti asla yaşanmaz
+                    if (modelToTry.startsWith('o1') || modelToTry.startsWith('o3')) {
+                        reqPayload.max_completion_tokens = 4096;
+                    } else if (isOpenAi) {
+                        reqPayload.max_tokens = 4096;
+                    } else {
+                        reqPayload.max_tokens = isReasoningModel ? 4096 : (compactFallbacked ? 1600 : 2200);
+                        if (isReasoningModel) {
+                            reqPayload.reasoning_effort = 'low';
+                        }
                     }
 
-                    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    const chatRes = await fetch(`${providerBaseUrl}/chat/completions`, {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${activeKey}`,
@@ -311,15 +338,15 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                         body: JSON.stringify(reqPayload)
                     });
 
-                    if (groqRes.ok) {
-                        console.log(`BAŞARILI! Çalışan Model: ${modelToTry}`);
+                    if (chatRes.ok) {
+                        console.log(`BAŞARILI! Çalışan Sağlayıcı: ${providerName} | Model: ${modelToTry}`);
                         res.writeHead(200, {
                             'Content-Type': 'text/event-stream; charset=utf-8',
                             'Cache-Control': 'no-cache',
                             'Connection': 'keep-alive'
                         });
 
-                        const reader = groqRes.body.getReader();
+                        const reader = chatRes.body.getReader();
                         while (true) {
                             const { done, value } = await reader.read();
                             if (done) break;
@@ -329,12 +356,18 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                         success = true;
                         break;
                     } else {
-                        const errText = await groqRes.text();
-                        lastGroqError = errText;
-                        console.log(`${modelToTry} başarısız oldu (${groqRes.status}):`, errText);
+                        const errText = await chatRes.text();
+                        lastApiError = errText;
+                        console.log(`${providerName} ${modelToTry} başarısız oldu (${chatRes.status}):`, errText);
+
+                        if (chatRes.status === 401) {
+                            res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+                            res.end(JSON.stringify({ error: `${providerName} API anahtarınız geçersiz veya bakiyesi yetersiz (401). Sol alttaki API Anahtarı butonundan anahtarınızı kontrol edin.` }));
+                            return;
+                        }
 
                         // Token / Boyut limiti (413 veya 429) yaşanırsa bağlamı otomatik kompakt moda küçült
-                        if (!compactFallbacked && (groqRes.status === 413 || groqRes.status === 429 || errText.includes('too large') || errText.includes('rate_limit'))) {
+                        if (!compactFallbacked && (chatRes.status === 413 || chatRes.status === 429 || errText.includes('too large') || errText.includes('rate_limit'))) {
                             compactFallbacked = true;
                             try {
                                 currentContextStr = await football.buildAiSportsContext(combinedSearchQuery, { compact: true, hasImage: hasImages });
@@ -347,7 +380,7 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
 
                 if (!success) {
                     res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-                    res.end(JSON.stringify({ error: 'Groq yanıt hatası: ' + (lastGroqError ? lastGroqError.slice(0, 220) : 'Kullanılabilir açık sohbet modeli bulunamadı.') }));
+                    res.end(JSON.stringify({ error: `${providerName} yanıt hatası: ` + (lastApiError ? lastApiError.slice(0, 240) : 'Kullanılabilir açık sohbet modeli bulunamadı.') }));
                 }
 
             } catch (err) {

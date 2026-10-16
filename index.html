@@ -258,8 +258,9 @@
                 <h3>API Anahtarı</h3>
                 <button type="button" id="closeModalBtn" class="modal-close">&times;</button>
             </div>
-            <p class="modal-desc">Groq API anahtarınızı (gsk_...) girin. Tarayıcınızda güvenle saklanır.</p>
-            <input type="password" id="apiKeyModalInput" class="modal-input" placeholder="gsk_...">
+            <p class="modal-desc">OpenAI (sk-...) veya Groq (gsk_...) API anahtarınızı girin. ChatGPT (GPT-4o) veya Groq modelleri otomatik algılanır ve tarayıcınızda güvenle saklanır.</p>
+            <input type="password" id="apiKeyModalInput" class="modal-input" placeholder="sk-proj-... veya gsk_...">
+            <div id="apiKeyProviderInfo" style="display:none;font-size:0.82rem;padding:6px 10px;border-radius:6px;background:var(--bg-sidebar);border:1px solid var(--border-color);color:var(--text-secondary);align-items:center;gap:6px;"></div>
             <div class="modal-actions">
                 <button type="button" id="cancelModalBtn" class="btn-modal-cancel">İptal</button>
                 <button type="button" id="saveModalBtn" class="btn-modal-save">Kaydet</button>
