@@ -2359,10 +2359,10 @@ body.theme-light .drop-overlay {
         display: flex !important;
         align-items: center !important;
         justify-content: space-between !important;
-        gap: 4px !important;
-        padding: 3px !important;
+        gap: 6px !important;
+        padding: 4px !important;
         background: var(--bg-card) !important;
-        border-radius: 10px !important;
+        border-radius: 12px !important;
         border: 1px solid var(--border-color) !important;
     }
 
@@ -2371,27 +2371,22 @@ body.theme-light .drop-overlay {
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        padding: 8px 4px !important;
-        font-size: 0.78rem !important;
+        padding: 9px 8px !important;
+        font-size: 0.84rem !important;
         font-weight: 600 !important;
-        gap: 5px !important;
+        gap: 6px !important;
         white-space: nowrap !important;
-        border-radius: 7px !important;
+        border-radius: 8px !important;
     }
 
     .nav-tab svg {
-        width: 15px !important;
-        height: 15px !important;
+        width: 16px !important;
+        height: 16px !important;
         flex-shrink: 0 !important;
     }
 
     .tab-badge {
-        display: none !important; /* Mobilde rozet gizlenir ki 3 sekme sığsın */
-    }
-
-    .tab-badge-count {
-        font-size: 0.65rem !important;
-        padding: 1px 5px !important;
+        display: none !important; /* Mobilde 2 sekme ferah kalsın */
     }
 
     /* 5. Boş Karşılama Ekranı (Yusuf AI) */
@@ -2545,56 +2540,12 @@ body.theme-light .drop-overlay {
         justify-content: center !important;
     }
 
-    /* 9. Canlı Bülten Modülü */
-    .matches-filter-bar {
-        padding: 8px 10px !important;
-        gap: 8px !important;
-    }
-
-    .filter-search-wrap {
-        width: 100% !important;
-        min-width: 100% !important;
-    }
-
-    .filter-btn-group {
-        width: 100% !important;
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        padding-bottom: 2px !important;
-    }
-
-    .filter-btn {
-        padding: 5px 8px !important;
-        font-size: 0.74rem !important;
-        white-space: nowrap !important;
-    }
-
-    .category-filter-select {
-        width: 100% !important;
-    }
-
-    .category-filter-select select {
-        width: 100% !important;
-    }
-
-    /* 10. Modallar */
+    /* 9. Modallar */
     .modal-box {
         width: 94% !important;
         max-width: 94% !important;
         padding: 16px !important;
         border-radius: 14px !important;
-    }
-
-    .modal-detail-box {
-        width: 96% !important;
-        max-width: 96% !important;
-        max-height: 92vh !important;
-        max-height: 92dvh !important;
-        padding: 14px !important;
-    }
-
-    .facts-grid {
-        grid-template-columns: 1fr !important;
     }
 }
 

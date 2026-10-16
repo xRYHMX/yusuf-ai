@@ -90,17 +90,8 @@
                             <rect x="2" y="5" width="20" height="14" rx="2"></rect>
                             <line x1="2" y1="10" x2="22" y2="10"></line>
                         </svg>
-                        <span class="tab-label">Kuponlar</span>
+                        <span class="tab-label">Günün Kuponları</span>
                         <span class="tab-badge" id="couponBadge">Banko & Sürpriz</span>
-                    </button>
-                    <button type="button" class="nav-tab" data-tab="matches">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
-                            <path d="M2 12h20"></path>
-                        </svg>
-                        <span class="tab-label">Bülten</span>
-                        <span class="tab-badge-count" id="matchCountBadge">...</span>
                     </button>
                 </div>
             </header>
@@ -256,170 +247,20 @@
                                 </div>
                             </div>
                             <div class="coupon-instruction-box gold-border" id="surpriseInstruction">
-                                50 TL bütçe ile 3-4-5 sistem kuponu veya sürpriz kombine olarak oynanması tavsiye edilir.
+                                Düşük bütçeyle 3-4-5 sistem kuponu veya sürpriz kombine olarak oynanması tavsiye edilir.
                             </div>
                             <div class="coupon-matches-list" id="surpriseMatchesList"></div>
                             <div class="coupon-footer-action">
                                 <button type="button" class="btn-coupon-ask gold-btn" id="askAiSurpriseBtn">
                                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                                    <span>50 TL Kuponu AI ile Detaylandır</span>
+                                    <span>Sürpriz Kuponu AI ile Detaylandır</span>
                                 </button>
                             </div>
                         </div>
                     </div>
                 </div>
             </section>
-
-            <!-- 3. GÖRÜNÜM: CANLI MAÇ BÜLTENİ & DETAYLI ANALİZ -->
-            <section id="matchesView" class="view-panel">
-                <div class="matches-view-container">
-                    <!-- Üst Filtre ve Arama Barı -->
-                    <div class="matches-filter-bar">
-                        <div class="filter-search-wrap">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="11" cy="11" r="8"></circle>
-                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                            </svg>
-                            <input type="text" id="matchSearchInput" placeholder="Takım veya lig ara... (Örn: Beşiktaş, U21, Fransa)">
-                        </div>
-
-                        <!-- Durum Filtre Butonları -->
-                        <div class="filter-btn-group" id="stateFilterGroup">
-                            <button type="button" class="filter-btn active" data-state="all">Tümü (<span id="countTotal">0</span>)</button>
-                            <button type="button" class="filter-btn" data-state="pre">Yaklaşan (<span id="countPre">0</span>)</button>
-                            <button type="button" class="filter-btn live-filter-btn" data-state="live">🔴 Canlı (<span id="countLive">0</span>)</button>
-                            <button type="button" class="filter-btn" data-state="post">Biten (<span id="countPost">0</span>)</button>
-                        </div>
-
-                        <!-- Kategori Filtresi (U Takımları / Kadın / Tümü) -->
-                        <div class="category-filter-select">
-                            <select id="categorySelect">
-                                <option value="all">Tüm Kategoriler</option>
-                                <option value="standard">Ana Ligler</option>
-                                <option value="youth">Gençlik / U Takımları (U17-U23)</option>
-                                <option value="women">Kadın Ligleri (K)</option>
-                            </select>
-                        </div>
-
-                        <button type="button" id="refreshMatchesBtn" class="btn-refresh-icon" title="Bülteni Yenile">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M23 4v6h-6"></path>
-                                <path d="M1 20v-6h6"></path>
-                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                            </svg>
-                        </button>
-                    </div>
-
-                    <!-- Yükleniyor Göstergesi -->
-                    <div id="matchesLoading" class="panel-loading">
-                        <div class="spinner"></div>
-                        <span>Maçlar ve model olasılıkları yükleniyor...</span>
-                    </div>
-
-                    <!-- Maç Listesi Tablosu / Grid -->
-                    <div id="matchesListContainer" class="matches-table-wrapper" style="display: none;">
-                        <table class="matches-table">
-                            <thead>
-                                <tr>
-                                    <th>Saat / Durum</th>
-                                    <th>Lig</th>
-                                    <th>Ev Sahibi</th>
-                                    <th>Skor</th>
-                                    <th>Deplasman</th>
-                                    <th>Beklenen Gol</th>
-                                    <th>Model MS (1 - X - 2)</th>
-                                    <th>Gol Olasılığı</th>
-                                    <th>İşlem</th>
-                                </tr>
-                            </thead>
-                            <tbody id="matchesTableBody"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
         </main>
-    </div>
-
-    <!-- MAÇ DETAY DERİN ANALİZ MODALI -->
-    <div id="matchDetailModal" class="modal-overlay">
-        <div class="modal-box modal-detail-box">
-            <div class="modal-header">
-                <div class="detail-match-header-info">
-                    <span class="detail-league-badge" id="detailLeagueName">UEFA Avrupa Ligi</span>
-                    <h3 id="detailMatchTitle">Salzburg vs Milan</h3>
-                    <div class="detail-status-row" id="detailStatusRow">22:00 | Yaklaşan</div>
-                </div>
-                <button type="button" id="closeDetailModalBtn" class="modal-close">&times;</button>
-            </div>
-
-            <div id="matchDetailLoading" class="panel-loading">
-                <div class="spinner"></div>
-                <span>Detaylı Poisson olasılıkları ve takım formları çıkarılıyor...</span>
-            </div>
-
-            <div id="matchDetailContent" class="detail-body-grid" style="display: none;">
-                <!-- Beklenen Goller (xG) Çubuğu -->
-                <div class="detail-card xg-card">
-                    <h4>Beklenen Goller (Poisson Lambda xG)</h4>
-                    <div class="xg-bar-container">
-                        <div class="xg-team">
-                            <span class="xg-name" id="detailHomeXgName">Ev</span>
-                            <span class="xg-val" id="detailHomeXgVal">1.45</span>
-                        </div>
-                        <div class="xg-track">
-                            <div class="xg-fill-home" id="detailXgHomeFill" style="width: 50%;"></div>
-                            <div class="xg-fill-away" id="detailXgAwayFill" style="width: 50%;"></div>
-                        </div>
-                        <div class="xg-team right">
-                            <span class="xg-val" id="detailAwayXgVal">1.25</span>
-                            <span class="xg-name" id="detailAwayXgName">Dep</span>
-                        </div>
-                    </div>
-                    <div class="xg-total-label">Toplam Beklenen Gol: <strong id="detailTotalXg">2.70</strong></div>
-                </div>
-
-                <!-- Temel Olasılıklar Izgarası -->
-                <div class="detail-card probs-card">
-                    <h4>Temel Pazar Olasılıkları</h4>
-                    <div class="prob-meters-grid" id="detailProbsGrid"></div>
-                </div>
-
-                <!-- En Olası Skorlar ve İY Skorları -->
-                <div class="detail-card scores-card">
-                    <h4>En Yüksek Olasılıklı Skorlar</h4>
-                    <div class="scores-columns">
-                        <div>
-                            <h5>Maç Sonu Skorları</h5>
-                            <div class="score-pill-list" id="detailTopScoresList"></div>
-                        </div>
-                        <div>
-                            <h5>İlk Yarı Skorları</h5>
-                            <div class="score-pill-list" id="detailTopHtScoresList"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- İY / MS Dağılım Matrisi -->
-                <div class="detail-card htft-card">
-                    <h4>İY / MS Olasılık Dağılımı</h4>
-                    <div class="htft-grid" id="detailHtftGrid"></div>
-                </div>
-
-                <!-- Takım Form & İstatistikleri -->
-                <div class="detail-card facts-card" id="detailFactsCard">
-                    <h4>Takım İstatistikleri & Son Maçlar</h4>
-                    <div class="facts-grid" id="detailFactsGrid"></div>
-                </div>
-            </div>
-
-            <div class="modal-actions detail-actions">
-                <button type="button" id="closeDetailActionBtn" class="btn-modal-cancel">Kapat</button>
-                <button type="button" id="askAiAboutMatchBtn" class="btn-modal-save">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                    <span>Bu Maçı AI Analiste Yorumlat</span>
-                </button>
-            </div>
-        </div>
     </div>
 
     <!-- Özel Şık Modal (API Anahtarı) -->

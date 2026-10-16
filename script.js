@@ -52,10 +52,8 @@ const appLayout = document.querySelector('.app-layout');
 const navTabs = document.querySelectorAll('.nav-tab');
 const viewPanels = {
     chat: document.getElementById('chatView'),
-    coupons: document.getElementById('couponsView'),
-    matches: document.getElementById('matchesView')
+    coupons: document.getElementById('couponsView')
 };
-const matchCountBadge = document.getElementById('matchCountBadge');
 
 // DOM Elemanları (Kuponlar Görünümü)
 const couponsLoading = document.getElementById('couponsLoading');
@@ -74,51 +72,9 @@ const surpriseMatchesList = document.getElementById('surpriseMatchesList');
 const askAiBankoBtn = document.getElementById('askAiBankoBtn');
 const askAiSurpriseBtn = document.getElementById('askAiSurpriseBtn');
 
-// DOM Elemanları (Bülten ve Maçlar Görünümü)
-const matchSearchInput = document.getElementById('matchSearchInput');
-const stateFilterGroup = document.getElementById('stateFilterGroup');
-const categorySelect = document.getElementById('categorySelect');
-const refreshMatchesBtn = document.getElementById('refreshMatchesBtn');
-const countTotal = document.getElementById('countTotal');
-const countPre = document.getElementById('countPre');
-const countLive = document.getElementById('countLive');
-const countPost = document.getElementById('countPost');
-const matchesLoading = document.getElementById('matchesLoading');
-const matchesListContainer = document.getElementById('matchesListContainer');
-const matchesTableBody = document.getElementById('matchesTableBody');
-
-// DOM Elemanları (Maç Detay Modalı)
-const matchDetailModal = document.getElementById('matchDetailModal');
-const closeDetailModalBtn = document.getElementById('closeDetailModalBtn');
-const closeDetailActionBtn = document.getElementById('closeDetailActionBtn');
-const askAiAboutMatchBtn = document.getElementById('askAiAboutMatchBtn');
-const matchDetailLoading = document.getElementById('matchDetailLoading');
-const matchDetailContent = document.getElementById('matchDetailContent');
-const detailLeagueName = document.getElementById('detailLeagueName');
-const detailMatchTitle = document.getElementById('detailMatchTitle');
-const detailStatusRow = document.getElementById('detailStatusRow');
-const detailHomeXgName = document.getElementById('detailHomeXgName');
-const detailHomeXgVal = document.getElementById('detailHomeXgVal');
-const detailAwayXgName = document.getElementById('detailAwayXgName');
-const detailAwayXgVal = document.getElementById('detailAwayXgVal');
-const detailXgHomeFill = document.getElementById('detailXgHomeFill');
-const detailXgAwayFill = document.getElementById('detailXgAwayFill');
-const detailTotalXg = document.getElementById('detailTotalXg');
-const detailProbsGrid = document.getElementById('detailProbsGrid');
-const detailTopScoresList = document.getElementById('detailTopScoresList');
-const detailTopHtScoresList = document.getElementById('detailTopHtScoresList');
-const detailHtftGrid = document.getElementById('detailHtftGrid');
-const detailFactsGrid = document.getElementById('detailFactsGrid');
-
 // Modül Durum Değişkenleri
 let currentTab = 'chat';
-let currentMatchFilter = 'all';
-let currentMatchCategory = 'all';
-let currentMatchSearch = '';
-let searchDebounceTimeout = null;
-let currentDetailMatch = null;
 let couponsLoaded = false;
-let matchesLoaded = false;
 
 // Başlat
 init();
@@ -133,9 +89,6 @@ function init() {
     bindFootballModule();
     updateView();
     updateApiKeyButtonState();
-
-    // Arka planda maç sayısını çek
-    preloadMatchCount();
 }
 
 function initSidebar() {
@@ -194,7 +147,6 @@ function bindLightbox() {
     window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             if (imageLightbox.classList.contains('active')) closeLightbox();
-            if (matchDetailModal.classList.contains('active')) closeMatchDetail();
         }
     });
 }
@@ -835,94 +787,23 @@ function bindFootballModule() {
     });
 
     // Kupon Butonları
-    refreshCouponsBtn.addEventListener('click', loadCoupons);
-
-    askAiBankoBtn.addEventListener('click', () => {
-        const prompt = 'Günün banko kuponunu taktiksel ve istatistiksel olarak derinlemesine açıkla. Maçların beklenen golleri, risk dağılımı ve nasıl oynanması gerektiği hakkında detay ver.';
-        askAiDirectly(prompt);
-    });
-
-    askAiSurpriseBtn.addEventListener('click', () => {
-        const prompt = 'Günün yüksek değer sürpriz kuponunu analiz et. İY/MS ve ilk yarı tercihlerinin istatistiksel avantajını açıkla. 3-4-5 sistem mi yoksa kombine mi oynamalıyım?';
-        askAiDirectly(prompt);
-    });
-
-    // Bülten Filtre Butonları
-    const stateBtns = stateFilterGroup.querySelectorAll('.filter-btn');
-    stateBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            stateBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            currentMatchFilter = btn.dataset.state;
-            loadMatches();
-        });
-    });
-
-    // Kategori Filtresi
-    categorySelect.addEventListener('change', () => {
-        currentMatchCategory = categorySelect.value;
-        loadMatches();
-    });
-
-    // Arama Girişi
-    matchSearchInput.addEventListener('input', () => {
-        clearTimeout(searchDebounceTimeout);
-        searchDebounceTimeout = setTimeout(() => {
-            currentMatchSearch = matchSearchInput.value.trim();
-            loadMatches();
-        }, 300);
-    });
-
-    refreshMatchesBtn.addEventListener('click', loadMatches);
-
-    // Maç Detay Modalı Kapatma
-    closeDetailModalBtn.addEventListener('click', closeMatchDetail);
-    closeDetailActionBtn.addEventListener('click', closeMatchDetail);
-    matchDetailModal.addEventListener('click', (e) => {
-        if (e.target === matchDetailModal) closeMatchDetail();
-    });
-
-    // Detay Modalından AI'ya Sorma
-    askAiAboutMatchBtn.addEventListener('click', () => {
-        if (!currentDetailMatch) return;
-        const m = currentDetailMatch.match;
-        const prompt = `${m.home} - ${m.away} (${m.league.full}) maçını Poisson beklenen goller, İY/MS ve skor ihtimallerine göre taktiksel olarak analiz et. Bu maç için en mantıklı oyun tavsiyen nedir?`;
-        closeMatchDetail();
-        askAiDirectly(prompt);
-    });
-
-    // Bülten tablosunu fareyle tut sürükle (drag-to-scroll) ile sağa-sola kaydırma
-    if (matchesListContainer) {
-        enableDragScroll(matchesListContainer);
+    if (refreshCouponsBtn) {
+        refreshCouponsBtn.addEventListener('click', loadCoupons);
     }
-}
 
-function enableDragScroll(el) {
-    let isDown = false;
-    let startX;
-    let scrollLeft;
+    if (askAiBankoBtn) {
+        askAiBankoBtn.addEventListener('click', () => {
+            const prompt = 'Günün banko kuponunu taktiksel ve istatistiksel olarak derinlemesine açıkla. Maçların beklenen golleri, risk dağılımı ve nasıl oynanması gerektiği hakkında detay ver.';
+            askAiDirectly(prompt);
+        });
+    }
 
-    el.addEventListener('mousedown', (e) => {
-        if (e.target.closest('button, a, select, input')) return;
-        isDown = true;
-        el.style.cursor = 'grab';
-        startX = e.pageX - el.offsetLeft;
-        scrollLeft = el.scrollLeft;
-    });
-
-    window.addEventListener('mouseup', () => {
-        if (!isDown) return;
-        isDown = false;
-        el.style.cursor = 'default';
-    });
-
-    el.addEventListener('mousemove', (e) => {
-        if (!isDown) return;
-        e.preventDefault();
-        const x = e.pageX - el.offsetLeft;
-        const walk = (x - startX) * 1.6;
-        el.scrollLeft = scrollLeft - walk;
-    });
+    if (askAiSurpriseBtn) {
+        askAiSurpriseBtn.addEventListener('click', () => {
+            const prompt = 'Günün yüksek değer sürpriz kuponunu analiz et. İY/MS ve ilk yarı tercihlerinin istatistiksel avantajını açıkla. 3-4-5 sistem mi yoksa kombine mi oynamalıyım?';
+            askAiDirectly(prompt);
+        });
+    }
 }
 
 function switchTab(tabName) {
@@ -938,9 +819,6 @@ function switchTab(tabName) {
     if (tabName === 'coupons' && !couponsLoaded) {
         loadCoupons();
     }
-    if (tabName === 'matches' && !matchesLoaded) {
-        loadMatches();
-    }
 }
 
 function askAiDirectly(prompt) {
@@ -949,22 +827,6 @@ function askAiDirectly(prompt) {
     adjustTextarea();
     updateSendButtonState();
     submitCurrentMessage();
-}
-
-async function preloadMatchCount() {
-    try {
-        const res = await fetch('/api/football/matches?filter=all');
-        if (res.ok) {
-            const data = await res.json();
-            if (data.counts) {
-                matchCountBadge.textContent = data.counts.total;
-                countTotal.textContent = data.counts.total;
-                countPre.textContent = data.counts.pre;
-                countLive.textContent = data.counts.live;
-                countPost.textContent = data.counts.post;
-            }
-        }
-    } catch (_) {}
 }
 
 // ---------------- Kuponları Yükle & Render Et ----------------
@@ -1054,265 +916,15 @@ function createCouponMatchElement(item, isSurprise) {
         </div>
         <div class="match-item-rationale">${escapeHtml(item.rationale)}</div>
         <div class="match-item-actions">
-            <button type="button" class="btn-item-action btn-detail-action">Detaylı İncele</button>
-            <button type="button" class="btn-item-action btn-ai-action">AI'ya Sor</button>
+            <button type="button" class="btn-item-action btn-ai-action" style="flex: 1;">AI ile Detaylı Analiz Et</button>
         </div>
     `;
 
-    div.querySelector('.btn-detail-action').addEventListener('click', () => {
-        openMatchDetail(m.id);
-    });
-
     div.querySelector('.btn-ai-action').addEventListener('click', () => {
-        const prompt = `${m.home} vs ${m.away} maçı için ${item.label} tercihini taktiksel ve istatistiksel gerekçeleriyle açıkla.`;
+        const prompt = `${m.home} vs ${m.away} (${m.league.full}) maçı için ${item.label} tercihini taktiksel ve istatistiksel gerekçeleriyle detaylı analiz et.`;
         askAiDirectly(prompt);
     });
 
     return div;
 }
 
-// ---------------- Canlı Bülteni Yükle & Render Et ----------------
-async function loadMatches() {
-    matchesLoading.style.display = 'flex';
-    matchesListContainer.style.display = 'none';
-
-    try {
-        const url = `/api/football/matches?filter=${currentMatchFilter}&search=${encodeURIComponent(currentMatchSearch)}&category=${currentMatchCategory}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('Bülten yüklenemedi');
-        const data = await res.json();
-
-        matchesLoaded = true;
-        renderMatchesTable(data);
-    } catch (err) {
-        console.error('Bülten hatası:', err);
-        matchesLoading.innerHTML = `<span>Bülten yüklenirken hata oluştu: ${escapeHtml(err.message)}</span>`;
-    }
-}
-
-function renderMatchesTable(data) {
-    matchesLoading.style.display = 'none';
-    matchesListContainer.style.display = 'block';
-
-    if (data.counts) {
-        countTotal.textContent = data.counts.total;
-        countPre.textContent = data.counts.pre;
-        countLive.textContent = data.counts.live;
-        countPost.textContent = data.counts.post;
-        matchCountBadge.textContent = data.counts.total;
-    }
-
-    matchesTableBody.innerHTML = '';
-    const matches = data.matches || [];
-
-    if (matches.length === 0) {
-        matchesTableBody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted);">Arama kriterlerine uygun maç bulunamadı.</td></tr>`;
-        return;
-    }
-
-    matches.forEach(m => {
-        const tr = document.createElement('tr');
-
-        // Durum rozeti
-        let statusBadge = '';
-        if (m.state === 'live') {
-            statusBadge = `<span class="status-badge status-live"><span class="live-dot"></span>${escapeHtml(m.label || 'Canlı')}</span>`;
-        } else if (m.state === 'post') {
-            statusBadge = `<span class="status-badge status-post">MS</span>`;
-        } else {
-            statusBadge = `<span class="status-badge status-pre">${m.time}</span>`;
-        }
-
-        // Skor
-        const scoreStr = m.score ? `<span class="score-pill">${m.score.h} - ${m.score.a}</span>` : '<span style="color:var(--text-muted);">-</span>';
-
-        // Olasılıklar
-        const p1 = m.probs.ms1;
-        const px = m.probs.msx;
-        const p2 = m.probs.ms2;
-        const maxProb = Math.max(p1, px, p2);
-
-        const u25 = m.probs.ust25;
-        const kg = m.probs.kgv;
-
-        // Gençlik / Kadın etiketleri
-        let tags = '';
-        if (m.youth) tags += `<span class="team-tags tag-youth">U</span>`;
-        if (m.women) tags += `<span class="team-tags tag-women">K</span>`;
-
-        tr.innerHTML = `
-            <td>${statusBadge}</td>
-            <td class="league-tag-cell" title="${escapeHtml(m.league.full)}">${escapeHtml(m.league.name || m.league.country)}</td>
-            <td class="team-cell">${escapeHtml(m.home)}${tags}</td>
-            <td class="score-cell">${scoreStr}</td>
-            <td class="team-cell">${escapeHtml(m.away)}</td>
-            <td class="xg-cell">${m.lh} - ${m.la}</td>
-            <td>
-                <div class="probs-cell">
-                    <span class="prob-chip ${p1 === maxProb ? 'highlight' : ''}" title="MS 1: %${p1}">1: %${p1}</span>
-                    <span class="prob-chip ${px === maxProb ? 'highlight' : ''}" title="MS X: %${px}">X: %${px}</span>
-                    <span class="prob-chip ${p2 === maxProb ? 'highlight' : ''}" title="MS 2: %${p2}">2: %${p2}</span>
-                </div>
-            </td>
-            <td>
-                <div class="probs-cell">
-                    <span class="prob-chip" title="2.5 Üst Olasılığı">2.5Ü: %${u25}</span>
-                    <span class="prob-chip" title="Karşılıklı Gol Var Olasılığı">KG: %${kg}</span>
-                </div>
-            </td>
-            <td>
-                <button type="button" class="btn-detail-table" data-id="${m.id}">İncele</button>
-            </td>
-        `;
-
-        tr.querySelector('.btn-detail-table').addEventListener('click', () => {
-            openMatchDetail(m.id);
-        });
-
-        matchesTableBody.appendChild(tr);
-    });
-}
-
-// ---------------- Maç Detay Modalı ----------------
-async function openMatchDetail(matchId) {
-    matchDetailModal.classList.add('active');
-    matchDetailLoading.style.display = 'flex';
-    matchDetailContent.style.display = 'none';
-
-    try {
-        const res = await fetch(`/api/football/match?id=${matchId}`);
-        if (!res.ok) throw new Error('Maç detayı alınamadı');
-        const data = await res.json();
-
-        currentDetailMatch = data;
-        renderMatchDetail(data);
-    } catch (err) {
-        console.error('Maç detay yükleme hatası:', err);
-        matchDetailLoading.innerHTML = `<span>Detay yüklenemedi: ${escapeHtml(err.message)}</span>`;
-    }
-}
-
-function renderMatchDetail(data) {
-    matchDetailLoading.style.display = 'none';
-    matchDetailContent.style.display = 'flex';
-
-    const m = data.match;
-    const an = data.analysis;
-
-    detailLeagueName.textContent = m.league.full;
-    detailMatchTitle.textContent = `${m.home} vs ${m.away}`;
-    detailStatusRow.textContent = `${m.time} | ${m.state === 'live' ? 'CANLI ' + (m.label || '') : m.state === 'post' ? 'MAÇ SONUCU' : 'Yaklaşan'}`;
-
-    // xG Beklenen Goller
-    const xgH = an.expectedGoals.home;
-    const xgA = an.expectedGoals.away;
-    const xgTot = an.expectedGoals.total;
-
-    detailHomeXgName.textContent = m.home;
-    detailHomeXgVal.textContent = xgH.toFixed(2);
-    detailAwayXgName.textContent = m.away;
-    detailAwayXgVal.textContent = xgA.toFixed(2);
-    detailTotalXg.textContent = xgTot.toFixed(2);
-
-    const homeShare = xgTot > 0 ? (xgH / xgTot) * 100 : 50;
-    detailXgHomeFill.style.width = homeShare + '%';
-    detailXgAwayFill.style.width = (100 - homeShare) + '%';
-
-    // Temel Olasılıklar Izgarası
-    detailProbsGrid.innerHTML = '';
-    const probKeys = [
-        { k: 'ms1', label: 'MS 1' },
-        { k: 'msx', label: 'MS X' },
-        { k: 'ms2', label: 'MS 2' },
-        { k: 'dc1x', label: 'Çifte Şans 1-X' },
-        { k: 'dcx2', label: 'Çifte Şans X-2' },
-        { k: 'ust15', label: '1,5 Üst' },
-        { k: 'ust25', label: '2,5 Üst' },
-        { k: 'alt25', label: '2,5 Alt' },
-        { k: 'kgv', label: 'KG Var' },
-        { k: 'kgy', label: 'KG Yok' },
-        { k: 'iy1', label: 'İY 1' },
-        { k: 'iyust05', label: 'İY 0,5 Üst' }
-    ];
-
-    probKeys.forEach(pk => {
-        const pObj = an.probabilities[pk.k];
-        if (!pObj) return;
-        const item = document.createElement('div');
-        item.className = 'prob-meter-item';
-        item.innerHTML = `
-            <div class="prob-meter-label">${escapeHtml(pk.label)}</div>
-            <div class="prob-meter-bar-wrap">
-                <div class="prob-meter-bar-fill" style="width: ${pObj.pct}%;"></div>
-            </div>
-            <div class="prob-meter-val">%${pObj.pct}</div>
-        `;
-        detailProbsGrid.appendChild(item);
-    });
-
-    // En Olası Skorlar
-    detailTopScoresList.innerHTML = '';
-    (an.topScores || []).forEach(sc => {
-        const pill = document.createElement('div');
-        pill.className = 'score-tag-pill';
-        pill.innerHTML = `<span>Skor <strong>${sc.s}</strong></span> <span style="color:var(--text-muted);">%${Math.round(sc.p * 100)}</span>`;
-        detailTopScoresList.appendChild(pill);
-    });
-
-    detailTopHtScoresList.innerHTML = '';
-    (an.topHtScores || []).forEach(sc => {
-        const pill = document.createElement('div');
-        pill.className = 'score-tag-pill';
-        pill.innerHTML = `<span>İY <strong>${sc.s}</strong></span> <span style="color:var(--text-muted);">%${Math.round(sc.p * 100)}</span>`;
-        detailTopHtScoresList.appendChild(pill);
-    });
-
-    // İY / MS Matrisi (9 Sonuç)
-    detailHtftGrid.innerHTML = '';
-    const htftOrder = ['1/1', '1/X', '1/2', 'X/1', 'X/X', 'X/2', '2/1', '2/X', '2/2'];
-    htftOrder.forEach(key => {
-        const pObj = an.probabilities['htft_' + key];
-        const pct = pObj ? pObj.pct : 0;
-        const cell = document.createElement('div');
-        cell.className = 'htft-cell' + (pct >= 20 ? ' top-pick' : '');
-        cell.innerHTML = `<span>${key}</span> <strong>%${pct}</strong>`;
-        detailHtftGrid.appendChild(cell);
-    });
-
-    // Takım Form ve İstatistikleri
-    if (an.facts && an.facts.home && an.facts.away) {
-        document.getElementById('detailFactsCard').style.display = 'flex';
-        detailFactsGrid.innerHTML = '';
-
-        [
-            { title: m.home, fact: an.facts.home },
-            { title: m.away, fact: an.facts.away }
-        ].forEach(({ title, fact }) => {
-            const card = document.createElement('div');
-            card.className = 'fact-team-card';
-
-            const formPills = (fact.form || '').split('').map(f => `<span class="form-pill ${f}">${f}</span>`).join('');
-            const sonList = (fact.son || []).slice(0, 4).map(s => `<span>• ${escapeHtml(s)}</span>`).join('');
-
-            card.innerHTML = `
-                <div style="font-weight:600;color:var(--text-primary);">${escapeHtml(title)}</div>
-                <div class="fact-form-row">${formPills || '<span style="color:var(--text-muted);">-</span>'}</div>
-                <div style="color:var(--text-secondary);font-size:0.74rem;">
-                    Gol Ort: <strong>${fact.gf || 0}</strong> atılan / <strong>${fact.ga || 0}</strong> yenilen
-                </div>
-                <div style="color:var(--text-secondary);font-size:0.74rem;">
-                    2.5 Üst Oranı: <strong>%${Math.round((fact.over25 || 0) * 100)}</strong> | KG Var: <strong>%${Math.round((fact.btts || 0) * 100)}</strong>
-                </div>
-                <div class="fact-matches-mini">${sonList}</div>
-            `;
-            detailFactsGrid.appendChild(card);
-        });
-    } else {
-        document.getElementById('detailFactsCard').style.display = 'none';
-    }
-}
-
-function closeMatchDetail() {
-    matchDetailModal.classList.remove('active');
-    currentDetailMatch = null;
-}
