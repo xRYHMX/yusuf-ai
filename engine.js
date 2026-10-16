@@ -199,10 +199,25 @@ function dcGrid(lh, la, N = 9, rho = -0.06) {
     return G;
 }
 
-function computeMarkets(lh, la, sh, sa) {
-    const lh1 = lh * sh, la1 = la * sa, lh2 = lh - lh1, la2 = la - la1;
+// Dinamik Dixon-Coles korelasyon parametresi (ρ): Düşük skorlu/kilitli maçlarda beraberlik ve 1-0/0-1 yapışkanlığını artırır
+function computeDynamicRho(lh, la, homeFacts, awayFacts) {
+    const tot = lh + la;
+    const diff = Math.abs(lh - la);
+    let rho = -0.075;
+    if (tot < 2.25) rho -= 0.045;
+    else if (tot > 3.15) rho += 0.035;
+    if (diff < 0.25) rho -= 0.025;
+    if (homeFacts && awayFacts) {
+        if ((homeFacts.cleanSheetPct || 0) >= 40 && (awayFacts.cleanSheetPct || 0) >= 40) rho -= 0.025;
+        if ((homeFacts.btts || 0) >= 0.68 && (awayFacts.btts || 0) >= 0.68) rho += 0.02;
+    }
+    return Math.max(-0.16, Math.min(-0.02, rho));
+}
+
+function computeMarkets(lh, la, sh, sa, rho = -0.08) {
+    const lh1 = lh * sh, la1 = la * sa, lh2 = Math.max(0.05, lh - lh1), la2 = Math.max(0.05, la - la1);
     const L1 = lh1 + la1, L2 = lh2 + la2;
-    const N = 9, G = dcGrid(lh, la, N);
+    const N = 9, G = dcGrid(lh, la, N, rho);
     const p = {};
     let w = 0, d = 0, a = 0, ov = [0, 0, 0], kg = 0;
     let ms1Ust25 = 0, ms2Ust25 = 0, ms1Kgv = 0, ms2Kgv = 0, msxKgv = 0, ust25Kgv = 0;
@@ -248,10 +263,18 @@ function computeMarkets(lh, la, sh, sa) {
     p.msskor_2_1 = G[2][1]; p.msskor_1_2 = G[1][2]; p.msskor_2_2 = G[2][2];
     p.msskor_3_1 = G[3][1]; p.msskor_1_3 = G[1][3];
 
-    // Devreler (bağımsız Poisson)
+    // Devreler (1. yarı Dixon-Coles kalibrasyonlu matris + 2. yarı matrisi)
     const pt1 = pmfArr(L1, 14), pt2 = pmfArr(L2, 14);
-    p.iyalt05 = pt1[0]; p.iyust05 = 1 - pt1[0]; p.iyalt15 = pt1[0] + pt1[1]; p.iyust15 = 1 - p.iyalt15;
-    p.iykgv = (1 - Math.exp(-lh1)) * (1 - Math.exp(-la1));
+    const N1 = 7;
+    const G1 = dcGrid(lh1, la1, N1, rho * 0.65);
+    const P2 = pmfArr(lh2, N1), Q2 = pmfArr(la2, N1);
+
+    p.iyalt05 = G1[0][0]; p.iyust05 = 1 - G1[0][0];
+    p.iyalt15 = G1[0][0] + G1[1][0] + G1[0][1]; p.iyust15 = 1 - p.iyalt15;
+
+    let iyKg = 0;
+    for (let i = 1; i <= N1; i++) for (let j = 1; j <= N1; j++) iyKg += G1[i][j];
+    p.iykgv = iyKg;
     p.y2kgv = (1 - Math.exp(-lh2)) * (1 - Math.exp(-la2));
     p.y2ust05 = 1 - pt2[0]; p.y2ust15 = 1 - pt2[0] - pt2[1];
     p.ikiyari_gol = p.iyust05 * p.y2ust05;
@@ -260,18 +283,16 @@ function computeMarkets(lh, la, sh, sa) {
     for (let i = 0; i <= 14; i++) for (let j = 0; j <= 14; j++) { const q = pt1[i] * pt2[j]; if (i > j) y1 += q; else if (i < j) y2 += q; else yx += q; }
     p.yari1 = y1; p.yari2 = y2; p.yarix = yx;
 
-    // İY sonucu, İY kesin skorlar ve İY/MS (2. yarı farkı Skellam ile)
-    const N1 = 8, P1 = pmfArr(lh1, N1), Q1 = pmfArr(la1, N1);
-    const P2 = pmfArr(lh2, N1), Q2 = pmfArr(la2, N1);
-    p.iyskor_1_0 = P1[1] * Q1[0]; p.iyskor_0_1 = P1[0] * Q1[1]; p.iyskor_1_1 = P1[1] * Q1[1];
-    p.iyskor_2_0 = P1[2] * Q1[0]; p.iyskor_0_2 = P1[0] * Q1[2];
+    // İY kesin skorlar (Dixon-Coles 1. yarı matrisinden)
+    p.iyskor_1_0 = G1[1][0]; p.iyskor_0_1 = G1[0][1]; p.iyskor_1_1 = G1[1][1];
+    p.iyskor_2_0 = G1[2][0]; p.iyskor_0_2 = G1[0][2];
 
     const D2 = {};
     for (let i = 0; i <= N1; i++) for (let j = 0; j <= N1; j++) D2[i - j] = (D2[i - j] || 0) + P2[i] * Q2[j];
     const htft = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], htScores = [];
     const iyo = [0, 0, 0];
     for (let i = 0; i <= N1; i++) for (let j = 0; j <= N1; j++) {
-        const q = P1[i] * Q1[j], ho = outcome3(i - j);
+        const q = G1[i][j], ho = outcome3(i - j);
         iyo[ho] += q; htScores.push({ s: i + '-' + j, p: q });
         for (const dk of Object.keys(D2)) htft[ho][outcome3(i - j + +dk)] += q * D2[dk];
     }
@@ -286,10 +307,10 @@ function computeMarkets(lh, la, sh, sa) {
     p.iy1 = iyo[0] / si; p.iyx = iyo[1] / si; p.iy2 = iyo[2] / si;
 
     scores.sort((x, y) => y.p - x.p); htScores.sort((x, y) => y.p - x.p);
-    return { p, topScores: scores.slice(0, 3), topHtScores: htScores.slice(0, 2), lh1, la1, lh2, la2 };
+    return { p, topScores: scores.slice(0, 3), topHtScores: htScores.slice(0, 2), lh1, la1, lh2, la2, rho: +rho.toFixed(3) };
 }
 
-// ---------------- Derin Takım Özeti (Ev/Dep Karnesi & Maç Senaryosu) ----------------
+// ---------------- Derin Takım Özeti (Ev/Dep Karnesi, Senaryo & İstikrar Endeksi) ----------------
 function teamFacts(t) {
     if (!t) return null;
     const last = t.last.slice(0, 10);
@@ -307,6 +328,24 @@ function teamFacts(t) {
     const comebackPct = htTrails.length ? Math.round((htTrails.filter(x => x.gf >= x.ga).length / htTrails.length) * 100) : null;
     const cleanSheetPct = last.length ? Math.round((last.filter(x => x.ga === 0).length / last.length) * 100) : 0;
 
+    // 2. Yarı gol üretimi ve yeme ortalamaları
+    const gf2 = r1(avg(last, x => Math.max(0, x.gf - (x.ht ? x.ht.h : 0))));
+    const ga2 = r1(avg(last, x => Math.max(0, x.ga - (x.ht ? x.ht.a : 0))));
+
+    // İstikrar / Varyans (Sürpriz Yumurtlama) Endeksi:
+    // Maç başı toplam gol ve averaj sapması ne kadar düşükse takım o kadar istikrarlıdır (Banko için ideal)
+    let consistencyPct = 70;
+    let volatilityPct = 30;
+    if (last.length >= 4) {
+        const meanGd = avg(last, x => x.gf - x.ga) || 0;
+        const meanTot = avg(last, x => x.gf + x.ga) || 2.5;
+        const varGd = avg(last, x => Math.pow((x.gf - x.ga) - meanGd, 2)) || 1.5;
+        const varTot = avg(last, x => Math.pow((x.gf + x.ga) - meanTot, 2)) || 2.0;
+        const stdCombined = Math.sqrt(0.6 * varGd + 0.4 * varTot);
+        consistencyPct = Math.round(Math.max(35, Math.min(94, 98 - stdCombined * 18)));
+        volatilityPct = 100 - consistencyPct;
+    }
+
     return {
         n: t.n,
         hn: t.hn,
@@ -323,15 +362,284 @@ function teamFacts(t) {
         awayGa: r1(avg(awayGames, x => x.ga)),
         gf1: r1(avg(last, x => x.ht.h)),
         ga1: r1(avg(last, x => x.ht.a)),
+        gf2,
+        ga2,
         over25: r1(avg(last, x => (x.gf + x.ga > 2.5 ? 1 : 0))),
         btts: r1(avg(last, x => (x.gf > 0 && x.ga > 0 ? 1 : 0))),
         iyGol: r1(avg(last, x => (x.ht.h + x.ht.a > 0 ? 1 : 0))),
         cleanSheetPct,
         leadHoldPct,
         comebackPct,
+        consistencyPct,
+        volatilityPct,
         son: t.last.slice(0, 5).map(x => `${x.home ? 'E' : 'D'} ${x.opp} ${x.gf}-${x.ga}`),
         homeSon: homeGames.slice(0, 4).map(x => `${x.opp} ${x.gf}-${x.ga}`),
         awaySon: awayGames.slice(0, 4).map(x => `${x.opp} ${x.gf}-${x.ga}`)
+    };
+}
+
+// ---------------- Fikstür Yorgunluğu & Dinlenme Günü Analizi ----------------
+function computeRestAndFatigue(t, matchDateIso) {
+    if (!t || !t.last || !t.last.length || !matchDateIso) {
+        return { restDays: null, gamesLast10d: 0, isFatigued: false, isFresh: false, attMod: 1.0, dfnMod: 1.0, shMod: 0, label: 'Normal Fikstür' };
+    }
+    const targetMs = new Date(matchDateIso + 'T12:00:00Z').getTime();
+    const lastMs = new Date(t.last[0].date + 'T12:00:00Z').getTime();
+    const restDays = Math.max(1, Math.round((targetMs - lastMs) / 86400000));
+
+    let gamesLast10d = 0;
+    for (const g of t.last) {
+        const d = Math.round((targetMs - new Date(g.date + 'T12:00:00Z').getTime()) / 86400000);
+        if (d > 0 && d <= 10) gamesLast10d++;
+    }
+
+    let attMod = 1.0, dfnMod = 1.0, shMod = 0;
+    let isFatigued = false, isFresh = false;
+    let label = `${restDays} gün dinlenme`;
+
+    if (restDays <= 3 || gamesLast10d >= 3) {
+        isFatigued = true;
+        attMod = restDays <= 2 ? 0.94 : 0.965;
+        dfnMod = restDays <= 2 ? 1.07 : 1.045; // Yorgun savunma özellikle 2. yarıda daha çok pozisyon verir
+        shMod = -0.025; // Gollerin 2. yarıya kayması
+        label = gamesLast10d >= 3
+            ? `⚠️ Sıkışık Fikstür (10 günde ${gamesLast10d} maç, son maç ${restDays}g önce)`
+            : `⚠️ Yorgunluk Riski (Son maç ${restDays} gün önce)`;
+    } else if (restDays >= 6 && restDays <= 9 && gamesLast10d <= 1) {
+        isFresh = true;
+        attMod = 1.02;
+        dfnMod = 0.985;
+        label = `🔋 Dinç Kadro (${restDays} gün dinlenme)`;
+    }
+
+    return { restDays, gamesLast10d, isFatigued, isFresh, attMod, dfnMod, shMod, label };
+}
+
+// ---------------- Takım Taktik Kimliği (Tactical DNA) & Eşleşme Çarpışması ----------------
+function computeTacticalDNA(t, facts, isHomeTeam) {
+    if (!t || !facts) return { tags: ['Dengeli'], codes: new Set() };
+    const tags = [];
+    const codes = new Set();
+
+    const splitGf = isHomeTeam ? (facts.homeGf ?? facts.gf) : (facts.awayGf ?? facts.gf);
+    const splitGa = isHomeTeam ? (facts.homeGa ?? facts.ga) : (facts.awayGa ?? facts.ga);
+
+    if ((facts.gf1 || 0) >= 0.80 || ((facts.iyGol || 0) >= 0.78 && (facts.gf1 || 0) >= 0.65)) {
+        tags.push('⚡ Erken Baskıcı');
+        codes.add('early_press');
+    }
+    if ((facts.btts || 0) >= 0.65 && (facts.gf || 0) >= 1.30 && (facts.ga || 0) >= 1.25) {
+        tags.push('🔥 Açık Savunma (Atıp Yiyen)');
+        codes.add('glass_cannon');
+    }
+    if ((facts.ga || 0) <= 0.92 || (facts.cleanSheetPct || 0) >= 44) {
+        tags.push('🧱 Kilitli Savunma');
+        codes.add('low_block');
+    }
+    if ((facts.gf2 || 0) >= 1.05 && (facts.gf2 || 0) > (facts.gf1 || 0) * 1.45) {
+        tags.push('🚀 2. Yarı Açılan');
+        codes.add('second_half_surge');
+    }
+    if (isHomeTeam && (splitGf || 0) >= 1.95) {
+        tags.push('👑 İç Saha Dominant');
+        codes.add('home_fortress');
+    } else if (!isHomeTeam && (splitGf || 0) >= 1.55) {
+        tags.push('🗡️ Deplasman Tehlikesi');
+        codes.add('away_threat');
+    }
+    if ((facts.leadHoldPct || 0) >= 82) {
+        tags.push('🛡️ Skoru Koruyan');
+        codes.add('lead_holder');
+    } else if ((facts.comebackPct || 0) >= 45) {
+        tags.push('🔄 Geri Dönüşçü');
+        codes.add('comeback_king');
+    }
+    if ((facts.ga1 || 0) >= 0.75) {
+        codes.add('early_conceder');
+    }
+    if ((facts.ga2 || 0) >= 1.0) {
+        codes.add('late_conceder');
+    }
+
+    if (!tags.length) tags.push('⚖️ Dengeli Oyun');
+    return { tags: tags.slice(0, 3), codes, splitGf, splitGa };
+}
+
+function analyzeTacticalClash(m, dnaH, dnaA, restH, restA) {
+    const boosts = {};
+    const notes = [];
+
+    // 1. İki açık savunmalı / atıp yiyen takım çarpışması
+    if (dnaH.codes.has('glass_cannon') && dnaA.codes.has('glass_cannon')) {
+        boosts.ust25_kgv = 1.18;
+        boosts.ms1_kgv = 1.15;
+        boosts.ms2_kgv = 1.15;
+        boosts.tg46 = 1.16;
+        boosts.iykgv = 1.14;
+        notes.push('İki takım da "Açık Savunma (Atıp Yiyen)" kimliğinde -> KG Var & Üst / Gollü Kombinasyonlara ekstra uygun');
+    }
+
+    // 2. Erken baskıcı takım vs İlk yarıda gol yiyen takım
+    if (dnaH.codes.has('early_press') && (dnaA.codes.has('early_conceder') || dnaA.codes.has('glass_cannon'))) {
+        boosts.iyust15 = 1.15;
+        boosts.htft_1_1 = 1.14;
+        boosts.iyskor_1_0 = 1.14;
+        notes.push(`${m.home} maça hızlı başlıyor, ${m.away} ilk devrede açık veriyor -> İlk yarı gol / İY 1 fırsatı`);
+    } else if (dnaA.codes.has('early_press') && (dnaH.codes.has('early_conceder') || dnaH.codes.has('glass_cannon'))) {
+        boosts.iyust15 = 1.15;
+        boosts.htft_2_2 = 1.14;
+        boosts.iyskor_0_1 = 1.14;
+        notes.push(`${m.away} deplasmanda erken baskı kuruyor -> İlk yarı sürpriz gol fırsatı`);
+    }
+
+    // 3. Her iki takım da erken baskıcıysa -> İlk Yarı KG Var & İY 1,5 Üst
+    if (dnaH.codes.has('early_press') && dnaA.codes.has('early_press')) {
+        boosts.iykgv = 1.20;
+        boosts.iyust15 = 1.18;
+        boosts.iyskor_1_1 = 1.18;
+        notes.push('İki takım da "Erken Baskıcı" -> İlk Yarı KG Var ve İY 1,5 Üst potansiyeli çok yüksek');
+    }
+
+    // 4. 2. Yarı açılan takımlar veya yorgun rakip -> 2. Yarı KG Var / İY X
+    if (dnaH.codes.has('second_half_surge') || dnaA.codes.has('second_half_surge') || restH.isFatigued || restA.isFatigued) {
+        boosts.y2kgv = 1.16;
+        boosts.htft_X_1 = 1.12;
+        boosts.htft_X_2 = 1.12;
+        if (restH.isFatigued && !restA.isFatigued) {
+            notes.push(`${m.home} sıkışık fikstürden geliyor (${restH.restDays}g dinlenme), 2. yarıda oyundan düşebilir`);
+        } else if (restA.isFatigued && !restH.isFatigued) {
+            notes.push(`${m.away} yorgun fikstürde (${restA.restDays}g dinlenme), ${m.home} 2. yarıda kilidi açmaya aday`);
+        } else {
+            notes.push('Takımların gol üretimi 2. yarıda patlama yapıyor -> 2. Yarı gol / KG seçenekleri değerli');
+        }
+    }
+
+    // 5. İki kilitli savunma
+    if (dnaH.codes.has('low_block') && dnaA.codes.has('low_block')) {
+        boosts.alt25 = 1.12;
+        boosts.kgy = 1.12;
+        notes.push('İki "Kilitli Savunma" karşı karşıya -> Düşük tempo ve kontrollü oyun');
+    }
+
+    return {
+        homeTags: dnaH.tags,
+        awayTags: dnaA.tags,
+        boosts,
+        clashSummary: notes.length ? notes.join(' | ') : `${m.home} [${dnaH.tags.join(', ')}] vs ${m.away} [${dnaA.tags.join(', ')}]`
+    };
+}
+
+// ---------------- Kadro, Gol Dağılımı & Sakat/Eksik Oyuncu Etkisi ----------------
+function computeRosterImpact(m, intel, homeFacts, awayFacts) {
+    let modH = 1.0, modA = 1.0;
+    const notes = [];
+    if (!intel) return { modH, modA, summary: null };
+
+    // Sakat veya cezalı sayısı etkisi
+    const hInj = intel.homeInjuries || [];
+    const aInj = intel.awayInjuries || [];
+    if (hInj.length >= 2) {
+        modH *= Math.max(0.92, 1 - hInj.length * 0.018);
+        notes.push(`${m.home} eksik/sakat: ${hInj.slice(0, 3).join(', ')}`);
+    }
+    if (aInj.length >= 2) {
+        modA *= Math.max(0.92, 1 - aInj.length * 0.018);
+        notes.push(`${m.away} eksik/sakat: ${aInj.slice(0, 3).join(', ')}`);
+    }
+
+    // Gol kralı bağımlılığı ve kadro kontrolü
+    if (intel.homeTopScorer && intel.homeTopGoals >= 3) {
+        const scorerName = intel.homeTopScorer.toLowerCase();
+        const isInjured = hInj.some(x => x.toLowerCase().includes(scorerName));
+        const isOutXi = intel.lineup?.hasLineup && !intel.lineup.homeXi.some(p => p.toLowerCase().includes(scorerName.split(' ').pop()));
+        if (isInjured || isOutXi) {
+            modH *= 0.91;
+            notes.push(`⚠️ ${m.home} en golcü ismi ${intel.homeTopScorer} (${intel.homeTopGoals} gol) ilk 11'de yok/eksik!`);
+        }
+    }
+    if (intel.awayTopScorer && intel.awayTopGoals >= 3) {
+        const scorerName = intel.awayTopScorer.toLowerCase();
+        const isInjured = aInj.some(x => x.toLowerCase().includes(scorerName));
+        const isOutXi = intel.lineup?.hasLineup && !intel.lineup.awayXi.some(p => p.toLowerCase().includes(scorerName.split(' ').pop()));
+        if (isInjured || isOutXi) {
+            modA *= 0.91;
+            notes.push(`⚠️ ${m.away} en golcü ismi ${intel.awayTopScorer} (${intel.awayTopGoals} gol) ilk 11'de yok/eksik!`);
+        }
+    }
+
+    return { modH, modA, summary: notes.length ? notes.join(' | ') : null };
+}
+
+// ---------------- Canlı Maç (In-Play) Kalan Süre & Baskı Motoru ----------------
+function analyzeLiveState(m, preLh, preLa) {
+    if (!m || m.state !== 'live' || !m.score) return null;
+    const gh = m.score.h || 0, ga = m.score.a || 0;
+    const rawLabel = String(m.label || '').trim();
+    let minute = 45;
+    if (/^\d+/.test(rawLabel)) {
+        minute = Math.min(89, Math.max(1, parseInt(rawLabel, 10)));
+    } else if (rawLabel.toUpperCase().includes('İY') || rawLabel.toUpperCase().includes('HT')) {
+        minute = 45;
+    }
+
+    const remFraction = Math.max(0.06, (90 - minute) / 90);
+    // Skor durumuna göre kalan süredeki aciliyet (geride olan favori baskıyı artırır)
+    let urgH = 1.0, urgA = 1.0;
+    if (gh < ga && preLh > preLa) urgH = 1.24;
+    else if (ga < gh && preLa > preLh) urgA = 1.24;
+    else if (gh === ga && minute >= 60) {
+        if (preLh > preLa * 1.3) urgH = 1.15;
+        if (preLa > preLh * 1.3) urgA = 1.15;
+    }
+
+    const remLh = Math.max(0.04, preLh * Math.pow(remFraction, 0.92) * urgH);
+    const remLa = Math.max(0.04, preLa * Math.pow(remFraction, 0.92) * urgA);
+    const remTot = remLh + remLa;
+
+    const remOver05 = 1 - Math.exp(-remTot);
+    const remOver15 = 1 - Math.exp(-remTot) * (1 + remTot);
+    const nextGoalHome = remOver05 * (remLh / remTot);
+    const nextGoalAway = remOver05 * (remLa / remTot);
+
+    // Kalan süre skor dağılımından maç sonu canlı olasılıkları
+    const ph = pmfArr(remLh, 6), pa = pmfArr(remLa, 6);
+    let lw = 0, ld = 0, la = 0, lkg = 0;
+    for (let i = 0; i <= 6; i++) {
+        for (let j = 0; j <= 6; j++) {
+            const q = ph[i] * pa[j];
+            const fh = gh + i, fa = ga + j;
+            if (fh > fa) lw += q;
+            else if (fh === fa) ld += q;
+            else la += q;
+            if (fh > 0 && fa > 0) lkg += q;
+        }
+    }
+
+    let bestLivePick = `Kalan Sürede +0,5 Gol (${Math.round(remOver05 * 100)}%)`;
+    if (remOver05 >= 0.72) {
+        bestLivePick = `🔥 Canlı Sıradaki Gol Var / +0,5 Üst (%${Math.round(remOver05 * 100)})`;
+    } else if (gh < ga && lw + ld >= 0.52) {
+        bestLivePick = `⚡ ${m.home} Çifte Şans 1X / Geri Dönüş (%${Math.round((lw + ld) * 100)})`;
+    } else if (lw >= 0.68 && gh === ga) {
+        bestLivePick = `🎯 Canlı MS 1 (${m.home} Kazanır %${Math.round(lw * 100)})`;
+    } else if (la >= 0.68 && gh === ga) {
+        bestLivePick = `🎯 Canlı MS 2 (${m.away} Kazanır %${Math.round(la * 100)})`;
+    }
+
+    return {
+        minute,
+        currentScore: `${gh}-${ga}`,
+        remLh: +remLh.toFixed(2),
+        remLa: +remLa.toFixed(2),
+        remOver05: Math.round(remOver05 * 100),
+        remOver15: Math.round(remOver15 * 100),
+        nextGoalHome: Math.round(nextGoalHome * 100),
+        nextGoalAway: Math.round(nextGoalAway * 100),
+        liveMs1: Math.round(lw * 100),
+        liveMsX: Math.round(ld * 100),
+        liveMs2: Math.round(la * 100),
+        liveKgv: Math.round(lkg * 100),
+        bestLivePick
     };
 }
 
@@ -458,12 +766,15 @@ function computeFormMomentum(t) {
     return Math.min(1.10, Math.max(0.90, raw));
 }
 
-// ---------------- %100 Bağımsız Çok Katmanlı Maç Analizi ----------------
+// ---------------- %100 Bağımsız 10 Katmanlı Derin Maç Analizi ----------------
 function analyze(model, m, opts = {}) {
     const intel = opts.intel || m.intel || null;
     const th = model.teams.get(m.homeId), ta = model.teams.get(m.awayId);
     const L = model.lgStat(m.league.id), g = model.glob;
     const nh = th ? th.n : 0, na = ta ? ta.n : 0;
+
+    const homeFacts = teamFacts(th);
+    const awayFacts = teamFacts(ta);
 
     // 1. Katman: Genel + Ev/Deplasman Ayrı Hücum ve Savunma Güçleri
     const K_GEN = 4, K_SPLIT = 3;
@@ -496,7 +807,18 @@ function analyze(model, m, opts = {}) {
     lh *= h2hCommon.h2hModH * h2hCommon.commonModH;
     la *= h2hCommon.h2hModA * h2hCommon.commonModA;
 
-    // 4. Katman: Puan Durumu / Sıralama Farkı Etkisi (ESPN Standings varsa)
+    // 4. Katman: Fikstür Yorgunluğu ve Dinlenme Günleri (Rest Days & Congestion)
+    const restH = computeRestAndFatigue(th, m.date);
+    const restA = computeRestAndFatigue(ta, m.date);
+    lh *= restH.attMod * restA.dfnMod;
+    la *= restA.attMod * restH.dfnMod;
+
+    // 5. Katman: Kadro, Gol Kralı Bağımlılığı ve Sakat/Eksik Oyuncu Etkisi
+    const rosterImpact = computeRosterImpact(m, intel, homeFacts, awayFacts);
+    lh *= rosterImpact.modH;
+    la *= rosterImpact.modA;
+
+    // 6. Katman: Puan Durumu / Sıralama Farkı Etkisi (ESPN Standings varsa)
     if (intel && intel.standings && intel.standings.home && intel.standings.away) {
         const sh = intel.standings.home, sa = intel.standings.away;
         if (sh.gp >= 3 && sa.gp >= 3) {
@@ -506,7 +828,7 @@ function analyze(model, m, opts = {}) {
         }
     }
 
-    // 5. Katman: Maç Saati Hava Durumu ve Zemin Şartları Etkisi (Open-Meteo)
+    // 7. Katman: Maç Saati Hava Durumu ve Zemin Şartları Etkisi (Open-Meteo)
     if (intel && intel.weather && intel.weather.xgMod) {
         lh *= intel.weather.xgMod;
         la *= intel.weather.xgMod;
@@ -515,17 +837,24 @@ function analyze(model, m, opts = {}) {
     lh = Math.min(3.75, Math.max(0.25, lh));
     la = Math.min(3.75, Math.max(0.25, la));
 
-    // NOT: İddaa oranları (m.odds) tahmin hesabına KARIŞMAZ (%100 bağımsız kendi analizimiz).
-    // Sadece maçın resmi İddaa bülteninde olup olmadığını (inBulletin) doğrulamak için tutulur.
     const inBulletin = Boolean(m.inBulletin);
 
-    // 6. Katman: Devre Gol Payları (İç saha ve dış saha ilk yarı gol karakteri)
+    // 8. Katman: Devre Gol Payları + Yorgunluk Kayması + Dinamik Dixon-Coles (ρ)
     const shHome = (t) => (t ? (t.hgf1 + t.gf1 + 6 * L.s1) / (t.hgf + t.gf + 6) : L.s1);
     const shAway = (t) => (t ? (t.agf1 + t.gf1 + 6 * L.s1) / (t.agf + t.gf + 6) : L.s1);
-    const shareH = 0.5 * (shHome(th) + (ta ? (ta.aga1 + ta.ga1 + 6 * L.s1) / (ta.aga + ta.ga + 6) : L.s1));
-    const shareA = 0.5 * (shAway(ta) + (th ? (th.hga1 + th.ga1 + 6 * L.s1) / (th.hga + th.ga + 6) : L.s1));
+    const shareH = 0.5 * (shHome(th) + (ta ? (ta.aga1 + ta.ga1 + 6 * L.s1) / (ta.aga + ta.ga + 6) : L.s1)) + restA.shMod;
+    const shareA = 0.5 * (shAway(ta) + (th ? (th.hga1 + th.ga1 + 6 * L.s1) / (th.hga + th.ga + 6) : L.s1)) + restH.shMod;
     const clamp = (v) => Math.min(0.62, Math.max(0.28, v));
-    const mkts = computeMarkets(lh, la, clamp(shareH), clamp(shareA));
+    const dynRho = computeDynamicRho(lh, la, homeFacts, awayFacts);
+    const mkts = computeMarkets(lh, la, clamp(shareH), clamp(shareA), dynRho);
+
+    // 9. Katman: Takım Taktik Kimliği (Tactical DNA) ve Eşleşme Çarpışması
+    const dnaH = computeTacticalDNA(th, homeFacts, true);
+    const dnaA = computeTacticalDNA(ta, awayFacts, false);
+    const tactical = analyzeTacticalClash(m, dnaH, dnaA, restH, restA);
+
+    // 10. Katman: Canlı Maç (In-Play) Motoru (Maç oynanıyorsa)
+    const liveState = m.state === 'live' ? analyzeLiveState(m, lh, la) : null;
 
     // Veri kalitesi: Takımların oynadığı maç sayısına ve İddaa bülteninde yer almasına göre
     const quality = inBulletin && Math.min(nh, na) >= 6 && L.n >= 20
@@ -534,11 +863,13 @@ function analyze(model, m, opts = {}) {
             ? 'B'
             : 'C';
 
-    const homeFacts = opts.facts ? teamFacts(th) : undefined;
-    const awayFacts = opts.facts ? teamFacts(ta) : undefined;
+    const avgConsistency = (homeFacts && awayFacts)
+        ? Math.round((homeFacts.consistencyPct + awayFacts.consistencyPct) / 2)
+        : 70;
 
     return {
         lh, la, quality,
+        rho: mkts.rho,
         marketUsed: inBulletin,
         p: mkts.p,
         topScores: mkts.topScores,
@@ -546,6 +877,12 @@ function analyze(model, m, opts = {}) {
         nh, na, leagueN: L.n,
         momH: +momH.toFixed(2),
         momA: +momA.toFixed(2),
+        restH,
+        restA,
+        tactical,
+        rosterSummary: rosterImpact.summary,
+        avgConsistency,
+        liveState,
         h2hSummary: h2hCommon.h2hSummary,
         commonSummary: h2hCommon.commonSummary,
         intel: intel || null,
@@ -594,98 +931,105 @@ function generateRationale(pk, m, an) {
         : an.h2hSummary
             ? ` [${an.h2hSummary}]`
             : '';
+    const dnaNote = an.tactical
+        ? ` 🧬 Kimlik: ${m.home} (${an.tactical.homeTags[0]}) vs ${m.away} (${an.tactical.awayTags[0]}).`
+        : '';
+    const fatigueNote = (an.restH?.isFatigued || an.restA?.isFatigued)
+        ? ` ⏱️ ${an.restH?.isFatigued ? m.home + ' ' + an.restH.label : m.away + ' ' + an.restA.label}.`
+        : '';
     const weatherNote = an.intel?.weather
         ? ` 🌤️ ${an.intel.weather.city}: ${an.intel.weather.temp}°C (${an.intel.weather.condition}).`
         : '';
+    const tailNotes = `${splitNote}${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
 
     // Yüksek oranlı Nesine Sürpriz Pazarları gerekçeleri
     if (pk.key === 'ms1_kgv' || pk.key === 'ms2_kgv') {
         const fav = pk.key === 'ms1_kgv' ? m.home : m.away;
         const dog = pk.key === 'ms1_kgv' ? m.away : m.home;
-        return `${fav} hücum gücüyle galibiyete yakın (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG), ancak ${dog} da skor üretebilen yapıda (2-1 / 3-1 senaryosu, ${pStr} olasılık, ${liftStr} değer).${splitNote}${extraNote}${weatherNote}`;
+        return `${fav} hücum gücüyle galibiyete yakın (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG), ancak ${dog} da skor üretebilen yapıda (2-1 / 3-1 senaryosu, ${pStr} olasılık, ${liftStr} değer).${tailNotes}`;
     }
     if (pk.key === 'msx_kgv') {
-        return `İki takımın hücum ve savunma dengesi birbirine çok yakın (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Gollü beraberlik (1-1 / 2-2) senaryosu normalin ${liftStr} üzerinde (${pStr} olasılık).${splitNote}${extraNote}${weatherNote}`;
+        return `İki takımın hücum ve savunma dengesi birbirine çok yakın (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Gollü beraberlik (1-1 / 2-2) senaryosu normalin ${liftStr} üzerinde (${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'ms1_ust25' || pk.key === 'ms2_ust25') {
         const fav = pk.key === 'ms1_ust25' ? m.home : m.away;
-        return `${fav} yüksek hücum temposuyla maçı üst barajına taşıyarak kazanmaya aday (Toplam ${totG} xG, ${pStr} olasılık, ${liftStr} değer).${splitNote}${extraNote}${weatherNote}`;
+        return `${fav} yüksek hücum temposuyla maçı üst barajına taşıyarak kazanmaya aday (Toplam ${totG} xG, ${pStr} olasılık, ${liftStr} değer).${tailNotes}`;
     }
     if (pk.key === 'ust25_kgv') {
-        return `İki takım da açık futbol oynuyor (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}, toplam ${totG} xG). Hem KG Var hem 2,5 Üst birleşimi ${pStr} olasılıkla öne çıkıyor.${splitNote}${weatherNote}`;
+        return `İki takım da açık futbol oynuyor (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}, toplam ${totG} xG). Hem KG Var hem 2,5 Üst birleşimi ${pStr} olasılıkla öne çıkıyor.${tailNotes}`;
     }
     if (pk.key === 'iykgv') {
-        return `Her iki takım da maça hızlı başlayan ve ilk yarılarda açık veren karakterde. İlk yarıdan karşılıklı gol (İY KG Var) olasılığı ${pStr} (normalin ${liftStr} üzerinde).${splitNote}${weatherNote}`;
+        return `Her iki takım da maça hızlı başlayan ve ilk yarılarda açık veren karakterde. İlk yarıdan karşılıklı gol (İY KG Var) olasılığı ${pStr} (normalin ${liftStr} üzerinde).${tailNotes}`;
     }
     if (pk.key === 'y2kgv') {
-        return `İkinci yarılarda savunma disiplini düşen ve skoru çift taraflı üreten iki ekip. 2. Yarı KG Var olasılığı ${pStr} (${liftStr} istatistiksel değer).${splitNote}${weatherNote}`;
+        return `İkinci yarılarda savunma disiplini düşen ve skoru çift taraflı üreten iki ekip. 2. Yarı KG Var olasılığı ${pStr} (${liftStr} istatistiksel değer).${tailNotes}`;
     }
     if (pk.key === 'iyust15') {
-        return `İlk yarı gol beklentisi çok yüksek; devre bitmeden en az 2 gol (İY 1,5 Üst) çıkma ihtimali ${pStr} (${liftStr} değer).${splitNote}${weatherNote}`;
+        return `İlk yarı gol beklentisi çok yüksek; devre bitmeden en az 2 gol (İY 1,5 Üst) çıkma ihtimali ${pStr} (${liftStr} değer).${tailNotes}`;
     }
     if (pk.key === 'ikiyari_gol') {
-        return `Maçın her iki devresinde de yüksek gol temposu bekleniyor (Toplam ${totG} xG, Her İki Yarıda Gol: ${pStr}).${splitNote}${weatherNote}`;
+        return `Maçın her iki devresinde de yüksek gol temposu bekleniyor (Toplam ${totG} xG, Her İki Yarıda Gol: ${pStr}).${tailNotes}`;
     }
     if (pk.key === 'hms1' || pk.key === 'hms2') {
         const fav = pk.key === 'hms1' ? m.home : m.away;
-        return `${fav} rakibine karşı net güç ve xG üstünlüğüne sahip (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). En az 2 farklı handikaplı galibiyet olasılığı ${pStr} (${liftStr} değer).${extraNote}${weatherNote}`;
+        return `${fav} rakibine karşı net güç ve xG üstünlüğüne sahip (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). En az 2 farklı handikaplı galibiyet olasılığı ${pStr} (${liftStr} değer).${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'tg46') {
-        return `Yüksek tempolu ve gollü geçmeye aday karşılaşma (${totG} toplam xG). Maçta toplam 4-6 gol aralığı ${pStr} olasılık ve ${liftStr} değer taşıyor.${splitNote}${weatherNote}`;
+        return `Yüksek tempolu ve gollü geçmeye aday karşılaşma (${totG} toplam xG). Maçta toplam 4-6 gol aralığı ${pStr} olasılık ve ${liftStr} değer taşıyor.${tailNotes}`;
     }
     if (pk.key.startsWith('iyskor_')) {
         const sc = pk.key.slice(7).replace('_', '-');
-        return `İlk yarı devre matrisinde ${sc} kesin skoru yüksek yoğunlukta (${pStr} olasılık, normal dağılımın ${liftStr} üzerinde).${splitNote}${weatherNote}`;
+        return `İlk yarı Dixon-Coles devre matrisinde ${sc} kesin skoru yüksek yoğunlukta (${pStr} olasılık, normal dağılımın ${liftStr} üzerinde).${tailNotes}`;
     }
     if (pk.key.startsWith('msskor_')) {
         const sc = pk.key.slice(7).replace('_', '-');
-        return `Bağımsız Dixon-Coles skor matrisinde ${sc} maç skoru en değerli yüksek oranlı hedef olarak öne çıkıyor (${pStr} olasılık, ${liftStr} değer).${splitNote}${extraNote}`;
+        return `Bağımsız Dixon-Coles skor matrisinde ${sc} maç skoru en değerli yüksek oranlı hedef olarak öne çıkıyor (${pStr} olasılık, ${liftStr} değer).${tailNotes}`;
     }
 
     // Banko & klasik pazar gerekçeleri
     if (pk.key === 'ust15') {
-        return `Bağımsız xG modeli toplam ${totG} gol (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}) hesapladı (${pStr} güven).${splitNote}${weatherNote}`;
+        return `Bağımsız xG modeli toplam ${totG} gol (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}) hesapladı (${pStr} güven, İstikrar: %${an.avgConsistency || 75}).${tailNotes}`;
     }
     if (pk.key === 'iyust05') {
-        return `İlk yarı gol temposu yüksek; model devre bitmeden en az 1 gol olasılığını ${pStr} olarak hesapladı.${splitNote}${weatherNote}`;
+        return `İlk yarı gol temposu yüksek; model devre bitmeden en az 1 gol olasılığını ${pStr} olarak hesapladı (İstikrar: %${an.avgConsistency || 75}).${tailNotes}`;
     }
     if (pk.key === 'alt25' || pk.key === 'alt35') {
-        return `Savunma direnci yüksek eşleşme; toplam beklenen gol ${totG} seviyesinde (${pStr} güven).${splitNote}${weatherNote}`;
+        return `Savunma direnci yüksek eşleşme; toplam beklenen gol ${totG} seviyesinde (${pStr} güven, Dixon-Coles ρ:${an.rho || -0.09}).${tailNotes}`;
     }
     if (pk.key === 'ust25') {
-        return `Yüksek hücum temposu; ${totG} beklenen gol ile model ${pStr} olasılıkla 2,5 Üst öngörüyor.${splitNote}${weatherNote}`;
+        return `Yüksek hücum temposu; ${totG} beklenen gol ile model ${pStr} olasılıkla 2,5 Üst öngörüyor.${tailNotes}`;
     }
     if (pk.key === 'kgv') {
-        return `Ev (${an.lh.toFixed(2)} xG) ve deplasman (${an.la.toFixed(2)} xG) karşılıklı üretime çok uygun (${pStr} güven).${splitNote}${weatherNote}`;
+        return `Ev (${an.lh.toFixed(2)} xG) ve deplasman (${an.la.toFixed(2)} xG) karşılıklı üretime çok uygun (${pStr} güven).${tailNotes}`;
     }
     if (pk.key === 'dc1x') {
-        return `${m.home} iç saha formunda çok dirençli (${an.lh.toFixed(2)} xG). Yenilmeme ihtimali ${pStr}.${extraNote}${weatherNote}`;
+        return `${m.home} iç saha formunda çok dirençli (${an.lh.toFixed(2)} xG). Yenilmeme ihtimali ${pStr}.${dnaNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'dcx2') {
-        return `${m.away} dış saha performansıyla üstün (${an.la.toFixed(2)} xG). Puan alma olasılığı ${pStr}.${extraNote}${weatherNote}`;
+        return `${m.away} dış saha performansıyla üstün (${an.la.toFixed(2)} xG). Puan alma olasılığı ${pStr}.${dnaNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'ms1') {
-        return `${m.home} iç saha gücü ve form ivmesiyle önde (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG, ${pStr} olasılık).${splitNote}${extraNote}${weatherNote}`;
+        return `${m.home} iç saha gücü ve form ivmesiyle önde (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG, ${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'ms2') {
-        return `${m.away} deplasman karnesi ve hücum kalitesiyle üstün (${an.la.toFixed(2)} xG, ${pStr} olasılık).${splitNote}${extraNote}${weatherNote}`;
+        return `${m.away} deplasman karnesi ve hücum kalitesiyle üstün (${an.la.toFixed(2)} xG, ${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'msx') {
-        return `İki takımın iç/dış saha güçleri dengeli (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Beraberlik olasılığı ${pStr} (${liftStr} değer).${extraNote}`;
+        return `İki takımın iç/dış saha güçleri dengeli (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Beraberlik olasılığı ${pStr} (${liftStr} değer).${dnaNote}${extraNote}`;
     }
     if (pk.key.startsWith('iy1') || pk.key.startsWith('iy2')) {
         const team = pk.key === 'iy1' ? m.home : m.away;
-        return `${team} ilk yarılarda yüksek gol yüzdesine sahip. Devreyi önde kapatma ihtimali ${pStr} (${liftStr} istatistiksel değer).${splitNote}${weatherNote}`;
+        return `${team} ilk yarılarda yüksek gol yüzdesine sahip. Devreyi önde kapatma ihtimali ${pStr} (${liftStr} istatistiksel değer).${tailNotes}`;
     }
     if (pk.key.startsWith('htft_')) {
         const sub = pk.key.slice(5);
-        return `Bağımsız devre modelinde yüksek değerli İY/MS (${sub}) senaryosu: ${pStr} olasılık (normal dağılımın ${liftStr} üzerinde).${extraNote}${weatherNote}`;
+        return `Bağımsız devre modelinde yüksek değerli İY/MS (${sub}) senaryosu: ${pStr} olasılık (normal dağılımın ${liftStr} üzerinde).${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'yari1' || pk.key === 'yari2') {
         const half = pk.key === 'yari1' ? '1. yarıda' : '2. yarıda';
-        return `Takımların devre karakteristiğine göre gollerin ${half} yoğunlaşması bekleniyor (${pStr} olasılık, ${liftStr} değer).${weatherNote}`;
+        return `Takımların devre karakteristiğine göre gollerin ${half} yoğunlaşması bekleniyor (${pStr} olasılık, ${liftStr} değer).${dnaNote}${weatherNote}`;
     }
-    return `Bağımsız modelin ${pStr} olasılık ve ${liftStr || 'yüksek güven'} ile öne çıkardığı istatistiksel tercih.${splitNote}${weatherNote}`;
+    return `Bağımsız modelin ${pStr} olasılık ve ${liftStr || 'yüksek güven'} ile öne çıkardığı istatistiksel tercih.${tailNotes}`;
 }
 
 function isMainstreamMatch(m) {
@@ -766,6 +1110,11 @@ function scoreSurpriseCandidate(pk, m, an, model) {
         if (pk.p < 0.18 || pk.p > 0.52) return null;
     }
 
+    // Taktiksel DNA çarpışma çarpanı
+    const dnaKey = pk.key.replace('/', '_');
+    const dnaBoost = an.tactical?.boosts?.[dnaKey] || an.tactical?.boosts?.[pk.key] || 1.0;
+    tacticalMult *= dnaBoost;
+
     const mbsMult = m.mbs === 1 ? 1.14 : m.mbs === 2 ? 1.07 : 1.0;
     const qMult = an.quality === 'A' ? 1.10 : an.quality === 'B' ? 1.04 : 0.96;
     // Farklı olasılık bantlarındaki yüksek oranlı pazarları adil kıyaslamak için karekök ağırlıklı skor
@@ -799,6 +1148,7 @@ function buildCoupons(items, model, opts = {}) {
         if (!playable.length) playable = allBankoPicks;
 
         const mbsBonus = it.m.mbs === 1 ? 0.04 : it.m.mbs === 2 ? 0.02 : 0;
+        const consistencyBonus = ((it.an.avgConsistency || 70) - 68) * 0.0018;
         playable.sort((a, b) => {
             const scoreA = a.p + (BANKO_PRIMARY_KEYS.has(a.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0);
             const scoreB = b.p + (BANKO_PRIMARY_KEYS.has(b.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0);
@@ -807,7 +1157,7 @@ function buildCoupons(items, model, opts = {}) {
 
         const best = playable[0];
         if (best) {
-            const rankScore = best.p + (BANKO_PRIMARY_KEYS.has(best.key) ? 0.05 : 0) + (it.an.quality === 'A' ? 0.04 : 0) + mbsBonus;
+            const rankScore = best.p + (BANKO_PRIMARY_KEYS.has(best.key) ? 0.05 : 0) + (it.an.quality === 'A' ? 0.04 : 0) + mbsBonus + consistencyBonus;
             bankoPool.push({
                 ...best,
                 rankScore,

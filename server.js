@@ -102,54 +102,147 @@ const server = http.createServer(async (req, res) => {
                     return;
                 }
 
-                // Kullanıcının son mesajını al ve her sohbette canlı İddaa bülteni bağlamını hazırla
-                // ("başka ver", "değiştir", "3 maçlık yap" gibi kısa mesajlarda bile bağlam kopmaz ve halüsinasyon olmaz)
+                // Kullanıcının son mesajını ve varsa eklediği görselleri (base64 dataUrl) al
                 const userMessages = (messages || []).filter(m => m.role === 'user');
-                const lastUserMessage = userMessages.length ? String(userMessages[userMessages.length - 1].content || '') : '';
+                const lastUserObj = userMessages.length ? userMessages[userMessages.length - 1] : null;
+                const lastUserMessage = lastUserObj ? String(lastUserObj.content || '') : '';
+                const latestImages = (lastUserObj && Array.isArray(lastUserObj.images))
+                    ? lastUserObj.images.filter(img => typeof img === 'string' && img.startsWith('data:image/')).slice(0, 3)
+                    : [];
+                const hasImages = latestImages.length > 0;
 
+                // AŞAMA 1: Kullanıcı fotoğraf / ekran görüntüsü attıysa Vision modeliyle görseldeki maçları, tercihleri ve istatistikleri oku
+                let visionExtractedText = '';
+                if (hasImages) {
+                    const visionModels = [
+                        'meta-llama/llama-4-scout-17b-16e-instruct',
+                        'meta-llama/llama-4-maverick-17b-128e-instruct'
+                    ];
+                    const visionContent = [
+                        {
+                            type: 'text',
+                            text: `Bu görseli dikkatlice incele ve içindeki tüm verileri oku.
+- Eğer bir İddaa/Nesine/Maçkolik kuponu veya bülteniyse: Görseldeki tüm maçları (Ev Sahibi - Deplasman), oynanmış tercihleri (MS 1, 2.5 Üst, KG Var, İY 0.5 Üst vb.), oranları veya saatleri tek tek listele.
+- Eğer bir canlı maç istatistik ekranıysa: Takım adlarını, skoru, dakikayı, topla oynama, toplam şut, isabetli şut, korner, tehlikeli atak ve xG rakamlarını eksiksiz çıkar.
+- Eğer kadro/diziliş veya puan durumuysa: Takım ve oyuncu isimlerini çıkar.
+- Eğer futbol dışı genel bir görselse: Görseldeki tüm metinleri, nesneleri ve detayları net biçimde betimle.
+Kullanıcının sorusu: "${lastUserMessage || 'Görseli incele ve analiz et'}"`
+                        },
+                        ...latestImages.map(urlStr => ({
+                            type: 'image_url',
+                            image_url: { url: urlStr }
+                        }))
+                    ];
+
+                    for (const vModel of visionModels) {
+                        try {
+                            console.log(`[Vision Engine] Görsel okunuyor (${vModel})...`);
+                            const vRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `Bearer ${activeKey}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    model: vModel,
+                                    messages: [{ role: 'user', content: visionContent }],
+                                    max_tokens: 900,
+                                    temperature: 0.1,
+                                    stream: false
+                                })
+                            });
+                            if (vRes.ok) {
+                                const vJson = await vRes.json();
+                                visionExtractedText = (vJson.choices?.[0]?.message?.content || '').trim();
+                                if (visionExtractedText) {
+                                    console.log(`[Vision Engine] Görsel başarıyla okundu (${visionExtractedText.length} karakter).`);
+                                    break;
+                                }
+                            } else {
+                                const vErr = await vRes.text();
+                                console.log(`[Vision Engine] ${vModel} hata (${vRes.status}):`, vErr.slice(0, 160));
+                            }
+                        } catch (ve) {
+                            console.log(`[Vision Engine] ${vModel} bağlantı hatası:`, ve.message);
+                        }
+                    }
+                }
+
+                // AŞAMA 2: Görselden okunan takım/maç isimlerini de kullanarak 10 katmanlı derin futbol analiz bağlamını oluştur
                 let sportsContext = '';
+                const combinedSearchQuery = visionExtractedText
+                    ? `${lastUserMessage}\n${visionExtractedText}`
+                    : lastUserMessage;
                 try {
-                    sportsContext = await football.buildAiSportsContext(lastUserMessage);
+                    sportsContext = await football.buildAiSportsContext(combinedSearchQuery, { hasImage: hasImages });
                 } catch (e) {
                     console.error('Futbol bağlamı üretme hatası:', e.message);
                 }
 
                 // Sistem Yönergesi
-                let systemContent = `Sen Yusuf AI - %100 bağımsız, çok katmanlı kendi derin veri analizini yapan yapay zekâ futbol analisti ve kupon motorusun.
-BAĞIMSIZ ANALİZ İLKESİ: İddaa oranlarına veya dış yorumculara ASLA bakmazsın; her maçı kendi motorunun incelediği Ev/Deplasman gol karnesi, son 5 maç form ivmesi, ortak rakipler kıyaslaması, geçmiş H2H maçları, maç saati hava/zemin şartları, puan tablosu ve kilit oyuncu istatistikleriyle değerlendirirsin.
+                let systemContent = `Sen Yusuf AI - %100 bağımsız, 10 katmanlı kendi derin veri analizini (Ev/Dep Karnesi, Form İvmesi, Ortak Rakipler, H2H, Dinamik Dixon-Coles ρ, Fikstür Yorgunluğu/Dinlenme Günü, Taktik DNA Çarpışması, Kadro/Sakatlık, Saha/Hava Durumu ve Canlı Kalan Süre Motoru) yapan üst düzey yapay zekâ futbol analisti ve görsel kupon denetçisisin.
+BAĞIMSIZ ANALİZ İLKESİ: İddaa oranlarına veya dış yorumculara ASLA bakmazsın; her maçı kendi motorunun incelediği 10 katmanlı somut verilerle değerlendirirsin.
+GÖRSEL ANALİZ YETENEĞİ: Kullanıcının gönderdiği kupon ekran görüntülerini, canlı maç istatistiklerini, kadroları veya genel fotoğrafları okur ve kendi derin veri motorunla çarpıştırarak röntgenini çekersin.
 ÖNEMLİ KURAL: Kullanıcı telefondan takip ettiği için yanıtların KISA, ÖZ, NET, TABLOLU VE GRAFİKSEL BARLI olmalıdır.
-ASLA uzun paragraflar, edebiyat veya laf kalabalığı yazma; her maçın gerekçesinde incelediğin somut verileri (ev/dep gol ortalaması, ortak rakipler, hava durumu, form, kilit oyuncu) 1-2 satırda net olarak yaz.
-KESİNLİKLE SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] LİSTESİNDEKİ MAÇLARI KULLAN. LİSTEDE OLMAYAN MAÇ YAZMAK YASAKTIR.`;
+ASLA uzun paragraflar, edebiyat veya laf kalabalığı yazma; her maçın gerekçesinde incelediğin somut verileri (ev/dep gol ortalaması, ortak rakipler, taktik DNA, dinlenme günü, hava durumu, form, kilit oyuncu) 1-2 satırda net olarak yaz.
+KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] LİSTESİNDEKİ MAÇLARI KULLAN. LİSTEDE OLMAYAN MAÇ YAZMAK YASAKTIR.`;
 
-                const recentHistory = (messages || []).slice(-6).map(m => ({
-                    role: m.role === 'user' ? 'user' : 'assistant',
-                    content: String(m.content || '').slice(0, 2200)
-                }));
+                const recentHistory = (messages || []).slice(-6).map((m, idx, arr) => {
+                    const isLastUser = (idx === arr.length - 1) && m.role === 'user';
+                    let textContent = String(m.content || '').slice(0, 2200);
+                    if (isLastUser && visionExtractedText) {
+                        textContent = `${textContent || 'Görseli incele ve analiz et.'}\n\n[GÖRSELDEN OKUNAN DETAYLI VERİLER]:\n${visionExtractedText}`;
+                    }
+                    return {
+                        role: m.role === 'user' ? 'user' : 'assistant',
+                        content: textContent,
+                        images: isLastUser ? latestImages : []
+                    };
+                });
 
-                const buildFinalMessages = (ctxStr, histArr) => {
+                const buildFinalMessages = (ctxStr, histArr, useMultimodal = false) => {
                     let sys = systemContent;
                     if (ctxStr) sys += `\n\n${ctxStr}`;
-                    sys += `\nKullanıcı futbol dışı bir konu sorarsa da doğrudan, kısa, net ve profesyonel şekilde yanıt ver.`;
+                    sys += `\nKullanıcı futbol dışı bir görsel veya konu sorarsa da doğrudan, kısa, net ve profesyonel şekilde yanıt ver.`;
+                    const mappedHist = histArr.map(h => {
+                        if (useMultimodal && h.role === 'user' && Array.isArray(h.images) && h.images.length > 0) {
+                            return {
+                                role: 'user',
+                                content: [
+                                    { type: 'text', text: h.content || 'Görseli analiz et.' },
+                                    ...h.images.map(u => ({ type: 'image_url', image_url: { url: u } }))
+                                ]
+                            };
+                        }
+                        return { role: h.role, content: h.content };
+                    });
                     return [
                         { role: 'system', content: sys },
-                        ...histArr
+                        ...mappedHist
                     ];
                 };
 
-                let finalMessages = buildFinalMessages(sportsContext, recentHistory);
+                let currentContextStr = sportsContext;
                 let compactFallbacked = false;
 
-                // Doğrudan yanıt üreten (gizli düşünme tokenı harcamayan) yüksek kapasiteli modeller ilk sırada
-                let candidateModels = [
-                    'llama-3.3-70b-versatile',
-                    'meta-llama/llama-4-scout-17b-16e-instruct',
-                    'meta-llama/llama-4-maverick-17b-128e-instruct',
-                    'llama-3.1-8b-instant',
-                    'qwen/qwen3-32b',
-                    'openai/gpt-oss-120b',
-                    'openai/gpt-oss-20b',
-                    'allam-2-7b'
-                ];
+                // Görsel varsa Vision destekli Llama-4 modelleri ve 70B modeli en önde çalışır
+                let candidateModels = hasImages
+                    ? [
+                        'meta-llama/llama-4-scout-17b-16e-instruct',
+                        'meta-llama/llama-4-maverick-17b-128e-instruct',
+                        'llama-3.3-70b-versatile',
+                        'llama-3.1-8b-instant'
+                    ]
+                    : [
+                        'llama-3.3-70b-versatile',
+                        'meta-llama/llama-4-scout-17b-16e-instruct',
+                        'meta-llama/llama-4-maverick-17b-128e-instruct',
+                        'llama-3.1-8b-instant',
+                        'qwen/qwen3-32b',
+                        'openai/gpt-oss-120b',
+                        'openai/gpt-oss-20b',
+                        'allam-2-7b'
+                    ];
 
                 try {
                     const modelsRes = await fetch('https://api.groq.com/openai/v1/models', {
@@ -192,10 +285,17 @@ KESİNLİKLE SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ H
                 for (const modelToTry of candidateModels) {
                     console.log(`Deneniyor: ${modelToTry}...`);
                     const isReasoningModel = modelToTry.includes('gpt-oss') || modelToTry.includes('qwen3') || modelToTry.includes('deepseek');
+                    const isVisionModel = modelToTry.includes('llama-4-scout') || modelToTry.includes('llama-4-maverick');
+                    const activeHist = compactFallbacked ? recentHistory.slice(-2) : recentHistory;
+                    // Eğer Stage 1'de visionExtractedText zaten alındıysa tekrar büyük base64 göndermeye gerek kalmadan hızlıca yanıt üretir;
+                    // eğer Stage 1 boş döndüyse ve model Vision destekliyse doğrudan multimodal gönderir.
+                    const sendRawImageInStage2 = hasImages && isVisionModel && !visionExtractedText;
+                    const finalMessages = buildFinalMessages(currentContextStr, activeHist, sendRawImageInStage2);
+
                     const reqPayload = {
                         model: modelToTry,
                         messages: finalMessages,
-                        max_tokens: isReasoningModel ? 4096 : (compactFallbacked ? 1500 : 2048),
+                        max_tokens: isReasoningModel ? 4096 : (compactFallbacked ? 1600 : 2200),
                         stream: true
                     };
                     if (isReasoningModel) {
@@ -237,10 +337,9 @@ KESİNLİKLE SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ H
                         if (!compactFallbacked && (groqRes.status === 413 || groqRes.status === 429 || errText.includes('too large') || errText.includes('rate_limit'))) {
                             compactFallbacked = true;
                             try {
-                                const compactCtx = await football.buildAiSportsContext(lastUserMessage, { compact: true });
-                                finalMessages = buildFinalMessages(compactCtx, recentHistory.slice(-2));
+                                currentContextStr = await football.buildAiSportsContext(combinedSearchQuery, { compact: true, hasImage: hasImages });
                             } catch (_) {
-                                finalMessages = buildFinalMessages('', recentHistory.slice(-2));
+                                currentContextStr = '';
                             }
                         }
                     }

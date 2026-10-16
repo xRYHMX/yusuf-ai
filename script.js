@@ -328,6 +328,21 @@ function bindDragAndDrop() {
             processFiles(Array.from(e.dataTransfer.files));
         }
     });
+
+    // Panodan (Ctrl+V / Mobil Yapıştır) doğrudan ekran görüntüsü yapıştırma desteği
+    window.addEventListener('paste', (e) => {
+        if (!e.clipboardData || !e.clipboardData.items) return;
+        const pastedFiles = [];
+        for (const item of e.clipboardData.items) {
+            if (item.type && item.type.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (file) pastedFiles.push(file);
+            }
+        }
+        if (pastedFiles.length > 0) {
+            processFiles(pastedFiles);
+        }
+    });
 }
 
 function handleFileSelect(e) {
@@ -337,18 +352,53 @@ function handleFileSelect(e) {
     fileInput.value = '';
 }
 
+// Görselleri Vision motoru için netliğini bozmadan optimize eder (max 1280px, JPEG 0.84)
+function compressImageDataUrl(rawDataUrl, maxDim = 1280, quality = 0.84) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            try {
+                let w = img.width;
+                let h = img.height;
+                if (w > maxDim || h > maxDim) {
+                    if (w >= h) {
+                        h = Math.round((h * maxDim) / w);
+                        w = maxDim;
+                    } else {
+                        w = Math.round((w * maxDim) / h);
+                        h = maxDim;
+                    }
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            } catch (_) {
+                resolve(rawDataUrl);
+            }
+        };
+        img.onerror = () => resolve(rawDataUrl);
+        img.src = rawDataUrl;
+    });
+}
+
 function processFiles(files) {
     files.forEach(file => {
         const isImage = file.type.startsWith('image/');
         const reader = new FileReader();
 
         if (isImage) {
-            reader.onload = (event) => {
+            reader.onload = async (event) => {
+                const optimizedUrl = await compressImageDataUrl(event.target.result);
                 attachedFiles.push({
-                    name: file.name,
-                    type: file.type,
+                    name: file.name || 'ekran_goruntusu.jpg',
+                    type: 'image/jpeg',
                     isImage: true,
-                    dataUrl: event.target.result,
+                    dataUrl: optimizedUrl,
                     textContent: null
                 });
                 renderFilePreviews();
@@ -441,7 +491,7 @@ async function submitCurrentMessage() {
 
     if (!currentChatId) {
         currentChatId = 'chat_' + Date.now();
-        const titleText = text || (currentFiles[0] ? currentFiles[0].name : 'Yeni Analiz');
+        const titleText = text || (currentFiles[0] ? currentFiles[0].name : 'Görsel Analizi');
         const newChat = {
             id: currentChatId,
             title: titleText.length > 26 ? titleText.slice(0, 26) + '...' : titleText,
@@ -475,18 +525,20 @@ async function streamAiResponse() {
 
     const conversationHistory = (activeChat ? activeChat.messages : []).map(m => {
         let content = m.text || '';
+        const images = [];
         if (m.attachments && m.attachments.length > 0) {
             m.attachments.forEach(att => {
                 if (att.textContent) {
                     content += `\n\n[Ekli Dosya: ${att.name}]\n${att.textContent}`;
-                } else if (att.isImage) {
-                    content += `\n\n[Fotoğraf Eklendi: ${att.name}]`;
+                } else if (att.isImage && att.dataUrl) {
+                    images.push(att.dataUrl);
                 }
             });
         }
         return {
             role: m.sender === 'user' ? 'user' : 'assistant',
-            content: content
+            content: content,
+            images: images
         };
     });
 
@@ -944,13 +996,22 @@ function createCouponMatchElement(item, isSurprise) {
     const probPct = Math.round(item.p * 100);
     const liftTag = item.lift ? `<span class="match-pick-conf lift-tag">${item.lift.toFixed(1)}x Değer</span>` : '';
 
-    // Derin analiz rozetleri (xG, Ev/Dep Form, Hava Durumu, Gol Kralı)
+    // 10 katmanlı derin analiz rozetleri (xG, Ev/Dep Form, Taktik DNA, Yorgunluk/İstikrar, Hava Durumu, Gol Kralı)
     const chips = [];
     if (typeof an.lh === 'number' && typeof an.la === 'number') {
         chips.push(`<span class="intel-chip">📊 xG: ${an.lh.toFixed(2)} - ${an.la.toFixed(2)}</span>`);
     }
+    if (an.tactical?.homeTags?.[0] || an.tactical?.awayTags?.[0]) {
+        chips.push(`<span class="intel-chip">🧬 ${escapeHtml(an.tactical.homeTags[0] || '')} / ${escapeHtml(an.tactical.awayTags[0] || '')}</span>`);
+    }
     if (an.facts?.home?.formStr || an.facts?.away?.formStr) {
         chips.push(`<span class="intel-chip">🔥 Form: ${escapeHtml(an.facts?.home?.formStr || '-')} / ${escapeHtml(an.facts?.away?.formStr || '-')}</span>`);
+    }
+    if (an.restH?.isFatigued || an.restA?.isFatigued) {
+        const fatStr = an.restH?.isFatigued ? `${m.home}: ${an.restH.restDays}g dinlenme` : `${m.away}: ${an.restA.restDays}g dinlenme`;
+        chips.push(`<span class="intel-chip">⏱️ ${escapeHtml(fatStr)}</span>`);
+    } else if (!isSurprise && an.avgConsistency) {
+        chips.push(`<span class="intel-chip">🛡️ İstikrar: %${an.avgConsistency}</span>`);
     }
     if (an.intel?.weather) {
         const w = an.intel.weather;

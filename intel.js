@@ -224,7 +224,30 @@ async function getEspnEventSummary(eventId) {
         }
     } catch (_) {}
 
-    const data = { h2hGames, standingsMap };
+    // Hakem ve Sakat/Cezalı Oyuncular
+    let referee = null;
+    try {
+        if (s.gameInfo?.officials?.length) {
+            referee = s.gameInfo.officials[0].displayName || s.gameInfo.officials[0].fullName || null;
+        }
+    } catch (_) {}
+
+    const injuriesMap = {};
+    try {
+        if (Array.isArray(s.injuries)) {
+            for (const teamInj of s.injuries) {
+                const tName = teamInj.team?.displayName || '';
+                const list = (teamInj.injuries || []).map(x => {
+                    const pName = x.athlete?.displayName || '';
+                    const reason = x.type?.description || x.details?.type || 'Eksik';
+                    return pName ? `${pName} (${reason})` : null;
+                }).filter(Boolean);
+                if (tName && list.length) injuriesMap[tName] = list;
+            }
+        }
+    } catch (_) {}
+
+    const data = { h2hGames, standingsMap, referee, injuriesMap };
     espnSummaryCache.set(eventId, { t: Date.now(), data });
     return data;
 }
@@ -250,22 +273,30 @@ async function getMackolikLineup(matchId) {
 }
 
 function extractTeamLeaders(comp) {
-    if (!comp || !Array.isArray(comp.leaders)) return [];
+    if (!comp || !Array.isArray(comp.leaders)) return { list: [], topGoals: 0, topScorerName: null };
     const out = [];
     const seen = new Set();
+    let topGoals = 0;
+    let topScorerName = null;
     for (const lGroup of comp.leaders) {
         const top = lGroup.leaders && lGroup.leaders[0];
         if (top && top.athlete && top.athlete.displayName) {
             const key = top.athlete.displayName;
             if (seen.has(key)) continue;
             seen.add(key);
-            const statLabel = lGroup.name.toLowerCase().includes('assist') ? 'Asist' : 'Gol';
-            if (top.value > 0) {
-                out.push(`${top.athlete.displayName} (${top.value} ${statLabel})`);
+            const isAssist = lGroup.name.toLowerCase().includes('assist');
+            const statLabel = isAssist ? 'Asist' : 'Gol';
+            const val = Number(top.value) || 0;
+            if (val > 0) {
+                out.push(`${top.athlete.displayName} (${val} ${statLabel})`);
+                if (!isAssist && val > topGoals) {
+                    topGoals = val;
+                    topScorerName = top.athlete.displayName;
+                }
             }
         }
     }
-    return out;
+    return { list: out, topGoals, topScorerName };
 }
 
 // Ana Zenginleştirme Fonksiyonu: Bir maç için tüm dış istihbaratı birleştirir
@@ -290,8 +321,11 @@ async function enrichMatch(m, { fetchDeepSummary = false, fetchLineup = false } 
         }
     }
 
-    let stadium = null, city = null;
+    let stadium = null, city = null, referee = null;
     let homeLeaders = [], awayLeaders = [];
+    let homeTopGoals = 0, awayTopGoals = 0;
+    let homeTopScorer = null, awayTopScorer = null;
+    let homeInjuries = [], awayInjuries = [];
     let homeRecord = null, awayRecord = null;
     let standings = null, espnH2H = [];
 
@@ -301,8 +335,15 @@ async function enrichMatch(m, { fetchDeepSummary = false, fetchLineup = false } 
             stadium = comp.venue.fullName || null;
             city = comp.venue.address?.city || null;
         }
-        homeLeaders = extractTeamLeaders(homeComp);
-        awayLeaders = extractTeamLeaders(awayComp);
+        const hLead = extractTeamLeaders(homeComp);
+        const aLead = extractTeamLeaders(awayComp);
+        homeLeaders = hLead.list;
+        awayLeaders = aLead.list;
+        homeTopGoals = hLead.topGoals;
+        awayTopGoals = aLead.topGoals;
+        homeTopScorer = hLead.topScorerName;
+        awayTopScorer = aLead.topScorerName;
+
         homeRecord = homeComp?.records?.[0]?.summary || null;
         awayRecord = awayComp?.records?.[0]?.summary || null;
 
@@ -310,6 +351,7 @@ async function enrichMatch(m, { fetchDeepSummary = false, fetchLineup = false } 
             const sum = await getEspnEventSummary(matchedEv.id);
             if (sum) {
                 espnH2H = sum.h2hGames || [];
+                referee = sum.referee || null;
                 const stEntries = Object.entries(sum.standingsMap || {});
                 let hSt = null, aSt = null;
                 for (const [tName, stVal] of stEntries) {
@@ -317,6 +359,11 @@ async function enrichMatch(m, { fetchDeepSummary = false, fetchLineup = false } 
                     if (teamsMatch(m.away, tName)) aSt = stVal;
                 }
                 if (hSt || aSt) standings = { home: hSt, away: aSt };
+
+                for (const [tName, injList] of Object.entries(sum.injuriesMap || {})) {
+                    if (teamsMatch(m.home, tName)) homeInjuries = injList;
+                    if (teamsMatch(m.away, tName)) awayInjuries = injList;
+                }
             }
         }
     }
@@ -330,9 +377,16 @@ async function enrichMatch(m, { fetchDeepSummary = false, fetchLineup = false } 
     return {
         stadium,
         city: city || weather?.city || null,
+        referee,
         weather,
         homeLeaders,
         awayLeaders,
+        homeTopGoals,
+        awayTopGoals,
+        homeTopScorer,
+        awayTopScorer,
+        homeInjuries,
+        awayInjuries,
         homeRecord,
         awayRecord,
         standings,
