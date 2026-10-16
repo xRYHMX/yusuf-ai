@@ -391,10 +391,11 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
             return (a.m.order || 999) - (b.m.order || 999);
         });
 
-    const poolLimit = isCompact ? 12 : 22;
+    const poolLimit = isCompact ? 10 : 18;
     let upcomingPoolSummary = `\n[RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU - NESİNE & MAÇKOLİK ONAYLI (${preBulletin.length} aktif maçtan en kaliteli ${Math.min(poolLimit, preBulletin.length)} maç)]:\n`;
     preBulletin.slice(0, poolLimit).forEach(({ m, an }, i) => {
-        const topSc = an.topScores && an.topScores[0] ? an.topScores[0].s : '1-1';
+        const topSc = an.topScores && an.topScores[0] ? `${an.topScores[0].s}(%${Math.round(an.topScores[0].p * 100)})` : '1-1';
+        const topHtSc = an.topHtScores && an.topHtScores[0] ? `${an.topHtScores[0].s}(%${Math.round(an.topHtScores[0].p * 100)})` : '0-0';
         const hf = an.facts?.home, af = an.facts?.away;
         const splitMini = (hf && af && hf.homeGf !== null && af.awayGf !== null)
             ? ` | Ev:${hf.homeGf}/${hf.homeGa}(${hf.formStr || '-'}) Dep:${af.awayGf}/${af.awayGa}(${af.formStr || '-'})`
@@ -403,13 +404,28 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
         const lMini = (an.intel?.homeLeaders?.[0] || an.intel?.awayLeaders?.[0])
             ? ` | ⭐${[an.intel?.homeLeaders?.[0], an.intel?.awayLeaders?.[0]].filter(Boolean).join('/')}`
             : '';
+        const surpCands = [
+            { l: 'MS1&KG', p: an.p.ms1_kgv || 0 },
+            { l: 'MS2&KG', p: an.p.ms2_kgv || 0 },
+            { l: 'MSX&KG', p: an.p.msx_kgv || 0 },
+            { l: 'MS1&2.5Ü', p: an.p.ms1_ust25 || 0 },
+            { l: 'MS2&2.5Ü', p: an.p.ms2_ust25 || 0 },
+            { l: '2.5Ü&KG', p: an.p.ust25_kgv || 0 },
+            { l: 'İYKG', p: an.p.iykgv || 0 },
+            { l: '2YKG', p: an.p.y2kgv || 0 },
+            { l: 'İY1.5Ü', p: an.p.iyust15 || 0 },
+            { l: 'HMS1(-1)', p: an.p.hms1 || 0 },
+            { l: 'HMS2(-1)', p: an.p.hms2 || 0 },
+            { l: '4-6Gol', p: an.p.tg46 || 0 }
+        ].sort((a, b) => b.p - a.p).slice(0, 4).map(x => `${x.l}:%${Math.round(x.p * 100)}`).join(' ');
+        const surpMini = ` | Sürpriz:[${surpCands} İYSkor:${topHtSc} MSSkor:${topSc}]`;
 
-        upcomingPoolSummary += `${i + 1}. [${m.time}] ${m.home}-${m.away} (${m.league.full}) | xG:${an.lh.toFixed(2)}-${an.la.toFixed(2)} | MS1:%${Math.round(an.p.ms1 * 100)} X:%${Math.round(an.p.msx * 100)} MS2:%${Math.round(an.p.ms2 * 100)} 1.5Ü:%${Math.round(an.p.ust15 * 100)} 2.5Ü:%${Math.round(an.p.ust25 * 100)} KGV:%${Math.round(an.p.kgv * 100)} İY0.5Ü:%${Math.round(an.p.iyust05 * 100)} İY1:%${Math.round(an.p.iy1 * 100)} İY2:%${Math.round(an.p.iy2 * 100)} Skor:${topSc}${splitMini}${wMini}${lMini}\n`;
+        upcomingPoolSummary += `${i + 1}. [${m.time}] ${m.home}-${m.away} (${m.league.full}) | xG:${an.lh.toFixed(2)}-${an.la.toFixed(2)} | MS1:%${Math.round(an.p.ms1 * 100)} X:%${Math.round(an.p.msx * 100)} MS2:%${Math.round(an.p.ms2 * 100)} 2.5Ü:%${Math.round(an.p.ust25 * 100)} KGV:%${Math.round(an.p.kgv * 100)} İY0.5Ü:%${Math.round(an.p.iyust05 * 100)}${surpMini}${splitMini}${wMini}${lMini}\n`;
     });
 
     // 3. Kullanıcının sorduğu spesifik bir takım veya lig varsa (Türkçe karakter duyarsız eşleştirme + anlık derin istihbarat)
     let relevantMatches = '';
-    const stopWords = new Set(['mac', 'maci', 'maclar', 'maclari', 'kupon', 'kuponu', 'analiz', 'bugun', 'bugunku', 'yarin', 'icin', 'nasil', 'olur', 'bana', 'yap', 'ver', 'ust', 'alt', 'gol', 'ilk', 'yari', 'gunun', 'banko', 'surpriz', 'yuksek', 'deger', 'resmi', 'iddaa', 'bulteninden', 'oranlardan', 'bagimsiz', 'deplasman', 'karnesi', 'son', 'formu', 'ortak', 'rakipler', 'saha', 'hava', 'sartlari', 'kilit', 'oyuncularini', 'inceleyerek', 'guvendigin', 'maclik', 'tablolu', 'grafik', 'barli', 'olarak', 'cikar', 'hazirla', 'devre', 'karakteri', 'firsati', 'firsatlari', 'sistem', 'kombine', 'oynamaliyim', 'detayli']);
+    const stopWords = new Set(['mac', 'maci', 'maclar', 'maclari', 'kupon', 'kuponu', 'analiz', 'bugun', 'bugunku', 'yarin', 'icin', 'nasil', 'olur', 'bana', 'yap', 'ver', 'ust', 'alt', 'gol', 'ilk', 'yari', 'ikinci', 'gunun', 'banko', 'surpriz', 'yuksek', 'oranli', 'deger', 'resmi', 'iddaa', 'nesine', 'bulteninden', 'oranlardan', 'bagimsiz', 'deplasman', 'karnesi', 'son', 'formu', 'ortak', 'rakipler', 'saha', 'hava', 'sartlari', 'kilit', 'oyuncularini', 'inceleyerek', 'guvendigin', 'maclik', 'tablolu', 'grafik', 'barli', 'olarak', 'cikar', 'hazirla', 'devre', 'karakteri', 'firsati', 'firsatlari', 'sistem', 'kombine', 'oynamaliyim', 'detayli', 'kesin', 'skor', 'handikap']);
     const words = qNorm.split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !stopWords.has(w));
     if (words.length > 0) {
         const matchedItems = activePool.filter(({ m }) => {
@@ -431,8 +447,9 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
                 const bTag = m.inBulletin ? 'Resmi İddaa Bülteninde Var' : 'İddaa Dışı';
                 relevantMatches += `- [${m.time}] ${m.home} - ${m.away} (${m.league.full} | ${bTag}) | Durum: ${m.state === 'live' ? 'CANLI ' + m.label : m.state === 'post' ? 'MS ' + (m.score ? m.score.h + '-' + m.score.a : '') : 'Başlamadı'}\n`;
                 relevantMatches += `  Bağımsız xG: Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)} | MS1:%${Math.round(an.p.ms1 * 100)} X:%${Math.round(an.p.msx * 100)} MS2:%${Math.round(an.p.ms2 * 100)} | 2.5Ü:%${Math.round(an.p.ust25 * 100)} KGV:%${Math.round(an.p.kgv * 100)} İY0.5Ü:%${Math.round(an.p.iyust05 * 100)}\n`;
+                relevantMatches += `  Yüksek Oranlı Nesine Pazarları: MS1&KG:%${Math.round((an.p.ms1_kgv || 0) * 100)} | MS2&KG:%${Math.round((an.p.ms2_kgv || 0) * 100)} | MS1&2.5Ü:%${Math.round((an.p.ms1_ust25 || 0) * 100)} | MS2&2.5Ü:%${Math.round((an.p.ms2_ust25 || 0) * 100)} | 2.5Ü&KG:%${Math.round((an.p.ust25_kgv || 0) * 100)} | İY KG Var:%${Math.round((an.p.iykgv || 0) * 100)} | 2.Yarı KG Var:%${Math.round((an.p.y2kgv || 0) * 100)} | İY 1.5 Üst:%${Math.round((an.p.iyust15 || 0) * 100)} | 4-6 Gol:%${Math.round((an.p.tg46 || 0) * 100)}\n`;
                 if (an.topScores && an.topScores.length) {
-                    relevantMatches += `  Olası Skorlar: ${an.topScores.slice(0, 3).map(s => s.s + ' (%' + Math.round(s.p * 100) + ')').join(', ')}\n`;
+                    relevantMatches += `  Olası MS Skorlar: ${an.topScores.slice(0, 3).map(s => s.s + ' (%' + Math.round(s.p * 100) + ')').join(', ')} | Olası İY Skorlar: ${(an.topHtScores || []).slice(0, 2).map(s => s.s + ' (%' + Math.round(s.p * 100) + ')').join(', ')}\n`;
                 }
                 const deepLine = formatDeepMatchDetails(m, an);
                 if (deepLine) relevantMatches += `${deepLine}\n`;
@@ -454,16 +471,16 @@ ${relevantMatches}
 ÖNEMLİ KURALLAR (MOBİL ÖNCELİKLİ, KISA, ÖZ, GRAFİKLİ VE KENDİ DERİN ANALİZİNİ YANSITAN FORMAT):
 1. KULLANICI TELEFONDAN TAKİP ETMEKTEDİR: Açıklamaları kesinlikle UZUN TUTMA. Uzun paragraf yazmak Yasaktır; ancak her maçın tek satırlık gerekçesinde kendi incelediğin SOMUT VERİLERİ (ev/dep gol ortalaması, ortak rakipler, H2H, hava durumu, form veya gol kralı) net biçimde belirt.
 2. ÇIKTI FORMATI STANDARDI (BUNA KESİNLİKLE UYULACAK):
-   a) Başlık: Kupon Adı ve Strateji (örn: 🎯 **Günün Bağımsız Banko Kuponu** • *Düz 4'lü Kombine*)
+   a) Başlık: Kupon Adı ve Strateji (örn: 🎯 **Günün Bağımsız Banko Kuponu** • *Düz 4'lü Kombine* veya 🚀 **Günün Yüksek Değerli Sürpriz Kuponu** • *3-4-5 Sistem / Kombine*)
    b) Kompakt Grafik Tablo:
-      | # | Saat | Maç | Tercih | Güven İbresi |
-      (Güven İbresi sütununda görsel ilerleme barı kullan: örn. 🟩 %84 [████████░░] veya 🟨 %72 [███████░░░] veya ⭐ 2.1x Değer)
+      | # | Saat | Maç | Tercih | Güven / Değer İbresi |
+      (Güven İbresi sütununda görsel ilerleme barı kullan: örn. 🟩 %84 [████████░░] veya Sürpriz kuponda ⭐ %28 • 2.4x Değer [█████░░░░░])
    c) Derin Analiz Gerekçeleri (Maç başına 1-2 satırlık somut veri özeti):
       - **Ev - Deplasman:** 📊 Bağımsız xG: 2.14 - 0.88 • Ev sahibi iç sahada maç başı 2.2 gol atıyor, 3 ortak rakipte +1.4 averaj üstünlüğü var (🌤️ 16°C Açık).
    d) Tek Cümlelik Oynanış Notu.
-3. ASLA bahis oranları (1.85, 2.40 vb.) veya TL kazanç rakamları VERME. Yalnızca kendi bağımsız model yüzdelerini, xG değerlerini, ev/dep istatistiklerini ve saha/hava verilerini belirt.
-4. KESİN KURAL (HALÜSİNASYON YASAĞI): Yalnızca yukarıdaki [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] içinde yazılı olan maçları kullan! Bu listede olmayan hiçbir maçı ASLA uydurma.
-5. KUPON ÇEŞİTLİLİĞİ: Kullanıcı 'başka kupon', 'farklı maçlar', 'ilk yarı gol', '2.5 üst kuponu' istediğinde [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] listesinden farklı maçlar seçerek aynı kısa, grafikli formatta yeni kuponlar üret.
+3. SÜRPRİZ KUPON ÇEŞİTLİLİĞİ KURALI (ÇOK ÖNEMLİ): Sürpriz kupon hazırlarken ASLA sadece İY/MS veya İY 1/2 seçme! Nesine bültenindeki yüksek oranlı özel pazarları çeşitlendirerek kullan: **MS 1 & KG Var**, **MS 2 & KG Var**, **MS X & KG Var**, **MS 1 & 2,5 Üst**, **MS 2 & 2,5 Üst**, **2,5 Üst & KG Var**, **İlk Yarı KG Var**, **2. Yarı KG Var**, **İlk Yarı 1,5 Üst**, **Handikaplı MS (-1)**, **Toplam 4-6 Gol**, **İY Kesin Skor (1-1, 1-0, 0-1)**, **MS Kesin Skor (2-1, 1-2, 2-2)** ve **İY/MS**. Her maçta hangi yüksek oranlı seçenek takımın karakterine ve derin istatistiğine en çok uyuyorsa onu seç.
+4. ASLA bahis oranları (1.85, 2.40 vb.) veya TL kazanç rakamları VERME. Yalnızca kendi bağımsız model yüzdelerini, değer katını (örn: 2.3x Değer), xG değerlerini, ev/dep istatistiklerini ve saha/hava verilerini belirt.
+5. KESİN KURAL (HALÜSİNASYON YASAĞI): Yalnızca yukarıdaki [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] içinde yazılı olan maçları kullan! Bu listede olmayan hiçbir maçı ASLA uydurma.
 `;
 }
 

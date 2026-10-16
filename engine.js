@@ -115,6 +115,7 @@ function buildModel(hist, asOf) {
 // ---------------- Gerçekleşen sonuçtan pazar anahtarları ----------------
 function outcomeKeys(gh, ga, h1, a1) {
     const k = [], tot = gh + ga, t1 = h1 + a1, t2 = tot - t1;
+    const gh2 = gh - h1, ga2 = ga - a1;
     const ft = ['1', 'X', '2'][outcome3(gh - ga)], ht = ['1', 'X', '2'][outcome3(h1 - a1)];
     k.push('ms' + ft.toLowerCase());
     if (ft !== '2') k.push('dc1x'); if (ft !== '1') k.push('dcx2'); if (ft !== 'X') k.push('dc12');
@@ -123,9 +124,27 @@ function outcomeKeys(gh, ga, h1, a1) {
     k.push('iy' + ht.toLowerCase());
     k.push(t1 > 0.5 ? 'iyust05' : 'iyalt05', t1 > 1.5 ? 'iyust15' : 'iyalt15');
     if (h1 > 0 && a1 > 0) k.push('iykgv');
+    if (gh2 > 0 && ga2 > 0) k.push('y2kgv');
+    if (t1 > 0 && t2 > 0) k.push('ikiyari_gol');
     if (t2 > 0.5) k.push('y2ust05'); if (t2 > 1.5) k.push('y2ust15');
     k.push(t1 > t2 ? 'yari1' : t1 < t2 ? 'yari2' : 'yarix');
     k.push('htft_' + ht + '/' + ft);
+
+    // Nesine yüksek oranlı kombinasyon ve özel sürpriz pazarları
+    if (gh > ga && tot >= 3) k.push('ms1_ust25');
+    if (ga > gh && tot >= 3) k.push('ms2_ust25');
+    if (gh > ga && gh > 0 && ga > 0) k.push('ms1_kgv');
+    if (ga > gh && gh > 0 && ga > 0) k.push('ms2_kgv');
+    if (gh === ga && gh > 0) k.push('msx_kgv');
+    if (tot >= 3 && gh > 0 && ga > 0) k.push('ust25_kgv');
+    if (gh - ga >= 2) k.push('hms1');
+    if (ga - gh >= 2) k.push('hms2');
+    if (tot >= 4 && tot <= 6) k.push('tg46');
+
+    // İlk yarı ve maç sonucu kesin skor pazarları
+    if (h1 <= 2 && a1 <= 2) k.push(`iyskor_${h1}_${a1}`);
+    if (gh <= 3 && ga <= 3) k.push(`msskor_${gh}_${ga}`);
+
     return k;
 }
 
@@ -134,15 +153,31 @@ const LABEL = {
     ms1: 'MS 1', msx: 'MS X', ms2: 'MS 2', dc1x: 'Çifte Şans 1-X', dcx2: 'Çifte Şans X-2', dc12: 'Çifte Şans 1-2',
     ust15: '1,5 Üst', alt15: '1,5 Alt', ust25: '2,5 Üst', alt25: '2,5 Alt', ust35: '3,5 Üst', alt35: '3,5 Alt',
     kgv: 'KG Var', kgy: 'KG Yok',
-    iy1: 'İY 1', iyx: 'İY X', iy2: 'İY 2', iyust05: 'İY 0,5 Üst', iyalt05: 'İY 0,5 Alt', iyust15: 'İY 1,5 Üst', iyalt15: 'İY 1,5 Alt', iykgv: 'İY KG Var',
+    iy1: 'İY 1', iyx: 'İY X', iy2: 'İY 2', iyust05: 'İY 0,5 Üst', iyalt05: 'İY 0,5 Alt', iyust15: 'İlk Yarı 1,5 Üst', iyalt15: 'İY 1,5 Alt',
+    iykgv: 'İlk Yarı KG Var', y2kgv: '2. Yarı KG Var', ikiyari_gol: 'Her İki Yarıda Gol',
     y2ust05: '2. Yarı 0,5 Üst', y2ust15: '2. Yarı 1,5 Üst',
-    yari1: 'Daha Çok Gol: 1. Yarı', yari2: 'Daha Çok Gol: 2. Yarı', yarix: 'Daha Çok Gol: Eşit'
+    yari1: 'Daha Çok Gol: 1. Yarı', yari2: 'Daha Çok Gol: 2. Yarı', yarix: 'Daha Çok Gol: Eşit',
+    ms1_ust25: 'MS 1 & 2,5 Üst', ms2_ust25: 'MS 2 & 2,5 Üst',
+    ms1_kgv: 'MS 1 & KG Var', ms2_kgv: 'MS 2 & KG Var', msx_kgv: 'MS X & KG Var',
+    ust25_kgv: '2,5 Üst & KG Var',
+    hms1: 'Handikaplı MS 1 (-1)', hms2: 'Handikaplı MS 2 (-1)',
+    tg46: 'Toplam 4-6 Gol',
+    iyskor_1_0: 'İY Skor 1-0', iyskor_0_1: 'İY Skor 0-1', iyskor_1_1: 'İY Skor 1-1', iyskor_2_0: 'İY Skor 2-0', iyskor_0_2: 'İY Skor 0-2',
+    msskor_2_1: 'MS Skor 2-1', msskor_1_2: 'MS Skor 1-2', msskor_2_2: 'MS Skor 2-2', msskor_3_1: 'MS Skor 3-1', msskor_1_3: 'MS Skor 1-3'
 };
 const GROUP = {
     ms1: 'ms', msx: 'msx', ms2: 'ms', dc1x: 'dc', dcx2: 'dc', dc12: 'dc',
     ust15: 'ou', alt15: 'ou', ust25: 'ou', alt25: 'ou', ust35: 'ou', alt35: 'ou', kgv: 'kg', kgy: 'kg',
-    iy1: 'iy', iyx: 'iy', iy2: 'iy', iyust05: 'iyou', iyalt05: 'iyou', iyust15: 'iyou', iyalt15: 'iyou', iykgv: 'iykg',
-    y2ust05: 'y2', y2ust15: 'y2', yari1: 'yari', yari2: 'yari', yarix: 'yari'
+    iy1: 'iy', iyx: 'iy', iy2: 'iy', iyust05: 'iyou', iyalt05: 'iyou', iyust15: 'iy_ust', iyalt15: 'iyou',
+    iykgv: 'iy_kg', y2kgv: 'y2_kg', ikiyari_gol: 'iki_yari',
+    y2ust05: 'y2', y2ust15: 'y2_ust', yari1: 'yari', yari2: 'yari', yarix: 'yari',
+    ms1_ust25: 'ms_ou', ms2_ust25: 'ms_ou',
+    ms1_kgv: 'ms_kg', ms2_kgv: 'ms_kg', msx_kgv: 'ms_kg',
+    ust25_kgv: 'ou_kg',
+    hms1: 'hms', hms2: 'hms',
+    tg46: 'tg',
+    iyskor_1_0: 'iyskor', iyskor_0_1: 'iyskor', iyskor_1_1: 'iyskor', iyskor_2_0: 'iyskor', iyskor_0_2: 'iyskor',
+    msskor_2_1: 'msskor', msskor_1_2: 'msskor', msskor_2_2: 'msskor', msskor_3_1: 'msskor', msskor_1_3: 'msskor'
 };
 const HTFT = ['1/1', '1/X', '1/2', 'X/1', 'X/X', 'X/2', '2/1', '2/X', '2/2'];
 
@@ -168,31 +203,69 @@ function computeMarkets(lh, la, sh, sa) {
     const lh1 = lh * sh, la1 = la * sa, lh2 = lh - lh1, la2 = la - la1;
     const L1 = lh1 + la1, L2 = lh2 + la2;
     const N = 9, G = dcGrid(lh, la, N);
-    const p = {}; let w = 0, d = 0, a = 0, ov = [0, 0, 0], kg = 0;
+    const p = {};
+    let w = 0, d = 0, a = 0, ov = [0, 0, 0], kg = 0;
+    let ms1Ust25 = 0, ms2Ust25 = 0, ms1Kgv = 0, ms2Kgv = 0, msxKgv = 0, ust25Kgv = 0;
+    let hms1 = 0, hms2 = 0, tg46 = 0;
     const scores = [];
     for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) {
         const q = G[i][j];
-        if (i > j) w += q; else if (i === j) d += q; else a += q;
-        const t = i + j; if (t > 1) ov[0] += q; if (t > 2) ov[1] += q; if (t > 3) ov[2] += q;
-        if (i > 0 && j > 0) kg += q;
+        const t = i + j;
+        if (i > j) {
+            w += q;
+            if (t >= 3) ms1Ust25 += q;
+            if (i > 0 && j > 0) ms1Kgv += q;
+            if (i - j >= 2) hms1 += q;
+        } else if (i === j) {
+            d += q;
+            if (i > 0) msxKgv += q;
+        } else {
+            a += q;
+            if (t >= 3) ms2Ust25 += q;
+            if (i > 0 && j > 0) ms2Kgv += q;
+            if (j - i >= 2) hms2 += q;
+        }
+        if (t > 1) ov[0] += q; if (t > 2) ov[1] += q; if (t > 3) ov[2] += q;
+        if (i > 0 && j > 0) {
+            kg += q;
+            if (t >= 3) ust25Kgv += q;
+        }
+        if (t >= 4 && t <= 6) tg46 += q;
         scores.push({ s: i + '-' + j, p: q });
     }
     p.ms1 = w; p.msx = d; p.ms2 = a; p.dc1x = w + d; p.dcx2 = d + a; p.dc12 = w + a;
     p.ust15 = ov[0]; p.alt15 = 1 - ov[0]; p.ust25 = ov[1]; p.alt25 = 1 - ov[1]; p.ust35 = ov[2]; p.alt35 = 1 - ov[2];
     p.kgv = kg; p.kgy = 1 - kg;
 
+    // Nesine yüksek oranlı kombinasyon pazarları
+    p.ms1_ust25 = ms1Ust25; p.ms2_ust25 = ms2Ust25;
+    p.ms1_kgv = ms1Kgv; p.ms2_kgv = ms2Kgv; p.msx_kgv = msxKgv;
+    p.ust25_kgv = ust25Kgv;
+    p.hms1 = hms1; p.hms2 = hms2;
+    p.tg46 = tg46;
+
+    // MS kesin skor pazarları
+    p.msskor_2_1 = G[2][1]; p.msskor_1_2 = G[1][2]; p.msskor_2_2 = G[2][2];
+    p.msskor_3_1 = G[3][1]; p.msskor_1_3 = G[1][3];
+
     // Devreler (bağımsız Poisson)
     const pt1 = pmfArr(L1, 14), pt2 = pmfArr(L2, 14);
     p.iyalt05 = pt1[0]; p.iyust05 = 1 - pt1[0]; p.iyalt15 = pt1[0] + pt1[1]; p.iyust15 = 1 - p.iyalt15;
     p.iykgv = (1 - Math.exp(-lh1)) * (1 - Math.exp(-la1));
+    p.y2kgv = (1 - Math.exp(-lh2)) * (1 - Math.exp(-la2));
     p.y2ust05 = 1 - pt2[0]; p.y2ust15 = 1 - pt2[0] - pt2[1];
+    p.ikiyari_gol = p.iyust05 * p.y2ust05;
+
     let y1 = 0, y2 = 0, yx = 0;
     for (let i = 0; i <= 14; i++) for (let j = 0; j <= 14; j++) { const q = pt1[i] * pt2[j]; if (i > j) y1 += q; else if (i < j) y2 += q; else yx += q; }
     p.yari1 = y1; p.yari2 = y2; p.yarix = yx;
 
-    // İY sonucu ve İY/MS (2. yarı farkı Skellam ile)
+    // İY sonucu, İY kesin skorlar ve İY/MS (2. yarı farkı Skellam ile)
     const N1 = 8, P1 = pmfArr(lh1, N1), Q1 = pmfArr(la1, N1);
     const P2 = pmfArr(lh2, N1), Q2 = pmfArr(la2, N1);
+    p.iyskor_1_0 = P1[1] * Q1[0]; p.iyskor_0_1 = P1[0] * Q1[1]; p.iyskor_1_1 = P1[1] * Q1[1];
+    p.iyskor_2_0 = P1[2] * Q1[0]; p.iyskor_0_2 = P1[0] * Q1[2];
+
     const D2 = {};
     for (let i = 0; i <= N1; i++) for (let j = 0; j <= N1; j++) D2[i - j] = (D2[i - j] || 0) + P2[i] * Q2[j];
     const htft = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], htScores = [];
@@ -495,7 +568,7 @@ function picksOf(match, an) {
 
 const BANKO_PRIMARY_KEYS = new Set(['ms1', 'ms2', 'ust25', 'kgv', 'alt25', 'iyust05']);
 const BANKO_KEYS = ['ms1', 'ms2', 'ust25', 'kgv', 'alt25', 'iyust05', 'ust15', 'dc1x', 'dcx2', 'alt35'];
-const SURPRISE_GROUPS = ['htft', 'msx', 'ms', 'iy', 'iykg', 'yari'];
+const SURPRISE_GROUPS = ['ms_kg', 'ms_ou', 'iy_kg', 'y2_kg', 'iy_ust', 'iyskor', 'msskor', 'hms', 'tg', 'htft', 'ou_kg', 'iki_yari'];
 
 function qualifies(match, an, minQ = 'B') {
     if (match.state !== 'pre') return false;
@@ -514,7 +587,7 @@ function generateRationale(pk, m, an) {
     const hf = an.facts?.home;
     const af = an.facts?.away;
     const splitNote = (hf && af && hf.homeGf !== null && af.awayGf !== null)
-        ? ` Ev sahibi iç sahada maç başı ${hf.homeGf} gol atarken, deplasman ekibi dış sahada ${af.awayGf} gol üretiyor.`
+        ? ` Ev sahibi iç sahada maç başı ${hf.homeGf} gol (yediği ${hf.homeGa}), deplasman dış sahada ${af.awayGf} gol (yediği ${af.awayGa}) ortalamasında.`
         : '';
     const extraNote = an.commonSummary
         ? ` [${an.commonSummary}]`
@@ -525,6 +598,51 @@ function generateRationale(pk, m, an) {
         ? ` 🌤️ ${an.intel.weather.city}: ${an.intel.weather.temp}°C (${an.intel.weather.condition}).`
         : '';
 
+    // Yüksek oranlı Nesine Sürpriz Pazarları gerekçeleri
+    if (pk.key === 'ms1_kgv' || pk.key === 'ms2_kgv') {
+        const fav = pk.key === 'ms1_kgv' ? m.home : m.away;
+        const dog = pk.key === 'ms1_kgv' ? m.away : m.home;
+        return `${fav} hücum gücüyle galibiyete yakın (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG), ancak ${dog} da skor üretebilen yapıda (2-1 / 3-1 senaryosu, ${pStr} olasılık, ${liftStr} değer).${splitNote}${extraNote}${weatherNote}`;
+    }
+    if (pk.key === 'msx_kgv') {
+        return `İki takımın hücum ve savunma dengesi birbirine çok yakın (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Gollü beraberlik (1-1 / 2-2) senaryosu normalin ${liftStr} üzerinde (${pStr} olasılık).${splitNote}${extraNote}${weatherNote}`;
+    }
+    if (pk.key === 'ms1_ust25' || pk.key === 'ms2_ust25') {
+        const fav = pk.key === 'ms1_ust25' ? m.home : m.away;
+        return `${fav} yüksek hücum temposuyla maçı üst barajına taşıyarak kazanmaya aday (Toplam ${totG} xG, ${pStr} olasılık, ${liftStr} değer).${splitNote}${extraNote}${weatherNote}`;
+    }
+    if (pk.key === 'ust25_kgv') {
+        return `İki takım da açık futbol oynuyor (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}, toplam ${totG} xG). Hem KG Var hem 2,5 Üst birleşimi ${pStr} olasılıkla öne çıkıyor.${splitNote}${weatherNote}`;
+    }
+    if (pk.key === 'iykgv') {
+        return `Her iki takım da maça hızlı başlayan ve ilk yarılarda açık veren karakterde. İlk yarıdan karşılıklı gol (İY KG Var) olasılığı ${pStr} (normalin ${liftStr} üzerinde).${splitNote}${weatherNote}`;
+    }
+    if (pk.key === 'y2kgv') {
+        return `İkinci yarılarda savunma disiplini düşen ve skoru çift taraflı üreten iki ekip. 2. Yarı KG Var olasılığı ${pStr} (${liftStr} istatistiksel değer).${splitNote}${weatherNote}`;
+    }
+    if (pk.key === 'iyust15') {
+        return `İlk yarı gol beklentisi çok yüksek; devre bitmeden en az 2 gol (İY 1,5 Üst) çıkma ihtimali ${pStr} (${liftStr} değer).${splitNote}${weatherNote}`;
+    }
+    if (pk.key === 'ikiyari_gol') {
+        return `Maçın her iki devresinde de yüksek gol temposu bekleniyor (Toplam ${totG} xG, Her İki Yarıda Gol: ${pStr}).${splitNote}${weatherNote}`;
+    }
+    if (pk.key === 'hms1' || pk.key === 'hms2') {
+        const fav = pk.key === 'hms1' ? m.home : m.away;
+        return `${fav} rakibine karşı net güç ve xG üstünlüğüne sahip (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). En az 2 farklı handikaplı galibiyet olasılığı ${pStr} (${liftStr} değer).${extraNote}${weatherNote}`;
+    }
+    if (pk.key === 'tg46') {
+        return `Yüksek tempolu ve gollü geçmeye aday karşılaşma (${totG} toplam xG). Maçta toplam 4-6 gol aralığı ${pStr} olasılık ve ${liftStr} değer taşıyor.${splitNote}${weatherNote}`;
+    }
+    if (pk.key.startsWith('iyskor_')) {
+        const sc = pk.key.slice(7).replace('_', '-');
+        return `İlk yarı devre matrisinde ${sc} kesin skoru yüksek yoğunlukta (${pStr} olasılık, normal dağılımın ${liftStr} üzerinde).${splitNote}${weatherNote}`;
+    }
+    if (pk.key.startsWith('msskor_')) {
+        const sc = pk.key.slice(7).replace('_', '-');
+        return `Bağımsız Dixon-Coles skor matrisinde ${sc} maç skoru en değerli yüksek oranlı hedef olarak öne çıkıyor (${pStr} olasılık, ${liftStr} değer).${splitNote}${extraNote}`;
+    }
+
+    // Banko & klasik pazar gerekçeleri
     if (pk.key === 'ust15') {
         return `Bağımsız xG modeli toplam ${totG} gol (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}) hesapladı (${pStr} güven).${splitNote}${weatherNote}`;
     }
@@ -561,7 +679,7 @@ function generateRationale(pk, m, an) {
     }
     if (pk.key.startsWith('htft_')) {
         const sub = pk.key.slice(5);
-        return `Bağımsız devre modelinde yüksek değerli İY/MS (${sub}) tercihi: ${pStr} olasılık (normal dağılımın ${liftStr} üzerinde).${extraNote}${weatherNote}`;
+        return `Bağımsız devre modelinde yüksek değerli İY/MS (${sub}) senaryosu: ${pStr} olasılık (normal dağılımın ${liftStr} üzerinde).${extraNote}${weatherNote}`;
     }
     if (pk.key === 'yari1' || pk.key === 'yari2') {
         const half = pk.key === 'yari1' ? '1. yarıda' : '2. yarıda';
@@ -572,6 +690,87 @@ function generateRationale(pk, m, an) {
 
 function isMainstreamMatch(m) {
     return (m.mbs <= 2 || (m.order !== undefined && m.order < 55)) && !m.youth && !m.women && !m.reserve;
+}
+
+// Yüksek oranlı Nesine Sürpriz pazarlarının taktiksel uygunluk ve değer puanlaması
+function scoreSurpriseCandidate(pk, m, an, model) {
+    if (!SURPRISE_GROUPS.includes(pk.group)) return null;
+    const baseRate = model.base[pk.key] || 0.05;
+    const lift = pk.p / baseRate;
+    if (lift < 1.25) return null;
+
+    const tot = an.lh + an.la;
+    const diff = an.lh - an.la;
+    const hf = an.facts?.home, af = an.facts?.away;
+    let tacticalMult = 1.0;
+
+    // Pazara özel taktiksel filtre ve sağlam analiz doğrulaması
+    if (pk.key === 'ms1_kgv') {
+        if (an.lh < 1.55 || an.la < 0.82 || pk.p < 0.16) return null;
+        tacticalMult = 1.22;
+    } else if (pk.key === 'ms2_kgv') {
+        if (an.la < 1.55 || an.lh < 0.82 || pk.p < 0.16) return null;
+        tacticalMult = 1.22;
+    } else if (pk.key === 'msx_kgv') {
+        if (Math.abs(diff) > 0.28 || an.lh < 1.15 || an.la < 1.15 || pk.p < 0.13) return null;
+        tacticalMult = 1.28;
+    } else if (pk.key === 'ms1_ust25') {
+        if (an.lh < 1.75 || tot < 2.85 || pk.p < 0.28 || pk.p > 0.54) return null;
+        tacticalMult = 1.15;
+    } else if (pk.key === 'ms2_ust25') {
+        if (an.la < 1.75 || tot < 2.85 || pk.p < 0.28 || pk.p > 0.54) return null;
+        tacticalMult = 1.15;
+    } else if (pk.key === 'ust25_kgv') {
+        if (an.lh < 1.25 || an.la < 1.15 || tot < 2.95 || pk.p < 0.32 || pk.p > 0.55) return null;
+        tacticalMult = 1.14;
+    } else if (pk.key === 'iykgv') {
+        if (an.lh < 1.20 || an.la < 1.10 || tot < 2.80 || pk.p < 0.16) return null;
+        if (hf?.iyGol >= 0.7 && af?.iyGol >= 0.7) tacticalMult *= 1.12;
+        tacticalMult *= 1.26;
+    } else if (pk.key === 'y2kgv') {
+        if (an.lh < 1.20 || an.la < 1.10 || tot < 2.75 || pk.p < 0.22 || pk.p > 0.48) return null;
+        tacticalMult = 1.20;
+    } else if (pk.key === 'iyust15') {
+        if (tot < 2.95 || pk.p < 0.28 || pk.p > 0.52) return null;
+        tacticalMult = 1.16;
+    } else if (pk.key === 'ikiyari_gol') {
+        if (tot < 3.05 || pk.p < 0.35 || pk.p > 0.55) return null;
+        tacticalMult = 1.10;
+    } else if (pk.key === 'hms1') {
+        if (diff < 0.75 || pk.p < 0.24 || pk.p > 0.50) return null;
+        tacticalMult = 1.18;
+    } else if (pk.key === 'hms2') {
+        if (-diff < 0.75 || pk.p < 0.24 || pk.p > 0.50) return null;
+        tacticalMult = 1.18;
+    } else if (pk.key === 'tg46') {
+        if (tot < 3.10 || pk.p < 0.26 || pk.p > 0.48) return null;
+        tacticalMult = 1.20;
+    } else if (pk.group === 'iyskor') {
+        if (pk.p < 0.14 || pk.p > 0.32 || lift < 1.32) return null;
+        if (pk.key === 'iyskor_1_1' && (an.lh < 1.15 || an.la < 1.15)) return null;
+        tacticalMult = 1.32;
+    } else if (pk.group === 'msskor') {
+        if (pk.p < 0.085 || pk.p > 0.22 || lift < 1.35) return null;
+        tacticalMult = 1.45;
+    } else if (pk.group === 'htft') {
+        if (pk.p < 0.14 || pk.p > 0.48) return null;
+        const sub = pk.key.slice(5);
+        if (sub === 'X/1' || sub === 'X/2') tacticalMult = 1.24;
+        else if (sub === '2/1' || sub === '1/2') {
+            if (pk.p < 0.05) return null;
+            tacticalMult = 1.30;
+        } else {
+            tacticalMult = 1.02;
+        }
+    } else {
+        if (pk.p < 0.18 || pk.p > 0.52) return null;
+    }
+
+    const mbsMult = m.mbs === 1 ? 1.14 : m.mbs === 2 ? 1.07 : 1.0;
+    const qMult = an.quality === 'A' ? 1.10 : an.quality === 'B' ? 1.04 : 0.96;
+    // Farklı olasılık bantlarındaki yüksek oranlı pazarları adil kıyaslamak için karekök ağırlıklı skor
+    const score = Math.pow(pk.p, 0.62) * Math.min(lift, 3.2) * tacticalMult * mbsMult * qMult;
+    return { ...pk, lift, score, m, an };
 }
 
 function buildCoupons(items, model, opts = {}) {
@@ -637,13 +836,14 @@ function buildCoupons(items, model, opts = {}) {
         }
     }
 
-    // SÜRPRİZ: %100 Bağımsız Modelin Normal Dağılımın Üstünde Gördüğü Değerli Seçimler
+    // SÜRPRİZ: Nesine'deki Çoklu Yüksek Oranlı Pazarlardan (MS&KG, MS&Üst, İY KG, 2Y KG, İY/MS Skor, Handikap, 4-6 Gol, İY/MS)
+    // Her maçta farklı bir yüksek oranlı pazar kategorisi seçen sağlam analiz motoru
     const used = new Set(banko.map(b => b.matchId));
     let surpCands = items.filter(x => qualifies(x.m, x.an, 'B') && isMainstreamMatch(x.m));
-    if (surpCands.length < surpN * 2) {
+    if (surpCands.length < surpN * 3) {
         surpCands = items.filter(x => qualifies(x.m, x.an, 'C') && isMainstreamMatch(x.m));
     }
-    if (surpCands.length < surpN) {
+    if (surpCands.length < surpN * 2) {
         surpCands = items.filter(x => qualifies(x.m, x.an, 'B'));
     }
     if (surpCands.length < surpN) {
@@ -652,42 +852,51 @@ function buildCoupons(items, model, opts = {}) {
 
     const surpPool = [];
     for (const it of surpCands) {
-        let best = null;
-        const mbsMult = it.m.mbs === 1 ? 1.12 : it.m.mbs === 2 ? 1.06 : 1.0;
+        if (used.has(it.m.id)) continue;
+        // Her maç için her farklı yüksek oranlı pazardan en iyi adayı çıkar
+        const bestByGroup = new Map();
         for (const pk of picksOf(it.m, it.an)) {
-            if (!SURPRISE_GROUPS.includes(pk.group)) continue;
-            if (pk.p < 0.18 || pk.p > 0.55) continue;
-            const baseRate = model.base[pk.key] || 0.05;
-            const lift = pk.p / baseRate;
-            if (lift < 1.25) continue;
-            const score = pk.p * Math.min(lift, 3) * (it.an.quality === 'A' ? 1.08 : 1) * mbsMult;
-            if (!best || score > best.score) best = { ...pk, lift, score, m: it.m, an: it.an };
+            const scored = scoreSurpriseCandidate(pk, it.m, it.an, model);
+            if (!scored) continue;
+            const prev = bestByGroup.get(scored.group);
+            if (!prev || scored.score > prev.score) {
+                bestByGroup.set(scored.group, scored);
+            }
         }
-        if (best) {
+        for (const cand of bestByGroup.values()) {
             surpPool.push({
-                ...best,
-                rationale: generateRationale(best, best.m, best.an)
+                ...cand,
+                rationale: generateRationale(cand, cand.m, cand.an)
             });
         }
     }
     surpPool.sort((a, b) => b.score - a.score);
 
     const surprise = [];
-    const surpKeyCounts = {};
+    const usedSurpMatches = new Set();
+    const usedSurpGroups = new Set();
+
+    // 1. Geçiş: 5 maçın 5'i de FARKLI yüksek oranlı pazar grubundan (MS&KG, İY KG, 2Y KG, MS&Üst, İY/MS Skor, Handikap, 4-6 Gol, İY/MS) olsun
     for (const cand of surpPool) {
         if (surprise.length >= surpN) break;
-        if (used.has(cand.matchId)) continue;
-        const cnt = surpKeyCounts[cand.key] || 0;
-        if (cnt >= 2) continue;
+        if (used.has(cand.matchId) || usedSurpMatches.has(cand.matchId)) continue;
+        if (usedSurpGroups.has(cand.group)) continue;
         surprise.push(cand);
-        surpKeyCounts[cand.key] = cnt + 1;
+        usedSurpMatches.add(cand.matchId);
+        usedSurpGroups.add(cand.group);
     }
+
+    // 2. Geçiş: Eğer 5 farklı grup dolmadıysa farklı anahtarlarla tamamla
     if (surprise.length < surpN) {
+        const keyCounts = {};
+        for (const s of surprise) keyCounts[s.key] = (keyCounts[s.key] || 0) + 1;
         for (const cand of surpPool) {
             if (surprise.length >= surpN) break;
-            if (!used.has(cand.matchId) && !surprise.some(x => x.matchId === cand.matchId)) {
-                surprise.push(cand);
-            }
+            if (used.has(cand.matchId) || usedSurpMatches.has(cand.matchId)) continue;
+            if ((keyCounts[cand.key] || 0) >= 1) continue;
+            surprise.push(cand);
+            usedSurpMatches.add(cand.matchId);
+            keyCounts[cand.key] = (keyCounts[cand.key] || 0) + 1;
         }
     }
 
@@ -700,7 +909,7 @@ function buildCoupons(items, model, opts = {}) {
         : 'Şu an bültende kriterlere uygun yaklaşan banko maç bulunamadı.';
 
     const surpInstruction = surprise.length
-        ? `Bağımsız modelin iç/dış saha, devre karakteri ve H2H analizine göre normal dağılımın ortalama ${surpAvgLift} katı değer taşıyan ${surprise.length} resmi İddaa maçı. Sistem (3-4-5) veya sürpriz kombine olarak değerlendirilebilir.`
+        ? `Nesine'deki yüksek oranlı pazarlar (MS & KG Var, MS & 2,5 Üst, İlk Yarı / 2. Yarı KG Var, İY & MS Kesin Skor, Handikaplı MS, 4-6 Gol ve İY/MS) taranarak her maça en uygun yüksek değerli senaryo seçilmiştir (Ort. ${surpAvgLift}x istatistiksel değer). Sistem (3-4-5) veya sürpriz kombine olarak değerlendirilebilir.`
         : 'Şu an bültende kriterlere uygun yaklaşan sürpriz maç bulunamadı.';
 
     return {
@@ -715,7 +924,7 @@ function buildCoupons(items, model, opts = {}) {
         surprise: {
             title: 'Sürpriz Kupon',
             type: 'surprise',
-            strategy: 'Bağımsız Derin Analiz • İY/MS & İlk Yarı Fırsatları',
+            strategy: 'Yüksek Oranlı Çoklu Pazar • MS&KG, Devre KG, Skor & Kombinasyonlar',
             instruction: surpInstruction,
             avgLift: surpAvgLift,
             matches: surprise

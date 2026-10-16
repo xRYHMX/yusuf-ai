@@ -845,7 +845,7 @@ function bindFootballModule() {
 
     if (askAiSurpriseBtn) {
         askAiSurpriseBtn.addEventListener('click', () => {
-            const prompt = 'Günün Sürpriz Kuponunu ev/deplasman karnesi, devre karakteri, H2H, ortak rakipler ve hava şartlarıyla tablolu ve grafik barlı olarak analiz et. Sistem mi yoksa kombine mi oynamalıyım?';
+            const prompt = 'Günün Sürpriz Kuponunu (MS & KG Var, MS & 2,5 Üst, İY / 2. Yarı KG Var, Kesin Skor, Handikap, 4-6 Gol ve İY/MS tercihlerini) ev/deplasman karnesi, H2H, ortak rakipler ve hava şartlarıyla tablolu ve grafik barlı olarak analiz et. Sistem mi yoksa kombine mi oynamalıyım?';
             askAiDirectly(prompt);
         });
     }
@@ -919,7 +919,7 @@ function renderCoupons(data) {
     const surp = data.surprise;
     if (surp) {
         surpriseTitle.textContent = surp.title || 'Sürpriz Kupon';
-        surpriseStrategy.textContent = surp.strategy || 'Bağımsız Derin Analiz • İY/MS & İlk Yarı Fırsatları';
+        surpriseStrategy.textContent = surp.strategy || 'Nesine Yüksek Oranlı Özel Pazarlar (MS&KG, MS&Üst, Devre KG, Skor, İY/MS)';
         surpriseLiftVal.textContent = `${surp.avgLift || '2.0'}x`;
         surpriseInstruction.textContent = surp.instruction || 'Sistem (3-4-5) veya sürpriz kombine olarak oynanması tavsiye edilir.';
 
