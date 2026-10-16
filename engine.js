@@ -222,13 +222,15 @@ function analyze(model, m, opts = {}) {
     const useMarket = opts.useMarket !== false;
     const th = model.teams.get(m.homeId), ta = model.teams.get(m.awayId);
     const L = model.lgStat(m.league.id), g = model.glob;
+    const nh = th ? th.n : 0, na = ta ? ta.n : 0;
+
     const att = (t) => (t ? (t.gf + K * g.muH) / (t.bgf + K * g.muH) : 1);
     const dfn = (t) => (t ? (t.ga + K * g.muH) / (t.bga + K * g.muH) : 1);
     const lhM = L.muH * att(th) * dfn(ta);
     const laM = L.muA * att(ta) * dfn(th);
     let lh = Math.min(3.8, Math.max(0.25, lhM)), la = Math.min(3.8, Math.max(0.25, laM));
 
-    // Piyasa verisiyle harmanla (piyasa ücretsiz en keskin ön bilgi)
+    // Piyasa verisiyle harmanla (örneklem azsa piyasa ağırlığını artır)
     let market = null, marketUsed = false, lhMk = null, laMk = null;
     const o = m.odds;
     if (o && o.h && o.d && o.a) {
@@ -236,7 +238,12 @@ function analyze(model, m, opts = {}) {
         const pO = o.alt25 && o.ust25 ? (1 / o.ust25) / (1 / o.ust25 + 1 / o.alt25) : null;
         market = { p1: inv[0] / s, pX: inv[1] / s, p2: inv[2] / s, pO };
         [lhMk, laMk] = fitLambda(market.p1, market.pX, market.p2, pO, lh, la);
-        if (useMarket) { lh = 0.4 * lh + 0.6 * lhMk; la = 0.4 * la + 0.6 * laMk; marketUsed = true; }
+        if (useMarket) {
+            const modelWeight = Math.min(0.45, Math.min(nh, na) / 18);
+            lh = modelWeight * lh + (1 - modelWeight) * lhMk;
+            la = modelWeight * la + (1 - modelWeight) * laMk;
+            marketUsed = true;
+        }
     }
 
     // Devre payları
@@ -246,9 +253,12 @@ function analyze(model, m, opts = {}) {
     const clamp = (v) => Math.min(0.6, Math.max(0.3, v));
     const mkts = computeMarkets(lh, la, clamp(shareH), clamp(shareA));
 
-    // Veri kalitesi
-    const nh = th ? th.n : 0, na = ta ? ta.n : 0;
-    const quality = Math.min(nh, na) >= 6 && L.n >= 25 ? 'A' : Math.min(nh, na) >= 3 ? 'B' : 'C';
+    // Veri kalitesi: A ve B yalnızca İddaa bülteninde olan (marketUsed) maçlara verilir
+    const quality = marketUsed && Math.min(nh, na) >= 6 && L.n >= 20
+        ? 'A'
+        : marketUsed && Math.min(nh, na) >= 3
+            ? 'B'
+            : 'C';
 
     return {
         lh, la, quality, marketUsed, market, p: mkts.p, topScores: mkts.topScores, topHtScores: mkts.topHtScores,
@@ -270,13 +280,17 @@ function picksOf(match, an) {
     return out;
 }
 
-const BANKO_KEYS = ['ms1', 'ms2', 'dc1x', 'dcx2', 'dc12', 'ust15', 'alt25', 'alt35', 'kgv', 'kgy', 'ust25'];
+const BANKO_PRIMARY_KEYS = new Set(['ms1', 'ms2', 'ust25', 'kgv', 'alt25', 'iyust05']);
+const BANKO_KEYS = ['ms1', 'ms2', 'ust25', 'kgv', 'alt25', 'iyust05', 'ust15', 'dc1x', 'dcx2', 'alt35'];
 const SURPRISE_GROUPS = ['htft', 'msx', 'ms', 'iy', 'iykg', 'yari'];
 
-function qualifies(match, an, minQ) {
+function qualifies(match, an, minQ = 'B') {
     if (match.state !== 'pre') return false;
+    if (!match.inBulletin || !an.marketUsed) return false; // Yalnızca resmi İddaa bültenindeki maçlar
     if (new Date(match.kickoff).getTime() < Date.now() + 5 * 60000) return false;
-    return an.quality === 'A' || (minQ === 'B' && an.quality === 'B');
+    if (minQ === 'A') return an.quality === 'A';
+    if (minQ === 'B') return an.quality === 'A' || an.quality === 'B';
+    return true;
 }
 
 function generateRationale(pk, m, an) {
@@ -285,88 +299,147 @@ function generateRationale(pk, m, an) {
     const liftStr = pk.lift ? pk.lift.toFixed(1) + ' kat' : '';
 
     if (pk.key === 'ust15') {
-        return `Toplam beklenen gol ${totG}. İki takımın hücum aksiyonları güçlü, model ${pStr} olasılıkla en az 2 gol öngörüyor.`;
+        return `Toplam beklenen gol ${totG} (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}). Model ${pStr} olasılıkla en az 2 gol öngörüyor.`;
+    }
+    if (pk.key === 'iyust05') {
+        return `İlk yarı beklenen gol temposu yüksek. Devre bitmeden en az 1 gol çıkma olasılığı modelde ${pStr}.`;
     }
     if (pk.key === 'alt25' || pk.key === 'alt35') {
         return `Savunma ağırlıklı tempo; beklenen gol ${totG} seviyesinde. ${pk.label} ihtimali ${pStr}.`;
     }
     if (pk.key === 'ust25') {
-        return `Hücum tempolu eşleşme; ${totG} beklenen gol ile model ${pStr} güvenle 3 gol barajının aşılmasını bekliyor.`;
+        return `Hücum tempolu eşleşme; ${totG} beklenen gol ile model ${pStr} güvenle 2,5 Üst barajının aşılmasını bekliyor.`;
     }
     if (pk.key === 'kgv') {
-        return `Ev sahibi (${an.lh.toFixed(2)} beklenen gol) ve deplasman (${an.la.toFixed(2)} beklenen gol) üretken. ${pStr} karşılıklı gol beklentisi.`;
+        return `Ev (${an.lh.toFixed(2)} xG) ve deplasman (${an.la.toFixed(2)} xG) hücumda üretken. ${pStr} karşılıklı gol beklentisi.`;
     }
     if (pk.key === 'dc1x') {
-        return `${m.home} sahasında sağlam. Yenilmeme olasılığı modelde ${pStr} ile en yüksek güven grubunda.`;
+        return `${m.home} iç sahada dirençli (${an.lh.toFixed(2)} xG). Yenilmeme olasılığı modelde ${pStr}.`;
     }
     if (pk.key === 'dcx2') {
-        return `${m.away} deplasmanda dirençli ve puan alma ihtimali modelde ${pStr} olarak hesaplandı.`;
+        return `${m.away} deplasmanda kalite üstünlüğüne sahip (${an.la.toFixed(2)} xG). Puan alma ihtimali ${pStr}.`;
     }
     if (pk.key === 'ms1') {
-        return `${m.home} saha avantajı ve hücum gücüyle öne çıkıyor. Galibiyet olasılığı ${pStr}${pk.lift ? ' (tabanın ' + liftStr + ' üstünde)' : ''}.`;
+        return `${m.home} saha ve form avantajıyla önde (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Galibiyet olasılığı ${pStr}${pk.lift ? ' (' + liftStr + ' değer)' : ''}.`;
     }
     if (pk.key === 'ms2') {
-        return `${m.away} deplasmanda net bir kalite üstünlüğüne sahip. Galibiyet ihtimali ${pStr}.`;
+        return `${m.away} deplasmanda net oyun üstünlüğüne sahip (${an.la.toFixed(2)} xG). Galibiyet ihtimali ${pStr}.`;
     }
     if (pk.key === 'msx') {
-        return `İki takım denk güçte ve düşük skor eğiliminde. Beraberlik olasılığı ${pStr} (${liftStr} istatistiksel avantaj).`;
+        return `İki takım denk güçte (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Beraberlik olasılığı ${pStr} (${liftStr} istatistiksel avantaj).`;
     }
     if (pk.key.startsWith('iy1') || pk.key.startsWith('iy2')) {
         const team = pk.key === 'iy1' ? m.home : m.away;
-        return `${team} maçlara yoğun pres ve erken hücumla başlıyor. İlk yarıyı önde tamamlama ihtimali ${pStr} (${liftStr} değer potansiyeli).`;
+        return `${team} maçlara erken presle başlıyor. İlk yarıyı önde kapatma ihtimali ${pStr} (${liftStr} değer potansiyeli).`;
     }
     if (pk.key.startsWith('htft_')) {
         const sub = pk.key.slice(5);
-        return `Yüksek değerli İY/MS tercihi (${sub}). Model ${pStr} olasılık öngörüyor; bu oran normal maç dağılımının ${liftStr} üzerinde.`;
+        return `Yüksek değerli İY/MS tercihi (${sub}). Model ${pStr} olasılık öngörüyor; normal dağılımın ${liftStr} üzerinde.`;
     }
-    if (pk.key === 'yari2') {
-        return `Maçın 2. yarısında açılması bekleniyor. İkinci yarıda daha çok gol olma ihtimali ${pStr}.`;
+    if (pk.key === 'yari1' || pk.key === 'yari2') {
+        const half = pk.key === 'yari1' ? '1. yarıda' : '2. yarıda';
+        return `Maç temposunun ${half} daha yüksek olması bekleniyor (${pStr} olasılık, ${liftStr} değer).`;
     }
     return `Modelin ${pStr} olasılık ve ${liftStr || 'yüksek güven'} ile öne çıkardığı istatistiksel tercih.`;
+}
+
+function isMainstreamMatch(m) {
+    return (m.mbs <= 2 || (m.order !== undefined && m.order < 55)) && !m.youth && !m.women && !m.reserve;
 }
 
 function buildCoupons(items, model, opts = {}) {
     const bankoN = opts.bankoN || 4, surpN = opts.surpN || 5;
     
-    // BANKO: A kalitesi adaylar azsa B kalitesine genişlet
-    let cands = items.filter(it => qualifies(it.m, it.an, 'A'));
+    // BANKO: Önce ana bülten (MBS 1-2, bilinen profesyonel ligler) A/B kalitesi, yetmezse genel İddaa bülteni
+    let cands = items.filter(it => qualifies(it.m, it.an, 'B') && isMainstreamMatch(it.m));
+    if (cands.length < bankoN * 2) {
+        cands = items.filter(it => qualifies(it.m, it.an, 'C') && isMainstreamMatch(it.m));
+    }
+    if (cands.length < bankoN) {
+        cands = items.filter(it => qualifies(it.m, it.an, 'A'));
+    }
     if (cands.length < bankoN) {
         cands = items.filter(it => qualifies(it.m, it.an, 'B'));
+    }
+    if (cands.length < bankoN) {
+        cands = items.filter(it => qualifies(it.m, it.an, 'C'));
     }
 
     const bankoPool = [];
     for (const it of cands) {
-        const best = picksOf(it.m, it.an).filter(p => BANKO_KEYS.includes(p.key)).sort((a, b) => b.p - a.p)[0];
+        const allBankoPicks = picksOf(it.m, it.an).filter(p => BANKO_KEYS.includes(p.key));
+        // Oynanabilir ideal banko aralığı: %66 - %88 (çok düşük oranlı %93+ tercihleri geri plana at)
+        let playable = allBankoPicks.filter(p => p.p >= 0.66 && p.p <= 0.88);
+        if (!playable.length) playable = allBankoPicks.filter(p => p.p >= 0.62 && p.p <= 0.91);
+        if (!playable.length) playable = allBankoPicks;
+
+        const mbsBonus = it.m.mbs === 1 ? 0.04 : it.m.mbs === 2 ? 0.02 : 0;
+        playable.sort((a, b) => {
+            const scoreA = a.p + (BANKO_PRIMARY_KEYS.has(a.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0);
+            const scoreB = b.p + (BANKO_PRIMARY_KEYS.has(b.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0);
+            return scoreB - scoreA;
+        });
+
+        const best = playable[0];
         if (best) {
+            const rankScore = best.p + (BANKO_PRIMARY_KEYS.has(best.key) ? 0.05 : 0) + (it.an.quality === 'A' ? 0.04 : 0) + mbsBonus;
             bankoPool.push({
                 ...best,
+                rankScore,
                 rationale: generateRationale(best, it.m, it.an),
                 m: it.m,
                 an: it.an
             });
         }
     }
-    bankoPool.sort((a, b) => b.p - a.p);
-    const banko = bankoPool.slice(0, bankoN);
+    bankoPool.sort((a, b) => b.rankScore - a.rankScore);
 
-    // SÜRPRİZ: düşük ihtimalli ama modelin sıradan oranın katbekat üstünde gördüğü seçimler
+    // Pazar çeşitliliği: aynı tercih türünden en fazla 2 maç
+    const banko = [];
+    const bankoKeyCounts = {};
+    for (const cand of bankoPool) {
+        if (banko.length >= bankoN) break;
+        const cnt = bankoKeyCounts[cand.key] || 0;
+        if (cnt >= 2) continue;
+        banko.push(cand);
+        bankoKeyCounts[cand.key] = cnt + 1;
+    }
+    if (banko.length < bankoN) {
+        for (const cand of bankoPool) {
+            if (banko.length >= bankoN) break;
+            if (!banko.some(x => x.matchId === cand.matchId)) banko.push(cand);
+        }
+    }
+
+    // SÜRPRİZ: Önce ana bülten (MBS 1-2 profesyonel ligler), yüksek değer (lift) taşıyan seçimler
     const used = new Set(banko.map(b => b.matchId));
+    let surpCands = items.filter(x => qualifies(x.m, x.an, 'B') && isMainstreamMatch(x.m));
+    if (surpCands.length < surpN * 2) {
+        surpCands = items.filter(x => qualifies(x.m, x.an, 'C') && isMainstreamMatch(x.m));
+    }
+    if (surpCands.length < surpN) {
+        surpCands = items.filter(x => qualifies(x.m, x.an, 'B'));
+    }
+    if (surpCands.length < surpN) {
+        surpCands = items.filter(x => qualifies(x.m, x.an, 'C'));
+    }
+
     const surpPool = [];
-    for (const it of items.filter(x => qualifies(x.m, x.an, 'B'))) {
+    for (const it of surpCands) {
         let best = null;
+        const mbsMult = it.m.mbs === 1 ? 1.12 : it.m.mbs === 2 ? 1.06 : 1.0;
         for (const pk of picksOf(it.m, it.an)) {
             if (!SURPRISE_GROUPS.includes(pk.group)) continue;
-            if (pk.p < 0.15 || pk.p > 0.55) continue;
+            if (pk.p < 0.18 || pk.p > 0.55) continue;
             const baseRate = model.base[pk.key] || 0.05;
             const lift = pk.p / baseRate;
             if (lift < 1.25) continue;
-            // piyasa varsa: model piyasadan fazla görmeli
             const mkt = it.an.market;
             if (mkt && (pk.key === 'ms1' || pk.key === 'ms2' || pk.key === 'msx')) {
                 const mp = pk.key === 'ms1' ? mkt.p1 : pk.key === 'msx' ? mkt.pX : mkt.p2;
-                if (pk.p < mp) continue;
+                if (pk.p < mp * 0.98) continue;
             }
-            const score = pk.p * Math.min(lift, 3);
+            const score = pk.p * Math.min(lift, 3) * (it.an.quality === 'A' ? 1.08 : 1) * mbsMult;
             if (!best || score > best.score) best = { ...pk, lift, score, m: it.m, an: it.an };
         }
         if (best) {
@@ -377,25 +450,53 @@ function buildCoupons(items, model, opts = {}) {
         }
     }
     surpPool.sort((a, b) => b.score - a.score);
-    const surprise = surpPool.filter(s => !used.has(s.matchId)).slice(0, surpN);
+
+    // Sürprizde de aynı tercih türünden en fazla 2 adet olsun
+    const surprise = [];
+    const surpKeyCounts = {};
+    for (const cand of surpPool) {
+        if (surprise.length >= surpN) break;
+        if (used.has(cand.matchId)) continue;
+        const cnt = surpKeyCounts[cand.key] || 0;
+        if (cnt >= 2) continue;
+        surprise.push(cand);
+        surpKeyCounts[cand.key] = cnt + 1;
+    }
+    if (surprise.length < surpN) {
+        for (const cand of surpPool) {
+            if (surprise.length >= surpN) break;
+            if (!used.has(cand.matchId) && !surprise.some(x => x.matchId === cand.matchId)) {
+                surprise.push(cand);
+            }
+        }
+    }
 
     const bankoConfidence = banko.length ? Math.round((banko.reduce((s, x) => s + x.p, 0) / banko.length) * 100) : 0;
+    const minBankoPct = banko.length ? Math.round(Math.min(...banko.map(x => x.p)) * 100) : 0;
     const surpAvgLift = surprise.length ? (surprise.reduce((s, x) => s + x.lift, 0) / surprise.length).toFixed(1) : '1.0';
+
+    const bankoInstruction = banko.length
+        ? `Resmi İddaa bülteninden seçilen bu ${banko.length} maç, modelde en düşük %${minBankoPct} ve ortalama %${bankoConfidence} güven değerine sahiptir. Düz ${banko.length} maçlık kombine kupon olarak oynanabilir.`
+        : 'Şu an bültende kriterlere uygun yaklaşan banko maç bulunamadı.';
+
+    const surpInstruction = surprise.length
+        ? `Resmi İddaa bültenindeki bu ${surprise.length} maç, normal istatistiksel dağılımın ortalama ${surpAvgLift} katı değer taşımaktadır. Düşük bütçeyle ${surprise.length >= 4 ? 'sistem (3-4-5)' : 'ikili/üçlü sistem'} veya sürpriz kombine olarak değerlendirilebilir.`
+        : 'Şu an bültende kriterlere uygun yaklaşan sürpriz maç bulunamadı.';
 
     return {
         banko: {
             title: 'Günün Banko Kuponu',
             type: 'banko',
-            strategy: 'Yüksek Güvenilirlikli Kombine',
-            instruction: 'Bu maçlar modelde %85+ gerçekleşme ihtimaline sahip en güvenli tercihlerdir. Düz 4 maçlık kombine kupon olarak oynayabilirsiniz.',
+            strategy: 'İddaa Bülteni • Yüksek Güven Kombinesi',
+            instruction: bankoInstruction,
             confidence: bankoConfidence,
             matches: banko
         },
         surprise: {
             title: 'Günün Yüksek Değer Sürpriz Kuponu',
             type: 'surprise',
-            strategy: 'İstatistiksel Avantajlı Sürpriz (İY/MS & İY Tercihleri)',
-            instruction: 'Düşük bütçeli sürpriz denemesi için düz 5 maçlık kombine veya 3-4-5 sistem kuponu şeklinde oynanması tavsiye edilir. İstatistiksel taban beklentisinden katbekat yüksek değer taşıyan maçlardır.',
+            strategy: 'İddaa Bülteni • İstatistiksel Değer (İY/MS & İY)',
+            instruction: surpInstruction,
             avgLift: surpAvgLift,
             matches: surprise
         }
@@ -403,4 +504,5 @@ function buildCoupons(items, model, opts = {}) {
 }
 
 module.exports = { buildModel, analyze, picksOf, buildCoupons, outcomeKeys, teamFacts, LABEL, qualifies, generateRationale };
+
 

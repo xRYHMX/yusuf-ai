@@ -36,7 +36,7 @@ async function rawFetch(iso) {
 
 const num = (v) => { const n = parseFloat(v); return isFinite(n) && n >= 1.01 ? n : null; };
 
-function parseRow(r) {
+function parseRow(r, idx = 999) {
     const lg = r[36];
     if (!lg || lg[11] !== 1) return null;               // yalnızca futbol
     const code = r[5], txt = String(r[6] || '');
@@ -56,8 +56,19 @@ function parseRow(r) {
     let minute = null;
     if (state === 'live') minute = code === 2 ? 'İY' : /^\d+$/.test(txt) ? txt + "'" : txt;
 
+    const odds = { h: num(r[18]), d: num(r[19]), a: num(r[20]), alt25: num(r[21]), ust25: num(r[22]) };
+    const iddaaCode = Number(r[14]) > 0 ? Number(r[14]) : null;
+    const mbs = parseInt(r[34], 10) || 3;
+    const inBulletin = Boolean(iddaaCode && odds.h && odds.d && odds.a);
+    const youth = /\bU(15|16|17|18|19|20|21|23)\b/i.test(names) || /gençlik|youth|reserve/i.test(names);
+    const women = /\(K\)|kad[ıi]n|women|\bW\b/i.test(names);
+    const reserve = /\bII\b|Bölgesel|[34]\.\s*Lig| Amateur|Amatör/i.test(names);
+
     return {
         id: r[0],
+        iddaaCode,
+        mbs,
+        order: idx,
         homeId: r[1], home: r[2],
         awayId: r[3], away: r[4],
         league: { id: lg[2], country: lg[1], name: lg[3], full: (lg[1] + ' ' + lg[3]).trim(), code: lg[9] },
@@ -67,9 +78,11 @@ function parseRow(r) {
         state, label: state === 'live' ? minute : txt,
         score: hasScore ? { h: r[12], a: r[13] } : null,
         ht: hasScore && ht ? { h: +ht[1], a: +ht[2] } : null,
-        youth: /\bU(15|16|17|18|19|20|21|23)\b/i.test(names) || /gençlik|youth/i.test(names),
-        women: /\(K\)|kad[ıi]n|women|\bW\b/i.test(names),
-        odds: { h: num(r[18]), d: num(r[19]), a: num(r[20]), alt25: num(r[21]), ust25: num(r[22]) }   // sadece iç analiz
+        youth,
+        women,
+        reserve,
+        inBulletin,
+        odds
     };
 }
 
@@ -83,20 +96,26 @@ async function getDay(iso) {
 
     // 3+ gün öncesi artık değişmez: diskten kalıcı oku
     if (iso < addDays(today, -3) && fs.existsSync(file)) {
-        const c = JSON.parse(fs.readFileSync(file, 'utf8'));
-        memCache.set(iso, { t: Date.now() + 1e12, matches: c });
-        return c;
+        try {
+            const c = JSON.parse(fs.readFileSync(file, 'utf8'));
+            if (Array.isArray(c) && (c.length === 0 || 'mbs' in c[0])) {
+                memCache.set(iso, { t: Date.now() + 1e12, matches: c });
+                return c;
+            }
+        } catch (_) {}
     }
 
     const rows = await rawFetch(iso);
     if (rows === null) return mem ? mem.matches : [];
-    const matches = rows.map(parseRow).filter(Boolean);
+    const matches = rows.map((r, i) => parseRow(r, i)).filter(Boolean);
     memCache.set(iso, { t: Date.now(), matches });
-    if (iso < addDays(today, -3)) fs.writeFileSync(file, JSON.stringify(matches));
+    if (iso < addDays(today, -3)) {
+        try { fs.writeFileSync(file, JSON.stringify(matches)); } catch (_) {}
+    }
     return matches;
 }
 
-async function getRange(fromIso, toIso, concurrency = 4) {
+async function getRange(fromIso, toIso, concurrency = 10) {
     const days = [];
     for (let d = fromIso; d <= toIso; d = addDays(d, 1)) days.push(d);
     const out = [];

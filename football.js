@@ -5,15 +5,25 @@ let cachedModel = null;
 let cachedModelDate = null;
 let modelBuildPromise = null;
 
-// Modeli önbelleğe alır ve arka planda hazır tutar
+// Türkçe karakter duyarsız arama normalizasyonu
+const normTr = (s) => String(s || '')
+    .toLowerCase()
+    .replace(/ı/g, 'i')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c');
+
+// Modeli önbelleğe alır ve arka planda hazır tutar (75 günlük tam pencere)
 async function getWarmModel(asOf = mk.trToday()) {
     if (cachedModel && cachedModelDate === asOf) return cachedModel;
     if (modelBuildPromise) return modelBuildPromise;
 
     modelBuildPromise = (async () => {
         try {
-            console.log(`[Football Engine] Model inşa ediliyor (Geçmiş 30 gün -> ${asOf})...`);
-            const fromIso = mk.addDays(asOf, -30);
+            console.log(`[Football Engine] Model inşa ediliyor (Geçmiş 75 gün -> ${asOf})...`);
+            const fromIso = mk.addDays(asOf, -75);
             const toIso = mk.addDays(asOf, -1);
             const hist = await mk.getRange(fromIso, toIso);
             console.log(`[Football Engine] Geçmiş veri tamam: ${hist.length} maç.`);
@@ -49,44 +59,63 @@ async function getAnalyzedDay(date = mk.trToday()) {
         } catch (_) {}
     }
 
-    const coupons = engine.buildCoupons(items, model);
-    const data = { date, model, matches, items, coupons };
+    // Gece saatlerinde bugünün oynanabilir İddaa maçı azaldıysa (< 8 maç), yarının İddaa bültenini otomatik dahil et
+    let couponItems = items;
+    if (isToday) {
+        const playableToday = items.filter(it => engine.qualifies(it.m, it.an, 'C'));
+        if (playableToday.length < 8) {
+            try {
+                const tomorrowIso = mk.addDays(date, 1);
+                const tomMatches = await mk.getDay(tomorrowIso);
+                const tomItems = [];
+                for (const tm of tomMatches) {
+                    try {
+                        const mCopy = { ...tm, time: `Yarın ${tm.time}` };
+                        const an = engine.analyze(model, mCopy, { facts: true });
+                        tomItems.push({ m: mCopy, an });
+                    } catch (_) {}
+                }
+                couponItems = [...items, ...tomItems];
+            } catch (_) {}
+        }
+    }
+
+    const coupons = engine.buildCoupons(couponItems, model);
+    const data = { date, model, matches, items, couponItems, coupons };
     dayAnalysisCache.set(date, { t: now, data });
     return data;
 }
 
-// Maç listesi sorgusu
+// Maç listesi sorgusu (Sadece İddaa bültenindekiler veya tümü)
 async function listMatches({ date = mk.trToday(), filter = 'all', search = '', category = 'all' }) {
     const day = await getAnalyzedDay(date);
-    let list = day.items;
+    let list = day.items.filter(x => x.m.inBulletin);
 
-    // Durum filtresi
     if (filter === 'pre') list = list.filter(x => x.m.state === 'pre');
     else if (filter === 'live') list = list.filter(x => x.m.state === 'live');
     else if (filter === 'post') list = list.filter(x => x.m.state === 'post');
 
-    // Kategori filtresi
     if (category === 'youth') list = list.filter(x => x.m.youth);
     else if (category === 'women') list = list.filter(x => x.m.women);
     else if (category === 'standard') list = list.filter(x => !x.m.youth && !x.m.women);
 
-    // Arama
     if (search && search.trim()) {
-        const q = search.trim().toLowerCase();
+        const q = normTr(search.trim());
         list = list.filter(x => 
-            x.m.home.toLowerCase().includes(q) ||
-            x.m.away.toLowerCase().includes(q) ||
-            x.m.league.full.toLowerCase().includes(q)
+            normTr(x.m.home).includes(q) ||
+            normTr(x.m.away).includes(q) ||
+            normTr(x.m.league.full).includes(q)
         );
     }
 
+    const bulletinMatches = day.matches.filter(x => x.inBulletin);
     return {
         date,
         counts: {
-            total: day.matches.length,
-            pre: day.matches.filter(x => x.state === 'pre').length,
-            live: day.matches.filter(x => x.state === 'live').length,
-            post: day.matches.filter(x => x.state === 'post').length,
+            total: bulletinMatches.length,
+            pre: bulletinMatches.filter(x => x.state === 'pre').length,
+            live: bulletinMatches.filter(x => x.state === 'live').length,
+            post: bulletinMatches.filter(x => x.state === 'post').length,
             filtered: list.length
         },
         matches: list.map(({ m, an }) => ({
@@ -102,6 +131,7 @@ async function listMatches({ date = mk.trToday(), filter = 'all', search = '', c
             ht: m.ht,
             youth: m.youth,
             women: m.women,
+            inBulletin: m.inBulletin,
             quality: an.quality,
             lh: +an.lh.toFixed(2),
             la: +an.la.toFixed(2),
@@ -123,11 +153,12 @@ async function listMatches({ date = mk.trToday(), filter = 'all', search = '', c
 // Kuponlar sorgusu
 async function getCoupons(date = mk.trToday()) {
     const day = await getAnalyzedDay(date);
+    const bulletinMatches = day.matches.filter(x => x.inBulletin);
     return {
         date,
-        totalMatches: day.matches.length,
-        preMatches: day.matches.filter(x => x.state === 'pre').length,
-        liveMatches: day.matches.filter(x => x.state === 'live').length,
+        totalMatches: bulletinMatches.length,
+        preMatches: bulletinMatches.filter(x => x.state === 'pre').length,
+        liveMatches: bulletinMatches.filter(x => x.state === 'live').length,
         banko: day.coupons.banko,
         surprise: day.coupons.surprise
     };
@@ -136,7 +167,8 @@ async function getCoupons(date = mk.trToday()) {
 // Tek maç detay analizi
 async function getMatchDetail(matchId, date = mk.trToday()) {
     const day = await getAnalyzedDay(date);
-    const item = day.items.find(x => String(x.m.id) === String(matchId));
+    const pool = day.couponItems || day.items;
+    const item = pool.find(x => String(x.m.id) === String(matchId));
     if (!item) return null;
 
     const { m, an } = item;
@@ -168,65 +200,93 @@ async function getMatchDetail(matchId, date = mk.trToday()) {
     };
 }
 
-// AI Sohbeti için güncel bülten ve kupon bağlamı
+// AI Sohbeti için güncel İddaa bülteni ve kupon bağlamı
 async function buildAiSportsContext(userMessage = '') {
     const today = mk.trToday();
     const day = await getAnalyzedDay(today);
-    const qLower = userMessage.toLowerCase();
+    const qNorm = normTr(userMessage);
 
-    // Kuponlar özeti
-    let bankoSummary = 'Günün Banko Kuponu:\n';
+    // Kullanıcı "yarın" diye sorarsa veya bugünün maçları azaldıysa yarını da havuza kat
+    let activePool = day.couponItems || day.items;
+    if (qNorm.includes('yarin') && activePool.length === day.items.length) {
+        try {
+            const tomorrowDay = await getAnalyzedDay(mk.addDays(today, 1));
+            const tomMapped = tomorrowDay.items.map(({ m, an }) => ({
+                m: { ...m, time: `Yarın ${m.time}` },
+                an
+            }));
+            activePool = [...day.items, ...tomMapped];
+        } catch (_) {}
+    }
+
+    // 1. Kuponlar özeti
+    let bankoSummary = 'Günün Resmi İddaa Banko Kuponu:\n';
     if (day.coupons.banko && day.coupons.banko.matches.length) {
         day.coupons.banko.matches.forEach((b, i) => {
-            bankoSummary += `${i + 1}. [${b.m.time}] ${b.m.home} - ${b.m.away} | Tercih: ${b.label} (Güven: %${Math.round(b.p * 100)})\n   Açıklama: ${b.rationale}\n`;
+            bankoSummary += `${i + 1}. [${b.m.time}] ${b.m.home} - ${b.m.away} (${b.m.league.full}) | Tercih: ${b.label} (Güven: %${Math.round(b.p * 100)})\n   Gerekçe: ${b.rationale}\n`;
         });
         bankoSummary += `Strateji: ${day.coupons.banko.instruction}\n`;
     } else {
         bankoSummary += 'Şu an yaklaşan uygun banko maç bulunamadı.\n';
     }
 
-    let surpSummary = 'Günün Yüksek Değer Sürpriz Kuponu:\n';
+    let surpSummary = 'Günün Resmi İddaa Yüksek Değer Sürpriz Kuponu:\n';
     if (day.coupons.surprise && day.coupons.surprise.matches.length) {
         day.coupons.surprise.matches.forEach((s, i) => {
-            surpSummary += `${i + 1}. [${s.m.time}] ${s.m.home} - ${s.m.away} | Tercih: ${s.label} (Model Olasılığı: %${Math.round(s.p * 100)}, Değer Katı: ${s.lift ? s.lift.toFixed(1) + 'x' : '1.5x'})\n   Açıklama: ${s.rationale}\n`;
+            surpSummary += `${i + 1}. [${s.m.time}] ${s.m.home} - ${s.m.away} (${s.m.league.full}) | Tercih: ${s.label} (Model Olasılığı: %${Math.round(s.p * 100)}, Değer Katı: ${s.lift ? s.lift.toFixed(1) + 'x' : '1.5x'})\n   Gerekçe: ${s.rationale}\n`;
         });
         surpSummary += `Strateji: ${day.coupons.surprise.instruction}\n`;
     } else {
         surpSummary += 'Şu an yaklaşan uygun sürpriz maç bulunamadı.\n';
     }
 
-    // Yaklaşan diğer maçlar havuzu (Kullanıcı alternatif, farklı veya özel kupon istediğinde seçebileceğin zengin liste)
-    let upcomingPoolSummary = 'Yaklaşan Diğer Maçlar Havuzu (Alternatif ve Farklı Kuponlar İçin Seçilebilir):\n';
-    const preMatches = day.items.filter(x => x.m.state === 'pre');
-    preMatches.slice(0, 20).forEach(({ m, an }, i) => {
-        const topSc = an.topScores && an.topScores[0] ? an.topScores[0].s : '';
-        const tags = (m.youth ? ' [U Takımı]' : '') + (m.women ? ' [Kadın]' : '');
-        upcomingPoolSummary += `${i + 1}. [${m.time}] ${m.home} vs ${m.away} (${m.league.full})${tags} | xG: Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)} | MS 1: %${Math.round(an.p.ms1 * 100)}, X: %${Math.round(an.p.msx * 100)}, MS 2: %${Math.round(an.p.ms2 * 100)} | 2.5 Üst: %${Math.round(an.p.ust25 * 100)}, KG Var: %${Math.round(an.p.kgv * 100)}, İY 0.5 Üst: %${Math.round(an.p.iyust05 * 100)}, İY 1: %${Math.round(an.p.iy1 * 100)} | Muhtemel Skor: ${topSc}\n`;
+    // 2. Yalnızca İddaa Bülteninde Yer Alan, Başlamamış ve Ana Bülten Öncelikli Maç Havuzu (45 Maç)
+    const nowMs = Date.now();
+    const qOrder = { A: 0, B: 1, C: 2 };
+    const preBulletin = activePool
+        .filter(({ m, an }) => m.state === 'pre' && m.inBulletin && an.marketUsed && new Date(m.kickoff).getTime() > nowMs + 5 * 60000)
+        .sort((a, b) => {
+            const aMain = (!a.m.youth && !a.m.women && !a.m.reserve) ? 0 : 1;
+            const bMain = (!b.m.youth && !b.m.women && !b.m.reserve) ? 0 : 1;
+            if (aMain !== bMain) return aMain - bMain;
+            if ((a.m.mbs || 3) !== (b.m.mbs || 3)) return (a.m.mbs || 3) - (b.m.mbs || 3);
+            if (qOrder[a.an.quality] !== qOrder[b.an.quality]) return qOrder[a.an.quality] - qOrder[b.an.quality];
+            return (a.m.order || 999) - (b.m.order || 999);
+        });
+
+    let upcomingPoolSummary = `\n[RESMİ İDDAA BÜLTENİ MAÇ HAVUZU - NESİNE & MAÇKOLİK ONAYLI (${preBulletin.length} aktif maçtan en kaliteli ${Math.min(45, preBulletin.length)} maç)]:\n`;
+    preBulletin.slice(0, 45).forEach(({ m, an }, i) => {
+        const topSc = an.topScores && an.topScores[0] ? an.topScores[0].s : '1-1';
+        upcomingPoolSummary += `${i + 1}. [${m.time}] ${m.home} - ${m.away} (${m.league.full}) [Kalite:${an.quality}] | xG:${an.lh.toFixed(2)}-${an.la.toFixed(2)} | MS1:%${Math.round(an.p.ms1 * 100)} X:%${Math.round(an.p.msx * 100)} MS2:%${Math.round(an.p.ms2 * 100)} | 1.5Ü:%${Math.round(an.p.ust15 * 100)} 2.5Ü:%${Math.round(an.p.ust25 * 100)} KGV:%${Math.round(an.p.kgv * 100)} İY0.5Ü:%${Math.round(an.p.iyust05 * 100)} İY1:%${Math.round(an.p.iy1 * 100)} İY2:%${Math.round(an.p.iy2 * 100)} | Skor:${topSc}\n`;
     });
 
-    // Kullanıcının sorduğu spesifik bir takım veya lig varsa maçlarını ekle
+    // 3. Kullanıcının sorduğu spesifik bir takım veya lig varsa (Türkçe karakter duyarsız eşleştirme)
     let relevantMatches = '';
-    const matchedItems = day.items.filter(({ m }) => 
-        qLower.includes(m.home.toLowerCase()) || 
-        qLower.includes(m.away.toLowerCase()) || 
-        qLower.includes(m.league.name.toLowerCase()) ||
-        qLower.includes(m.league.country.toLowerCase())
-    );
-
-    if (matchedItems.length > 0) {
-        relevantMatches = '\nKullanıcının Sorduğu İlgili Maçlar:\n';
-        matchedItems.slice(0, 6).forEach(({ m, an }) => {
-            relevantMatches += `- [${m.time}] ${m.home} vs ${m.away} (${m.league.full}) | Durum: ${m.state === 'live' ? 'CANLI ' + m.label : m.state === 'post' ? 'MS ' + (m.score ? m.score.h + '-' + m.score.a : '') : m.time}\n`;
-            relevantMatches += `  Beklenen Goller: Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)} | MS 1: %${Math.round(an.p.ms1 * 100)}, X: %${Math.round(an.p.msx * 100)}, MS 2: %${Math.round(an.p.ms2 * 100)} | 2.5 Üst: %${Math.round(an.p.ust25 * 100)}, KG Var: %${Math.round(an.p.kgv * 100)}, İY 0.5 Üst: %${Math.round(an.p.iyust05 * 100)}\n`;
-            if (an.topScores && an.topScores.length) {
-                relevantMatches += `  En Olası Skorlar: ${an.topScores.slice(0, 3).map(s => s.s + ' (%' + Math.round(s.p * 100) + ')').join(', ')}\n`;
-            }
+    const words = qNorm.split(/\s+/).filter(w => w.length >= 3 && !['mac', 'maci', 'maclar', 'kupon', 'kuponu', 'analiz', 'bugun', 'yarin', 'icin', 'nasil', 'olur', 'bana', 'yap', 'ver', 'ust', 'alt', 'gol', 'ilk', 'yari'].includes(w));
+    if (words.length > 0) {
+        const matchedItems = activePool.filter(({ m }) => {
+            const target = normTr(`${m.home} ${m.away} ${m.league.full} ${m.league.country}`);
+            return words.some(w => target.includes(w));
         });
+
+        if (matchedItems.length > 0) {
+            relevantMatches = '\n[KULLANICININ SORDUĞU TAKIM/LİG İLE EŞLEŞEN MAÇLAR]:\n';
+            matchedItems.slice(0, 10).forEach(({ m, an }) => {
+                const bTag = m.inBulletin ? 'İddaa Bülteninde Var' : 'İddaa Dışı';
+                relevantMatches += `- [${m.time}] ${m.home} - ${m.away} (${m.league.full} | ${bTag}) | Durum: ${m.state === 'live' ? 'CANLI ' + m.label : m.state === 'post' ? 'MS ' + (m.score ? m.score.h + '-' + m.score.a : '') : 'Başlamadı'}\n`;
+                relevantMatches += `  xG: Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)} | MS1:%${Math.round(an.p.ms1 * 100)} X:%${Math.round(an.p.msx * 100)} MS2:%${Math.round(an.p.ms2 * 100)} | 2.5Ü:%${Math.round(an.p.ust25 * 100)} KGV:%${Math.round(an.p.kgv * 100)} İY0.5Ü:%${Math.round(an.p.iyust05 * 100)}\n`;
+                if (an.topScores && an.topScores.length) {
+                    relevantMatches += `  Olası Skorlar: ${an.topScores.slice(0, 3).map(s => s.s + ' (%' + Math.round(s.p * 100) + ')').join(', ')}\n`;
+                }
+            });
+        }
     }
 
+    const totalBulletinCount = day.matches.filter(x => x.inBulletin).length;
+
     return `
-[CANLI FUTBOL BÜLTENİ VE İSTATİSTİKSEL MODEL BİLGİSİ - ${today}]
-Toplam Bugün Oynanan/Oynanacak Maç: ${day.matches.length} (Tüm dünya ligleri, U takımları ve kadın ligleri dahil)
+[CANLI RESMİ İDDAA BÜLTENİ VE POISSON MODEL VERİSİ - ${today}]
+Bugün İddaa Bülteninde Yer Alan Resmi Maç Sayısı: ${totalBulletinCount} (Nesine / Maçkolik İddaa Programı)
 
 ${bankoSummary}
 ${surpSummary}
@@ -238,14 +298,13 @@ ${relevantMatches}
    a) Başlık: Kupon Adı ve Strateji (örn: 🎯 **Günün Banko Kuponu** • *Düz 4'lü Kombine*)
    b) Kompakt Grafik Tablo:
       | # | Saat | Maç | Tercih | Güven İbresi |
-      (Güven İbresi sütununda görsel ilerleme barı kullan: örn. 🟩 %92 [█████████░] veya 🟨 %75 [███████░░░] veya ⭐ 1.9x Değer)
+      (Güven İbresi sütununda görsel ilerleme barı kullan: örn. 🟩 %84 [████████░░] veya 🟨 %72 [███████░░░] veya ⭐ 2.1x Değer)
    c) Hızlı Taktiksel Gerekçeler (Maç başına SADECE 1 SATIRLIK hap bilgi):
-      - **Twente - Thun:** 📊 Toplam xG: 4.14 • İki takımın gol ortalaması 2.0+ • Erken gol baskısı yüksek.
-      - **Rennes - OFI:** 🛡️ Rennes evinde namağlup • Modelde %87 yenilmeme güvencesi.
-   d) Tek Cümlelik Oynanış Notu: (örn: 💡 *Öneri: Düz 4 maçlık kombine kupon olarak oynanması uygundur.*)
+      - **Ev - Deplasman:** 📊 Toplam xG: 3.18 • Ev sahibi iç sahada maç başı 2.1 gol üretiyor.
+   d) Tek Cümlelik Oynanış Notu: (örn: 💡 *Öneri: Resmi İddaa bülteninde yer alan bu maçları düz kombine olarak değerlendirebilirsiniz.*)
 3. ASLA bahis oranları (1.85, 2.40 vb.) veya TL kazanç rakamları VERME. Yalnızca model yüzdelerini ve xG değerlerini belirt.
-4. Tüm veriler Maçkolik canlı sisteminden ve Poisson/Dixon-Coles modelinden gelmektedir, asla uydurma maç yazma.
-5. KUPON ÇEŞİTLİLİĞİ: Kullanıcı 'başka kupon', 'farklı maçlar', 'ilk yarı gol' istediğinde 'Yaklaşan Diğer Maçlar Havuzu'ndaki zengin maçları (U takımları, Avrupa maçları vb.) kullanarak aynı kısa, grafikli formatta taze kuponlar üret.
+4. KESİN KURAL (HALÜSİNASYON YASAĞI): Yalnızca yukarıdaki [RESMİ İDDAA BÜLTENİ MAÇ HAVUZU] içinde yazılı olan maçları kullan! Bu listede olmayan hiçbir maçı ASLA uydurma, hafızandan takım/maç ekleme. Listedeki tüm maçlar Nesine ve Maçkolik'te mevcuttur.
+5. KUPON ÇEŞİTLİLİĞİ: Kullanıcı 'başka kupon', 'farklı maçlar', 'ilk yarı gol', '2.5 üst kuponu' istediğinde [RESMİ İDDAA BÜLTENİ MAÇ HAVUZU] listesinden farklı maçlar seçerek aynı kısa, grafikli formatta yeni kuponlar üret.
 `;
 }
 
@@ -257,3 +316,4 @@ module.exports = {
     getMatchDetail,
     buildAiSportsContext
 };
+

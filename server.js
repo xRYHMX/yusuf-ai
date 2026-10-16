@@ -6,8 +6,11 @@ const football = require('./football');
 
 const PORT = process.env.PORT || 3000;
 
-// Sunucu kalktığında model arka planda ısınsın
-football.getWarmModel().catch(err => console.error('[Football Engine] Model başlatma hatası:', err));
+// Sunucu kalktığında model ve günün İddaa bülteni arka planda ısınsın, her 5 dakikada bir taze kalsın
+football.getAnalyzedDay().catch(err => console.error('[Football Engine] Başlatma hatası:', err));
+setInterval(() => {
+    football.getAnalyzedDay().catch(() => {});
+}, 5 * 60 * 1000);
 
 const server = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -99,40 +102,29 @@ const server = http.createServer(async (req, res) => {
                     return;
                 }
 
-                // Kullanıcının son mesajını kontrol et: Futbol veya analiz sorusu var mı?
+                // Kullanıcının son mesajını al ve her sohbette canlı İddaa bülteni bağlamını hazırla
+                // ("başka ver", "değiştir", "3 maçlık yap" gibi kısa mesajlarda bile bağlam kopmaz ve halüsinasyon olmaz)
                 const userMessages = (messages || []).filter(m => m.role === 'user');
-                const lastUserMessage = userMessages.length ? userMessages[userMessages.length - 1].content : '';
-                
-                const footballKeywords = [
-                    'maç', 'kupon', 'futbol', 'lig', 'skor', 'oran', 'iddaa', 'bahis',
-                    'analiz', 'banko', 'sürpriz', 'surpriz', 'gol', 'kg', 'iy', 'ms',
-                    'çifte şans', 'ilk yarı', 'ikinci yarı', 'şampiyon', 'galatasaray',
-                    'fenerbahçe', 'beşiktaş', 'trabzon', 'real', 'barca', 'milan', 'juventus',
-                    'bugün', 'tahmin', 'oyna', 'kombine', 'sistem'
-                ];
-
-                const isFootballQuery = footballKeywords.some(kw => lastUserMessage.toLowerCase().includes(kw));
+                const lastUserMessage = userMessages.length ? String(userMessages[userMessages.length - 1].content || '') : '';
 
                 let sportsContext = '';
-                if (isFootballQuery) {
-                    try {
-                        sportsContext = await football.buildAiSportsContext(lastUserMessage);
-                    } catch (e) {
-                        console.error('Futbol bağlamı üretme hatası:', e.message);
-                    }
+                try {
+                    sportsContext = await football.buildAiSportsContext(lastUserMessage);
+                } catch (e) {
+                    console.error('Futbol bağlamı üretme hatası:', e.message);
                 }
 
                 // Sistem Yönergesi
                 let systemContent = `Sen Yusuf AI - profesyonel, veri odaklı ve mobil öncelikli yapay zekâ futbol analisti ve kupon motorusun. 
 ÖNEMLİ KURAL: Kullanıcı telefondan takip ettiği için yanıtların KISA, ÖZ, NET, TABLOLU VE GRAFİKSEL BARLI olmalıdır.
 ASLA uzun paragraflar, edebiyat, maç hikayeleri veya laf kalabalığı yazma.
-Her kuponu temiz bir tablo, görsel güç ibreleri (örn: 🟩 %92 veya [████████░] %85) ve maç başına SADECE 1 SATIRLIK hap gerekçelerle sun.`;
+Her kuponu temiz bir tablo, görsel güç ibreleri (örn: 🟩 %84 [████████░░] veya 🟨 %72 [███████░░░]) ve maç başına SADECE 1 SATIRLIK hap gerekçelerle sun.
+KESİNLİKLE SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ MAÇ HAVUZU] LİSTESİNDEKİ MAÇLARI KULLAN. LİSTEDE OLMAYAN MAÇ YAZMAK YASAKTIR.`;
 
                 if (sportsContext) {
                     systemContent += `\n\n${sportsContext}`;
-                } else {
-                    systemContent += `\nKullanıcı futbol dışı bir konu sorarsa da doğrudan, kısa, net ve profesyonel şekilde yanıt ver.`;
                 }
+                systemContent += `\nKullanıcı futbol dışı bir konu sorarsa da doğrudan, kısa, net ve profesyonel şekilde yanıt ver.`;
 
                 const finalMessages = [
                     { role: 'system', content: systemContent },
