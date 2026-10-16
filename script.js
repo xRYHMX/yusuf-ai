@@ -892,11 +892,32 @@ function renderCoupons(data) {
 
 function createCouponMatchElement(item, isSurprise) {
     const m = item.m;
+    const an = item.an || {};
     const div = document.createElement('div');
     div.className = 'coupon-match-item';
 
     const probPct = Math.round(item.p * 100);
     const liftTag = item.lift ? `<span class="match-pick-conf lift-tag">${item.lift.toFixed(1)}x Değer</span>` : '';
+
+    // Derin analiz rozetleri (xG, Ev/Dep Form, Hava Durumu, Gol Kralı)
+    const chips = [];
+    if (typeof an.lh === 'number' && typeof an.la === 'number') {
+        chips.push(`<span class="intel-chip">📊 xG: ${an.lh.toFixed(2)} - ${an.la.toFixed(2)}</span>`);
+    }
+    if (an.facts?.home?.formStr || an.facts?.away?.formStr) {
+        chips.push(`<span class="intel-chip">🔥 Form: ${escapeHtml(an.facts?.home?.formStr || '-')} / ${escapeHtml(an.facts?.away?.formStr || '-')}</span>`);
+    }
+    if (an.intel?.weather) {
+        const w = an.intel.weather;
+        chips.push(`<span class="intel-chip">🌤️ ${escapeHtml(w.city)}: ${w.temp}°C ${escapeHtml(w.condition)}</span>`);
+    }
+    const topLeader = an.intel?.homeLeaders?.[0] || an.intel?.awayLeaders?.[0];
+    if (topLeader) {
+        chips.push(`<span class="intel-chip">⭐ ${escapeHtml(topLeader)}</span>`);
+    }
+    const chipsHtml = chips.length
+        ? `<div class="match-intel-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 4px 0;">${chips.join('')}</div>`
+        : '';
 
     div.innerHTML = `
         <div class="match-item-top">
@@ -914,14 +935,15 @@ function createCouponMatchElement(item, isSurprise) {
                 ${liftTag}
             </div>
         </div>
+        ${chipsHtml}
         <div class="match-item-rationale">${escapeHtml(item.rationale)}</div>
         <div class="match-item-actions">
-            <button type="button" class="btn-item-action btn-ai-action" style="flex: 1;">AI ile Detaylı Analiz Et</button>
+            <button type="button" class="btn-item-action btn-ai-action" style="flex: 1;">AI ile Derin Analiz Et</button>
         </div>
     `;
 
     div.querySelector('.btn-ai-action').addEventListener('click', () => {
-        const prompt = `${m.home} vs ${m.away} (${m.league.full}) maçı için ${item.label} tercihini taktiksel ve istatistiksel gerekçeleriyle detaylı analiz et.`;
+        const prompt = `${m.home} vs ${m.away} (${m.league.full}) maçını ev/deplasman karnesi, ortak rakipler, geçmiş maçlar, hava şartları ve kilit oyuncularıyla derinlemesine analiz et.`;
         askAiDirectly(prompt);
     });
 

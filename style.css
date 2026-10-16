@@ -1601,6 +1601,17 @@ body.theme-light .drop-overlay {
     color: #f59e0b;
 }
 
+.intel-chip {
+    background: rgba(56, 189, 248, 0.09);
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    color: var(--text-secondary);
+    font-size: 0.71rem;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 6px;
+    line-height: 1.35;
+}
+
 .match-item-rationale {
     font-size: 0.78rem;
     color: var(--text-secondary);

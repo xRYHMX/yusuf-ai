@@ -67,20 +67,37 @@ function buildModel(hist, asOf) {
         };
     };
 
-    // Geçiş 2: takım istatistikleri (beklentiye göre normalize)
+    // Geçiş 2: takım istatistikleri (Genel + İç Saha / Dış Saha Ayrı)
     const teams = new Map();
     const T = (id, name) => {
         let t = teams.get(id);
-        if (!t) { t = { id, name, n: 0, w: 0, gf: 0, bgf: 0, ga: 0, bga: 0, gf1: 0, ga1: 0, last: [] }; teams.set(id, t); }
-        t.name = name; return t;
+        if (!t) {
+            t = {
+                id, name,
+                n: 0, w: 0, gf: 0, bgf: 0, ga: 0, bga: 0, gf1: 0, ga1: 0,
+                hn: 0, hw: 0, hgf: 0, hbgf: 0, hga: 0, hbga: 0, hgf1: 0, hga1: 0,
+                an: 0, aw: 0, agf: 0, abgf: 0, aga: 0, abga: 0, agf1: 0, aga1: 0,
+                last: []
+            };
+            teams.set(id, t);
+        }
+        t.name = name;
+        return t;
     };
     for (const { m, w } of rows) {
         const L = lgStat(m.league.id);
         const h = T(m.homeId, m.home), a = T(m.awayId, m.away);
+
+        // Ev sahibi (genel + iç saha)
         h.n++; h.w += w; h.gf += w * m.score.h; h.bgf += w * L.muH; h.ga += w * m.score.a; h.bga += w * L.muA; h.gf1 += w * m.ht.h; h.ga1 += w * m.ht.a;
+        h.hn++; h.hw += w; h.hgf += w * m.score.h; h.hbgf += w * L.muH; h.hga += w * m.score.a; h.hbga += w * L.muA; h.hgf1 += w * m.ht.h; h.hga1 += w * m.ht.a;
+
+        // Deplasman (genel + dış saha)
         a.n++; a.w += w; a.gf += w * m.score.a; a.bgf += w * L.muA; a.ga += w * m.score.h; a.bga += w * L.muH; a.gf1 += w * m.ht.a; a.ga1 += w * m.ht.h;
-        h.last.push({ date: m.date, opp: m.away, home: true, gf: m.score.h, ga: m.score.a, ht: m.ht });
-        a.last.push({ date: m.date, opp: m.home, home: false, gf: m.score.a, ga: m.score.h, ht: { h: m.ht.a, a: m.ht.h } });
+        a.an++; a.aw += w; a.agf += w * m.score.a; a.abgf += w * L.muA; a.aga += w * m.score.h; a.abga += w * L.muH; a.agf1 += w * m.ht.a; a.aga1 += w * m.ht.h;
+
+        h.last.push({ date: m.date, oppId: m.awayId, opp: m.away, home: true, gf: m.score.h, ga: m.score.a, ht: m.ht });
+        a.last.push({ date: m.date, oppId: m.homeId, opp: m.home, home: false, gf: m.score.a, ga: m.score.h, ht: { h: m.ht.a, a: m.ht.h } });
     }
     for (const t of teams.values()) t.last.sort((x, y) => (x.date < y.date ? 1 : -1));
 
@@ -185,7 +202,6 @@ function computeMarkets(lh, la, sh, sa) {
         iyo[ho] += q; htScores.push({ s: i + '-' + j, p: q });
         for (const dk of Object.keys(D2)) htft[ho][outcome3(i - j + +dk)] += q * D2[dk];
     }
-    // FT sonuçlarını DC'li ana dağılımla uyumlu hale getir
     const ftTarget = [w, d, a];
     for (let fo = 0; fo < 3; fo++) {
         const colSum = htft[0][fo] + htft[1][fo] + htft[2][fo];
@@ -200,70 +216,267 @@ function computeMarkets(lh, la, sh, sa) {
     return { p, topScores: scores.slice(0, 3), topHtScores: htScores.slice(0, 2), lh1, la1, lh2, la2 };
 }
 
-// ---------------- Takım özeti ----------------
+// ---------------- Derin Takım Özeti (Ev/Dep Karnesi & Maç Senaryosu) ----------------
 function teamFacts(t) {
     if (!t) return null;
-    const last = t.last.slice(0, 8);
-    const g = (f) => (last.length ? last.reduce((s, x) => s + f(x), 0) / last.length : null);
+    const last = t.last.slice(0, 10);
+    const homeGames = t.last.filter(x => x.home).slice(0, 6);
+    const awayGames = t.last.filter(x => !x.home).slice(0, 6);
+
+    const avg = (arr, f) => (arr.length ? arr.reduce((s, x) => s + f(x), 0) / arr.length : null);
     const r1 = (v) => (v === null ? null : Math.round(v * 100) / 100);
-    const form = t.last.slice(0, 5).map(x => (x.gf > x.ga ? 'G' : x.gf === x.ga ? 'B' : 'M')).join('');
+    const formStr = (arr, n = 5) => arr.slice(0, n).map(x => (x.gf > x.ga ? 'G' : x.gf === x.ga ? 'B' : 'M')).join('');
+
+    // Senaryo analizi: İlk yarı öndeyken koruma & gerideyken çevirme
+    const htLeads = last.filter(x => x.ht && x.ht.h > x.ht.a);
+    const leadHoldPct = htLeads.length ? Math.round((htLeads.filter(x => x.gf > x.ga).length / htLeads.length) * 100) : null;
+    const htTrails = last.filter(x => x.ht && x.ht.h < x.ht.a);
+    const comebackPct = htTrails.length ? Math.round((htTrails.filter(x => x.gf >= x.ga).length / htTrails.length) * 100) : null;
+    const cleanSheetPct = last.length ? Math.round((last.filter(x => x.ga === 0).length / last.length) * 100) : 0;
+
     return {
-        n: t.n, form,
-        gf: r1(g(x => x.gf)), ga: r1(g(x => x.ga)),
-        gf1: r1(g(x => x.ht.h)), ga1: r1(g(x => x.ht.a)),
-        over25: r1(g(x => (x.gf + x.ga > 2.5 ? 1 : 0))), btts: r1(g(x => (x.gf > 0 && x.ga > 0 ? 1 : 0))),
-        iyGol: r1(g(x => (x.ht.h + x.ht.a > 0 ? 1 : 0))),
-        son: t.last.slice(0, 5).map(x => `${x.home ? 'E' : 'D'} ${x.opp} ${x.gf}-${x.ga}`)
+        n: t.n,
+        hn: t.hn,
+        an: t.an,
+        form: formStr(t.last, 5),
+        formStr: formStr(t.last, 5),
+        homeForm: formStr(homeGames, 5),
+        awayForm: formStr(awayGames, 5),
+        gf: r1(avg(last, x => x.gf)),
+        ga: r1(avg(last, x => x.ga)),
+        homeGf: r1(avg(homeGames, x => x.gf)),
+        homeGa: r1(avg(homeGames, x => x.ga)),
+        awayGf: r1(avg(awayGames, x => x.gf)),
+        awayGa: r1(avg(awayGames, x => x.ga)),
+        gf1: r1(avg(last, x => x.ht.h)),
+        ga1: r1(avg(last, x => x.ht.a)),
+        over25: r1(avg(last, x => (x.gf + x.ga > 2.5 ? 1 : 0))),
+        btts: r1(avg(last, x => (x.gf > 0 && x.ga > 0 ? 1 : 0))),
+        iyGol: r1(avg(last, x => (x.ht.h + x.ht.a > 0 ? 1 : 0))),
+        cleanSheetPct,
+        leadHoldPct,
+        comebackPct,
+        son: t.last.slice(0, 5).map(x => `${x.home ? 'E' : 'D'} ${x.opp} ${x.gf}-${x.ga}`),
+        homeSon: homeGames.slice(0, 4).map(x => `${x.opp} ${x.gf}-${x.ga}`),
+        awaySon: awayGames.slice(0, 4).map(x => `${x.opp} ${x.gf}-${x.ga}`)
     };
 }
 
-// ---------------- Maç analizi ----------------
+// ---------------- H2H (Aralarındaki Maçlar) & Ortak Rakipler Analizi ----------------
+function analyzeH2HAndCommon(th, ta, m, intel) {
+    // 1. H2H (Hem 75 günlük veritabanı hem de dış istihbarat geçmiş sezonlar)
+    const h2hList = [];
+    const seenDates = new Set();
+
+    if (th && ta) {
+        for (const g of th.last) {
+            if (g.oppId === ta.id) {
+                seenDates.add(g.date);
+                h2hList.push({
+                    date: g.date,
+                    homeTeam: g.home ? th.name : ta.name,
+                    awayTeam: g.home ? ta.name : th.name,
+                    homeGoals: g.home ? g.gf : g.ga,
+                    awayGoals: g.home ? g.ga : g.gf,
+                    thGoals: g.gf,
+                    taGoals: g.ga
+                });
+            }
+        }
+    }
+
+    if (intel && Array.isArray(intel.espnH2H)) {
+        for (const eh of intel.espnH2H) {
+            if (seenDates.has(eh.date)) continue;
+            seenDates.add(eh.date);
+            const isThHome = eh.home && m.home && eh.home.toLowerCase().slice(0, 4) === m.home.toLowerCase().slice(0, 4);
+            h2hList.push({
+                date: eh.date,
+                homeTeam: eh.home,
+                awayTeam: eh.away,
+                homeGoals: eh.gh,
+                awayGoals: eh.ga,
+                thGoals: isThHome ? eh.gh : eh.ga,
+                taGoals: isThHome ? eh.ga : eh.gh
+            });
+        }
+    }
+
+    let h2hModH = 1.0, h2hModA = 1.0, h2hSummary = null;
+    if (h2hList.length > 0) {
+        let hw = 0, d = 0, aw = 0, totG = 0;
+        for (const item of h2hList) {
+            if (item.thGoals > item.taGoals) hw++;
+            else if (item.thGoals === item.taGoals) d++;
+            else aw++;
+            totG += item.thGoals + item.taGoals;
+        }
+        const avgG = (totG / h2hList.length).toFixed(1);
+        const diff = (hw - aw) / h2hList.length;
+        h2hModH = Math.min(1.07, Math.max(0.93, 1 + 0.06 * diff));
+        h2hModA = Math.min(1.07, Math.max(0.93, 1 - 0.06 * diff));
+        const scoresText = h2hList.slice(0, 3).map(x => `${x.thGoals}-${x.taGoals}`).join(', ');
+        h2hSummary = `Aralarındaki son ${h2hList.length} maç: ${m.home} ${hw}G-${d}B-${aw}M (Ort. ${avgG} gol | Son skorlar: ${scoresText})`;
+    }
+
+    // 2. Ortak Rakipler (Common Opponents)
+    let commonModH = 1.0, commonModA = 1.0, commonSummary = null;
+    if (th && ta && th.last.length && ta.last.length) {
+        const mapH = new Map();
+        for (const g of th.last) {
+            if (!g.oppId || g.oppId === ta.id) continue;
+            const cur = mapH.get(g.oppId) || { name: g.opp, n: 0, gd: 0, pts: 0, gf: 0, ga: 0 };
+            cur.n++;
+            cur.gd += (g.gf - g.ga);
+            cur.gf += g.gf;
+            cur.ga += g.ga;
+            cur.pts += g.gf > g.ga ? 3 : g.gf === g.ga ? 1 : 0;
+            mapH.set(g.oppId, cur);
+        }
+
+        const mapA = new Map();
+        for (const g of ta.last) {
+            if (!g.oppId || g.oppId === th.id) continue;
+            const cur = mapA.get(g.oppId) || { name: g.opp, n: 0, gd: 0, pts: 0, gf: 0, ga: 0 };
+            cur.n++;
+            cur.gd += (g.gf - g.ga);
+            cur.gf += g.gf;
+            cur.ga += g.ga;
+            cur.pts += g.gf > g.ga ? 3 : g.gf === g.ga ? 1 : 0;
+            mapA.set(g.oppId, cur);
+        }
+
+        const commonIds = [...mapH.keys()].filter(id => mapA.has(id));
+        if (commonIds.length > 0) {
+            let hPts = 0, aPts = 0, hGd = 0, aGd = 0;
+            const names = [];
+            for (const cid of commonIds) {
+                const ch = mapH.get(cid), ca = mapA.get(cid);
+                hPts += ch.pts / ch.n;
+                aPts += ca.pts / ca.n;
+                hGd += ch.gd / ch.n;
+                aGd += ca.gd / ca.n;
+                if (names.length < 3) names.push(ch.name);
+            }
+            const avgGdDiff = (hGd - aGd) / commonIds.length;
+            commonModH = Math.min(1.08, Math.max(0.92, 1 + 0.035 * avgGdDiff));
+            commonModA = Math.min(1.08, Math.max(0.92, 1 - 0.035 * avgGdDiff));
+            const hGdStr = (hGd >= 0 ? '+' : '') + hGd.toFixed(1);
+            const aGdStr = (aGd >= 0 ? '+' : '') + aGd.toFixed(1);
+            commonSummary = `${commonIds.length} Ortak Rakip (${names.join(', ')}): ${m.home} maç başı ${(hPts / commonIds.length).toFixed(1)}p (${hGdStr} av), ${m.away} ${(aPts / commonIds.length).toFixed(1)}p (${aGdStr} av)`;
+        }
+    }
+
+    return { h2hModH, h2hModA, h2hSummary, commonModH, commonModA, commonSummary };
+}
+
+// Son 5 maçlık form ivmesi (Momentum çarpanı)
+function computeFormMomentum(t) {
+    if (!t || !t.last || t.last.length < 3) return 1.0;
+    const recent = t.last.slice(0, 5);
+    let pts = 0, gd = 0;
+    for (const g of recent) {
+        pts += g.gf > g.ga ? 3 : g.gf === g.ga ? 1 : 0;
+        gd += (g.gf - g.ga);
+    }
+    const ppg = pts / recent.length; // 0..3, nötr = 1.4
+    const gdpg = gd / recent.length;
+    const raw = 1 + 0.035 * (ppg - 1.4) + 0.02 * gdpg;
+    return Math.min(1.10, Math.max(0.90, raw));
+}
+
+// ---------------- %100 Bağımsız Çok Katmanlı Maç Analizi ----------------
 function analyze(model, m, opts = {}) {
-    const useMarket = opts.useMarket !== false;
+    const intel = opts.intel || m.intel || null;
     const th = model.teams.get(m.homeId), ta = model.teams.get(m.awayId);
     const L = model.lgStat(m.league.id), g = model.glob;
     const nh = th ? th.n : 0, na = ta ? ta.n : 0;
 
-    const att = (t) => (t ? (t.gf + K * g.muH) / (t.bgf + K * g.muH) : 1);
-    const dfn = (t) => (t ? (t.ga + K * g.muH) / (t.bga + K * g.muH) : 1);
-    const lhM = L.muH * att(th) * dfn(ta);
-    const laM = L.muA * att(ta) * dfn(th);
-    let lh = Math.min(3.8, Math.max(0.25, lhM)), la = Math.min(3.8, Math.max(0.25, laM));
+    // 1. Katman: Genel + Ev/Deplasman Ayrı Hücum ve Savunma Güçleri
+    const K_GEN = 4, K_SPLIT = 3;
+    const attGen = (t) => (t ? (t.gf + K_GEN * g.muH) / (t.bgf + K_GEN * g.muH) : 1);
+    const dfnGen = (t) => (t ? (t.ga + K_GEN * g.muH) / (t.bga + K_GEN * g.muH) : 1);
 
-    // Piyasa verisiyle harmanla (örneklem azsa piyasa ağırlığını artır)
-    let market = null, marketUsed = false, lhMk = null, laMk = null;
-    const o = m.odds;
-    if (o && o.h && o.d && o.a) {
-        const inv = [1 / o.h, 1 / o.d, 1 / o.a], s = inv[0] + inv[1] + inv[2];
-        const pO = o.alt25 && o.ust25 ? (1 / o.ust25) / (1 / o.ust25 + 1 / o.alt25) : null;
-        market = { p1: inv[0] / s, pX: inv[1] / s, p2: inv[2] / s, pO };
-        [lhMk, laMk] = fitLambda(market.p1, market.pX, market.p2, pO, lh, la);
-        if (useMarket) {
-            const modelWeight = Math.min(0.45, Math.min(nh, na) / 18);
-            lh = modelWeight * lh + (1 - modelWeight) * lhMk;
-            la = modelWeight * la + (1 - modelWeight) * laMk;
-            marketUsed = true;
+    const attHome = (t) => (t && t.hn > 0 ? (t.hgf + K_SPLIT * L.muH) / (t.hbgf + K_SPLIT * L.muH) : attGen(t));
+    const dfnHome = (t) => (t && t.hn > 0 ? (t.hga + K_SPLIT * L.muA) / (t.hbga + K_SPLIT * L.muA) : dfnGen(t));
+
+    const attAway = (t) => (t && t.an > 0 ? (t.agf + K_SPLIT * L.muA) / (t.abgf + K_SPLIT * L.muA) : attGen(t));
+    const dfnAway = (t) => (t && t.an > 0 ? (t.aga + K_SPLIT * L.muH) / (t.abga + K_SPLIT * L.muH) : dfnGen(t));
+
+    // Ev sahibinin iç saha gücü (%65) + genel gücü (%35)
+    const effAttH = 0.65 * attHome(th) + 0.35 * attGen(th);
+    const effDfnA = 0.65 * dfnAway(ta) + 0.35 * dfnGen(ta);
+    const effAttA = 0.65 * attAway(ta) + 0.35 * attGen(ta);
+    const effDfnH = 0.65 * dfnHome(th) + 0.35 * dfnGen(th);
+
+    let lh = L.muH * effAttH * effDfnA;
+    let la = L.muA * effAttA * effDfnH;
+
+    // 2. Katman: Son 5 Maç Form İvmesi (Momentum)
+    const momH = computeFormMomentum(th);
+    const momA = computeFormMomentum(ta);
+    lh *= momH;
+    la *= momA;
+
+    // 3. Katman: H2H (Aralarındaki Maçlar) ve Ortak Rakipler Kıyaslaması
+    const h2hCommon = analyzeH2HAndCommon(th, ta, m, intel);
+    lh *= h2hCommon.h2hModH * h2hCommon.commonModH;
+    la *= h2hCommon.h2hModA * h2hCommon.commonModA;
+
+    // 4. Katman: Puan Durumu / Sıralama Farkı Etkisi (ESPN Standings varsa)
+    if (intel && intel.standings && intel.standings.home && intel.standings.away) {
+        const sh = intel.standings.home, sa = intel.standings.away;
+        if (sh.gp >= 3 && sa.gp >= 3) {
+            const ppgDiff = (sh.points / sh.gp) - (sa.points / sa.gp);
+            lh *= Math.min(1.06, Math.max(0.94, 1 + 0.03 * ppgDiff));
+            la *= Math.min(1.06, Math.max(0.94, 1 - 0.03 * ppgDiff));
         }
     }
 
-    // Devre payları
-    const sh = (t, f1, f) => (t ? (t[f1] + 6 * L.s1) / (t[f] + 6) : L.s1);
-    const shareH = 0.5 * (sh(th, 'gf1', 'gf') + sh(ta, 'ga1', 'ga'));
-    const shareA = 0.5 * (sh(ta, 'gf1', 'gf') + sh(th, 'ga1', 'ga'));
-    const clamp = (v) => Math.min(0.6, Math.max(0.3, v));
+    // 5. Katman: Maç Saati Hava Durumu ve Zemin Şartları Etkisi (Open-Meteo)
+    if (intel && intel.weather && intel.weather.xgMod) {
+        lh *= intel.weather.xgMod;
+        la *= intel.weather.xgMod;
+    }
+
+    lh = Math.min(3.75, Math.max(0.25, lh));
+    la = Math.min(3.75, Math.max(0.25, la));
+
+    // NOT: İddaa oranları (m.odds) tahmin hesabına KARIŞMAZ (%100 bağımsız kendi analizimiz).
+    // Sadece maçın resmi İddaa bülteninde olup olmadığını (inBulletin) doğrulamak için tutulur.
+    const inBulletin = Boolean(m.inBulletin);
+
+    // 6. Katman: Devre Gol Payları (İç saha ve dış saha ilk yarı gol karakteri)
+    const shHome = (t) => (t ? (t.hgf1 + t.gf1 + 6 * L.s1) / (t.hgf + t.gf + 6) : L.s1);
+    const shAway = (t) => (t ? (t.agf1 + t.gf1 + 6 * L.s1) / (t.agf + t.gf + 6) : L.s1);
+    const shareH = 0.5 * (shHome(th) + (ta ? (ta.aga1 + ta.ga1 + 6 * L.s1) / (ta.aga + ta.ga + 6) : L.s1));
+    const shareA = 0.5 * (shAway(ta) + (th ? (th.hga1 + th.ga1 + 6 * L.s1) / (th.hga + th.ga + 6) : L.s1));
+    const clamp = (v) => Math.min(0.62, Math.max(0.28, v));
     const mkts = computeMarkets(lh, la, clamp(shareH), clamp(shareA));
 
-    // Veri kalitesi: A ve B yalnızca İddaa bülteninde olan (marketUsed) maçlara verilir
-    const quality = marketUsed && Math.min(nh, na) >= 6 && L.n >= 20
+    // Veri kalitesi: Takımların oynadığı maç sayısına ve İddaa bülteninde yer almasına göre
+    const quality = inBulletin && Math.min(nh, na) >= 6 && L.n >= 20
         ? 'A'
-        : marketUsed && Math.min(nh, na) >= 3
+        : inBulletin && Math.min(nh, na) >= 3
             ? 'B'
             : 'C';
 
+    const homeFacts = opts.facts ? teamFacts(th) : undefined;
+    const awayFacts = opts.facts ? teamFacts(ta) : undefined;
+
     return {
-        lh, la, quality, marketUsed, market, p: mkts.p, topScores: mkts.topScores, topHtScores: mkts.topHtScores,
-        pModel1X2: null, nh, na, leagueN: L.n,
-        facts: opts.facts ? { home: teamFacts(th), away: teamFacts(ta) } : undefined
+        lh, la, quality,
+        marketUsed: inBulletin,
+        p: mkts.p,
+        topScores: mkts.topScores,
+        topHtScores: mkts.topHtScores,
+        nh, na, leagueN: L.n,
+        momH: +momH.toFixed(2),
+        momA: +momA.toFixed(2),
+        h2hSummary: h2hCommon.h2hSummary,
+        commonSummary: h2hCommon.commonSummary,
+        intel: intel || null,
+        facts: opts.facts ? { home: homeFacts, away: awayFacts } : undefined
     };
 }
 
@@ -286,7 +499,7 @@ const SURPRISE_GROUPS = ['htft', 'msx', 'ms', 'iy', 'iykg', 'yari'];
 
 function qualifies(match, an, minQ = 'B') {
     if (match.state !== 'pre') return false;
-    if (!match.inBulletin || !an.marketUsed) return false; // Yalnızca resmi İddaa bültenindeki maçlar
+    if (!match.inBulletin) return false; // Yalnızca resmi İddaa bültenindeki maçlar
     if (new Date(match.kickoff).getTime() < Date.now() + 5 * 60000) return false;
     if (minQ === 'A') return an.quality === 'A';
     if (minQ === 'B') return an.quality === 'A' || an.quality === 'B';
@@ -298,49 +511,63 @@ function generateRationale(pk, m, an) {
     const pStr = '%' + (pk.p * 100).toFixed(0);
     const liftStr = pk.lift ? pk.lift.toFixed(1) + ' kat' : '';
 
+    const hf = an.facts?.home;
+    const af = an.facts?.away;
+    const splitNote = (hf && af && hf.homeGf !== null && af.awayGf !== null)
+        ? ` Ev sahibi iç sahada maç başı ${hf.homeGf} gol atarken, deplasman ekibi dış sahada ${af.awayGf} gol üretiyor.`
+        : '';
+    const extraNote = an.commonSummary
+        ? ` [${an.commonSummary}]`
+        : an.h2hSummary
+            ? ` [${an.h2hSummary}]`
+            : '';
+    const weatherNote = an.intel?.weather
+        ? ` 🌤️ ${an.intel.weather.city}: ${an.intel.weather.temp}°C (${an.intel.weather.condition}).`
+        : '';
+
     if (pk.key === 'ust15') {
-        return `Toplam beklenen gol ${totG} (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}). Model ${pStr} olasılıkla en az 2 gol öngörüyor.`;
+        return `Bağımsız xG modeli toplam ${totG} gol (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}) hesapladı (${pStr} güven).${splitNote}${weatherNote}`;
     }
     if (pk.key === 'iyust05') {
-        return `İlk yarı beklenen gol temposu yüksek. Devre bitmeden en az 1 gol çıkma olasılığı modelde ${pStr}.`;
+        return `İlk yarı gol temposu yüksek; model devre bitmeden en az 1 gol olasılığını ${pStr} olarak hesapladı.${splitNote}${weatherNote}`;
     }
     if (pk.key === 'alt25' || pk.key === 'alt35') {
-        return `Savunma ağırlıklı tempo; beklenen gol ${totG} seviyesinde. ${pk.label} ihtimali ${pStr}.`;
+        return `Savunma direnci yüksek eşleşme; toplam beklenen gol ${totG} seviyesinde (${pStr} güven).${splitNote}${weatherNote}`;
     }
     if (pk.key === 'ust25') {
-        return `Hücum tempolu eşleşme; ${totG} beklenen gol ile model ${pStr} güvenle 2,5 Üst barajının aşılmasını bekliyor.`;
+        return `Yüksek hücum temposu; ${totG} beklenen gol ile model ${pStr} olasılıkla 2,5 Üst öngörüyor.${splitNote}${weatherNote}`;
     }
     if (pk.key === 'kgv') {
-        return `Ev (${an.lh.toFixed(2)} xG) ve deplasman (${an.la.toFixed(2)} xG) hücumda üretken. ${pStr} karşılıklı gol beklentisi.`;
+        return `Ev (${an.lh.toFixed(2)} xG) ve deplasman (${an.la.toFixed(2)} xG) karşılıklı üretime çok uygun (${pStr} güven).${splitNote}${weatherNote}`;
     }
     if (pk.key === 'dc1x') {
-        return `${m.home} iç sahada dirençli (${an.lh.toFixed(2)} xG). Yenilmeme olasılığı modelde ${pStr}.`;
+        return `${m.home} iç saha formunda çok dirençli (${an.lh.toFixed(2)} xG). Yenilmeme ihtimali ${pStr}.${extraNote}${weatherNote}`;
     }
     if (pk.key === 'dcx2') {
-        return `${m.away} deplasmanda kalite üstünlüğüne sahip (${an.la.toFixed(2)} xG). Puan alma ihtimali ${pStr}.`;
+        return `${m.away} dış saha performansıyla üstün (${an.la.toFixed(2)} xG). Puan alma olasılığı ${pStr}.${extraNote}${weatherNote}`;
     }
     if (pk.key === 'ms1') {
-        return `${m.home} saha ve form avantajıyla önde (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Galibiyet olasılığı ${pStr}${pk.lift ? ' (' + liftStr + ' değer)' : ''}.`;
+        return `${m.home} iç saha gücü ve form ivmesiyle önde (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG, ${pStr} olasılık).${splitNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'ms2') {
-        return `${m.away} deplasmanda net oyun üstünlüğüne sahip (${an.la.toFixed(2)} xG). Galibiyet ihtimali ${pStr}.`;
+        return `${m.away} deplasman karnesi ve hücum kalitesiyle üstün (${an.la.toFixed(2)} xG, ${pStr} olasılık).${splitNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'msx') {
-        return `İki takım denk güçte (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Beraberlik olasılığı ${pStr} (${liftStr} istatistiksel avantaj).`;
+        return `İki takımın iç/dış saha güçleri dengeli (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Beraberlik olasılığı ${pStr} (${liftStr} değer).${extraNote}`;
     }
     if (pk.key.startsWith('iy1') || pk.key.startsWith('iy2')) {
         const team = pk.key === 'iy1' ? m.home : m.away;
-        return `${team} maçlara erken presle başlıyor. İlk yarıyı önde kapatma ihtimali ${pStr} (${liftStr} değer potansiyeli).`;
+        return `${team} ilk yarılarda yüksek gol yüzdesine sahip. Devreyi önde kapatma ihtimali ${pStr} (${liftStr} istatistiksel değer).${splitNote}${weatherNote}`;
     }
     if (pk.key.startsWith('htft_')) {
         const sub = pk.key.slice(5);
-        return `Yüksek değerli İY/MS tercihi (${sub}). Model ${pStr} olasılık öngörüyor; normal dağılımın ${liftStr} üzerinde.`;
+        return `Bağımsız devre modelinde yüksek değerli İY/MS (${sub}) tercihi: ${pStr} olasılık (normal dağılımın ${liftStr} üzerinde).${extraNote}${weatherNote}`;
     }
     if (pk.key === 'yari1' || pk.key === 'yari2') {
         const half = pk.key === 'yari1' ? '1. yarıda' : '2. yarıda';
-        return `Maç temposunun ${half} daha yüksek olması bekleniyor (${pStr} olasılık, ${liftStr} değer).`;
+        return `Takımların devre karakteristiğine göre gollerin ${half} yoğunlaşması bekleniyor (${pStr} olasılık, ${liftStr} değer).${weatherNote}`;
     }
-    return `Modelin ${pStr} olasılık ve ${liftStr || 'yüksek güven'} ile öne çıkardığı istatistiksel tercih.`;
+    return `Bağımsız modelin ${pStr} olasılık ve ${liftStr || 'yüksek güven'} ile öne çıkardığı istatistiksel tercih.${splitNote}${weatherNote}`;
 }
 
 function isMainstreamMatch(m) {
@@ -368,7 +595,6 @@ function buildCoupons(items, model, opts = {}) {
     const bankoPool = [];
     for (const it of cands) {
         const allBankoPicks = picksOf(it.m, it.an).filter(p => BANKO_KEYS.includes(p.key));
-        // Oynanabilir ideal banko aralığı: %66 - %88 (çok düşük oranlı %93+ tercihleri geri plana at)
         let playable = allBankoPicks.filter(p => p.p >= 0.66 && p.p <= 0.88);
         if (!playable.length) playable = allBankoPicks.filter(p => p.p >= 0.62 && p.p <= 0.91);
         if (!playable.length) playable = allBankoPicks;
@@ -411,7 +637,7 @@ function buildCoupons(items, model, opts = {}) {
         }
     }
 
-    // SÜRPRİZ: Önce ana bülten (MBS 1-2 profesyonel ligler), yüksek değer (lift) taşıyan seçimler
+    // SÜRPRİZ: %100 Bağımsız Modelin Normal Dağılımın Üstünde Gördüğü Değerli Seçimler
     const used = new Set(banko.map(b => b.matchId));
     let surpCands = items.filter(x => qualifies(x.m, x.an, 'B') && isMainstreamMatch(x.m));
     if (surpCands.length < surpN * 2) {
@@ -434,11 +660,6 @@ function buildCoupons(items, model, opts = {}) {
             const baseRate = model.base[pk.key] || 0.05;
             const lift = pk.p / baseRate;
             if (lift < 1.25) continue;
-            const mkt = it.an.market;
-            if (mkt && (pk.key === 'ms1' || pk.key === 'ms2' || pk.key === 'msx')) {
-                const mp = pk.key === 'ms1' ? mkt.p1 : pk.key === 'msx' ? mkt.pX : mkt.p2;
-                if (pk.p < mp * 0.98) continue;
-            }
             const score = pk.p * Math.min(lift, 3) * (it.an.quality === 'A' ? 1.08 : 1) * mbsMult;
             if (!best || score > best.score) best = { ...pk, lift, score, m: it.m, an: it.an };
         }
@@ -451,7 +672,6 @@ function buildCoupons(items, model, opts = {}) {
     }
     surpPool.sort((a, b) => b.score - a.score);
 
-    // Sürprizde de aynı tercih türünden en fazla 2 adet olsun
     const surprise = [];
     const surpKeyCounts = {};
     for (const cand of surpPool) {
@@ -476,18 +696,18 @@ function buildCoupons(items, model, opts = {}) {
     const surpAvgLift = surprise.length ? (surprise.reduce((s, x) => s + x.lift, 0) / surprise.length).toFixed(1) : '1.0';
 
     const bankoInstruction = banko.length
-        ? `Resmi İddaa bülteninden seçilen bu ${banko.length} maç, modelde en düşük %${minBankoPct} ve ortalama %${bankoConfidence} güven değerine sahiptir. Düz ${banko.length} maçlık kombine kupon olarak oynanabilir.`
+        ? `İddaa oranlarından bağımsız; ev/deplasman karnesi, form ivmesi, ortak rakipler ve hava şartları incelenerek seçilen bu ${banko.length} maç, modelde en düşük %${minBankoPct} ve ortalama %${bankoConfidence} güven değerine sahiptir.`
         : 'Şu an bültende kriterlere uygun yaklaşan banko maç bulunamadı.';
 
     const surpInstruction = surprise.length
-        ? `Resmi İddaa bültenindeki bu ${surprise.length} maç, normal istatistiksel dağılımın ortalama ${surpAvgLift} katı değer taşımaktadır. Düşük bütçeyle ${surprise.length >= 4 ? 'sistem (3-4-5)' : 'ikili/üçlü sistem'} veya sürpriz kombine olarak değerlendirilebilir.`
+        ? `Bağımsız modelin iç/dış saha, devre karakteri ve H2H analizine göre normal dağılımın ortalama ${surpAvgLift} katı değer taşıyan ${surprise.length} resmi İddaa maçı. Sistem (3-4-5) veya sürpriz kombine olarak değerlendirilebilir.`
         : 'Şu an bültende kriterlere uygun yaklaşan sürpriz maç bulunamadı.';
 
     return {
         banko: {
             title: 'Günün Banko Kuponu',
             type: 'banko',
-            strategy: 'İddaa Bülteni • Yüksek Güven Kombinesi',
+            strategy: 'Bağımsız Derin Analiz • Yüksek Güven Kombinesi',
             instruction: bankoInstruction,
             confidence: bankoConfidence,
             matches: banko
@@ -495,7 +715,7 @@ function buildCoupons(items, model, opts = {}) {
         surprise: {
             title: 'Günün Yüksek Değer Sürpriz Kuponu',
             type: 'surprise',
-            strategy: 'İddaa Bülteni • İstatistiksel Değer (İY/MS & İY)',
+            strategy: 'Bağımsız Derin Analiz • İY/MS & İlk Yarı Fırsatları',
             instruction: surpInstruction,
             avgLift: surpAvgLift,
             matches: surprise
@@ -503,6 +723,7 @@ function buildCoupons(items, model, opts = {}) {
     };
 }
 
-module.exports = { buildModel, analyze, picksOf, buildCoupons, outcomeKeys, teamFacts, LABEL, qualifies, generateRationale };
+module.exports = { buildModel, analyze, picksOf, buildCoupons, outcomeKeys, teamFacts, LABEL, qualifies, generateRationale, isMainstreamMatch };
+
 
 
