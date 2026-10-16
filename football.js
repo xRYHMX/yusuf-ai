@@ -15,23 +15,43 @@ const normTr = (s) => String(s || '')
     .replace(/ö/g, 'o')
     .replace(/ç/g, 'c');
 
-// Modeli önbelleğe alır ve arka planda hazır tutar (75 günlük tam pencere)
+const dayAnalysisCache = new Map();
+
+// Modeli önbelleğe alır: Render soğuk açılışında önce son 21 günü (0.3 sn) çekip anında yanıt verir,
+// ardından arka planda 75 güne tamamlayıp modeli tam kapasiteye yükseltir.
 async function getWarmModel(asOf = mk.trToday()) {
     if (cachedModel && cachedModelDate === asOf) return cachedModel;
     if (modelBuildPromise) return modelBuildPromise;
 
     modelBuildPromise = (async () => {
         try {
-            console.log(`[Football Engine] Model inşa ediliyor (Geçmiş 75 gün -> ${asOf})...`);
-            const fromIso = mk.addDays(asOf, -75);
             const toIso = mk.addDays(asOf, -1);
-            const hist = await mk.getRange(fromIso, toIso);
-            console.log(`[Football Engine] Geçmiş veri tamam: ${hist.length} maç.`);
-            const model = engine.buildModel(hist, asOf);
-            cachedModel = model;
+            const fastFromIso = mk.addDays(asOf, -21);
+            console.log(`[Football Engine] Hızlı başlangıç modeli hazırlanıyor (Son 21 gün -> ${asOf})...`);
+            const recentHist = await mk.getRange(fastFromIso, toIso);
+            const fastModel = engine.buildModel(recentHist, asOf);
+            cachedModel = fastModel;
             cachedModelDate = asOf;
-            console.log(`[Football Engine] Model hazır! Modellenen takım sayısı: ${model.teams.size}`);
-            return model;
+            console.log(`[Football Engine] Hızlı model aktif (${recentHist.length} maç). Arka planda 75 güne genişletiliyor...`);
+
+            // Arka planda kalan günleri (-75 .. -22) çekip modeli tam 75 güne yükselt
+            (async () => {
+                try {
+                    const deepFromIso = mk.addDays(asOf, -75);
+                    const deepToIso = mk.addDays(asOf, -22);
+                    const olderHist = await mk.getRange(deepFromIso, deepToIso);
+                    const fullHist = [...olderHist, ...recentHist];
+                    const fullModel = engine.buildModel(fullHist, asOf);
+                    cachedModel = fullModel;
+                    cachedModelDate = asOf;
+                    dayAnalysisCache.clear();
+                    console.log(`[Football Engine] Tam 75 günlük model hazır! Toplam: ${fullHist.length} maç, ${fullModel.teams.size} takım.`);
+                } catch (e) {
+                    console.error('[Football Engine] Arka plan 75 gün genişletme uyarısı:', e.message);
+                }
+            })();
+
+            return fastModel;
         } finally {
             modelBuildPromise = null;
         }
@@ -39,8 +59,6 @@ async function getWarmModel(asOf = mk.trToday()) {
 
     return modelBuildPromise;
 }
-
-const dayAnalysisCache = new Map();
 
 async function getAnalyzedDay(date = mk.trToday()) {
     const now = Date.now();

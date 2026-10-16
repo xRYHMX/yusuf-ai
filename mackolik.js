@@ -8,9 +8,14 @@ const DAY_DIR = path.join(__dirname, 'cache', 'days');
 fs.mkdirSync(DAY_DIR, { recursive: true });
 
 const HEAD = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
     'Referer': 'https://www.mackolik.com/',
-    'Origin': 'https://www.mackolik.com'
+    'Origin': 'https://www.mackolik.com',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-site'
 };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
