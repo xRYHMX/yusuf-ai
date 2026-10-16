@@ -139,15 +139,15 @@ KESİNLİKLE SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ H
                 let finalMessages = buildFinalMessages(sportsContext, recentHistory);
                 let compactFallbacked = false;
 
-                // En yüksek TPM (dakikalık token) limitli sohbet modelleri öncelikli
+                // Doğrudan yanıt üreten (gizli düşünme tokenı harcamayan) yüksek kapasiteli modeller ilk sırada
                 let candidateModels = [
-                    'meta-llama/llama-4-scout-17b-16e-instruct',
                     'llama-3.3-70b-versatile',
+                    'meta-llama/llama-4-scout-17b-16e-instruct',
                     'meta-llama/llama-4-maverick-17b-128e-instruct',
+                    'llama-3.1-8b-instant',
                     'qwen/qwen3-32b',
                     'openai/gpt-oss-120b',
                     'openai/gpt-oss-20b',
-                    'llama-3.1-8b-instant',
                     'allam-2-7b'
                 ];
 
@@ -191,18 +191,24 @@ KESİNLİKLE SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ H
                 let lastGroqError = '';
                 for (const modelToTry of candidateModels) {
                     console.log(`Deneniyor: ${modelToTry}...`);
+                    const isReasoningModel = modelToTry.includes('gpt-oss') || modelToTry.includes('qwen3') || modelToTry.includes('deepseek');
+                    const reqPayload = {
+                        model: modelToTry,
+                        messages: finalMessages,
+                        max_tokens: isReasoningModel ? 4096 : (compactFallbacked ? 1500 : 2048),
+                        stream: true
+                    };
+                    if (isReasoningModel) {
+                        reqPayload.reasoning_effort = 'low';
+                    }
+
                     const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${activeKey}`,
                             'Content-Type': 'application/json'
                         },
-                        body: JSON.stringify({
-                            model: modelToTry,
-                            messages: finalMessages,
-                            max_tokens: compactFallbacked ? 950 : 1400,
-                            stream: true
-                        })
+                        body: JSON.stringify(reqPayload)
                     });
 
                     if (groqRes.ok) {

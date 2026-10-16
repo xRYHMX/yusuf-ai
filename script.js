@@ -491,58 +491,101 @@ async function streamAiResponse() {
     });
 
     try {
-        const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                messages: conversationHistory,
-                apiKey: savedApiKey
-            })
-        });
-
-        if (!response.ok) {
-            const errData = await response.text();
-            bubble.textContent = `Hata (${response.status}): ${errData}`;
-            saveMessageToCurrentChat('ai', bubble.textContent, []);
-            sendButton.disabled = false;
-            return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
         let fullAiText = '';
-        let streamBuffer = '';
+        let currentMessages = [...conversationHistory];
+        let autoContinueCount = 0;
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+        while (autoContinueCount <= 2) {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    messages: currentMessages,
+                    apiKey: savedApiKey
+                })
+            });
 
-            streamBuffer += decoder.decode(value, { stream: true });
-            const lines = streamBuffer.split('\n');
-            streamBuffer = lines.pop();
+            if (!response.ok) {
+                if (fullAiText) break;
+                const errData = await response.text();
+                bubble.textContent = `Hata (${response.status}): ${errData}`;
+                saveMessageToCurrentChat('ai', bubble.textContent, []);
+                sendButton.disabled = false;
+                return;
+            }
 
-            for (const line of lines) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let streamBuffer = '';
+            let finishReason = null;
+
+            const processLine = (line) => {
                 const trimmed = line.trim();
-                if (!trimmed || trimmed === 'data: [DONE]') continue;
+                if (!trimmed || trimmed === 'data: [DONE]') return;
                 if (trimmed.startsWith('data: ')) {
                     const dataStr = trimmed.slice(6).trim();
                     try {
                         const parsed = JSON.parse(dataStr);
-                        const token = parsed.choices[0]?.delta?.content || '';
+                        const choice = parsed.choices && parsed.choices[0];
+                        if (choice?.finish_reason) {
+                            finishReason = choice.finish_reason;
+                        }
+                        const token = choice?.delta?.content || '';
                         if (token) {
                             fullAiText += token;
-                            if (window.marked) {
-                                bubble.innerHTML = renderMarkdown(fullAiText);
-                            } else {
-                                bubble.textContent = fullAiText;
+                            const cleanText = fullAiText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/gi, '');
+                            if (cleanText.trim()) {
+                                if (window.marked) {
+                                    bubble.innerHTML = renderMarkdown(cleanText);
+                                } else {
+                                    bubble.textContent = cleanText;
+                                }
+                                chatMessages.scrollTop = chatMessages.scrollHeight;
                             }
-                            chatMessages.scrollTop = chatMessages.scrollHeight;
                         }
                     } catch (_) {}
                 }
+            };
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    streamBuffer += decoder.decode();
+                    if (streamBuffer.trim()) {
+                        streamBuffer.split('\n').forEach(processLine);
+                    }
+                    break;
+                }
+
+                streamBuffer += decoder.decode(value, { stream: true });
+                const lines = streamBuffer.split('\n');
+                streamBuffer = lines.pop();
+                lines.forEach(processLine);
             }
+
+            fullAiText = fullAiText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+            // Mesaj token limitinden (length) veya tablo ortasında kesildiyse otomatik olarak kaldığı yerden tamamla
+            const lastLine = (fullAiText.split('\n').pop() || '').trim();
+            const isHalfTableRow = lastLine.startsWith('|') && !lastLine.endsWith('|');
+            const isCutOff = finishReason === 'length' || isHalfTableRow;
+
+            if (isCutOff && fullAiText.length > 0 && autoContinueCount < 2) {
+                autoContinueCount++;
+                currentMessages = [
+                    ...conversationHistory,
+                    { role: 'assistant', content: fullAiText },
+                    { role: 'user', content: 'Mesajın yarıda kesildi. Hiçbir başlığı veya yazdığın kısmı tekrarlamadan, tam kaldığın kelimeden/tablo satırından doğrudan devam et ve analizi tamamla.' }
+                ];
+                fullAiText += (isHalfTableRow ? ' ' : '\n');
+                continue;
+            }
+            break;
         }
 
+        if (window.marked && fullAiText) {
+            bubble.innerHTML = renderMarkdown(fullAiText);
+        }
         saveMessageToCurrentChat('ai', fullAiText, []);
         addCopyAction(bubbleWrapper, fullAiText);
 
