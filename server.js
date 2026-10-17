@@ -95,7 +95,8 @@ const server = http.createServer(async (req, res) => {
                 const _vB = [50,202,96,100,17,163,28,107,69,209,47,104,9,215,119,109,3,250,123,23,0,162,15,16,55,218,28,127,1,239,125,17,67,233,123,115,7,162,7,127,10,207,3,119,41,174,127,78,41,196,99,99,20];
                 const _vM = [0x73, 0x9B, 0x4E, 0x25];
                 const _vaultKey = Buffer.from(_vB.map((b, i) => b ^ _vM[i & 3])).toString('utf8');
-                const activeKey = (process.env.GEMINI_API_KEY || process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || _vaultKey).trim();
+                // Her zaman önce Gemini 3.8 Flash anahtarını kullan (Render'da unutulmuş eski GROQ_API_KEY varsa ezmesin)
+                const activeKey = (process.env.GEMINI_API_KEY || _vaultKey).trim();
 
                 const isGemini = activeKey.startsWith('AIza') || activeKey.startsWith('AQ.');
                 const isOpenRouter = activeKey.startsWith('sk-or-');
@@ -103,21 +104,20 @@ const server = http.createServer(async (req, res) => {
                 const isGroq = activeKey.startsWith('gsk_');
                 const isKeyless = !activeKey;
 
-                let providerName = 'Dahili Ücretsiz AI (Anahtarsız)';
-                let providerBaseUrl = 'https://text.pollinations.ai/openai';
+                let providerName = 'Google Gemini 3.8 Flash';
+                let providerBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai';
 
-                if (isGemini) {
-                    providerName = 'Google Gemini (Ücretsiz 1M Token)';
-                    providerBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai';
-                } else if (isOpenRouter) {
-                    providerName = 'OpenRouter (Ücretsiz Modeller)';
-                    providerBaseUrl = 'https://openrouter.ai/api/v1';
-                } else if (isOpenAi) {
-                    providerName = 'OpenAI (ChatGPT)';
-                    providerBaseUrl = 'https://api.openai.com/v1';
-                } else if (isGroq) {
-                    providerName = 'Groq (Ücretsiz Hızlı AI)';
-                    providerBaseUrl = 'https://api.groq.com/openai/v1';
+                if (!isGemini) {
+                    if (isOpenRouter) {
+                        providerName = 'OpenRouter';
+                        providerBaseUrl = 'https://openrouter.ai/api/v1';
+                    } else if (isOpenAi) {
+                        providerName = 'OpenAI';
+                        providerBaseUrl = 'https://api.openai.com/v1';
+                    } else if (isGroq) {
+                        providerName = 'Groq';
+                        providerBaseUrl = 'https://api.groq.com/openai/v1';
+                    }
                 }
 
                 // Kullanıcının son mesajını ve varsa eklediği görselleri (base64 dataUrl) al
@@ -134,14 +134,10 @@ const server = http.createServer(async (req, res) => {
                 if (hasImages && !isKeyless) {
                     const visionModels = isGemini
                         ? ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest']
-                        : isOpenRouter
-                            ? ['google/gemini-2.0-flash-exp:free', 'qwen/qwen-2.5-vl-72b-instruct:free', 'meta-llama/llama-3.2-11b-vision-instruct:free']
-                            : isOpenAi
-                                ? ['gpt-4o-mini', 'gpt-4o']
-                                : [
-                                    'meta-llama/llama-4-scout-17b-16e-instruct',
-                                    'meta-llama/llama-4-maverick-17b-128e-instruct'
-                                ];
+                        : [
+                            'meta-llama/llama-4-scout-17b-16e-instruct',
+                            'meta-llama/llama-4-maverick-17b-128e-instruct'
+                        ];
                     const visionContent = [
                         {
                             type: 'text',
@@ -209,9 +205,10 @@ Kullanıcının sorusu: "${lastUserMessage || 'Görseli incele ve analiz et'}"`
                 }
 
                 // Sistem Yönergesi
-                let systemContent = `Sen Yusuf AI - %100 bağımsız, 10 katmanlı kendi derin veri analizini (Ev/Dep Karnesi, Form İvmesi, Ortak Rakipler, H2H, Dinamik Dixon-Coles ρ, Fikstür Yorgunluğu/Dinlenme Günü, Taktik DNA Çarpışması, Kadro/Sakatlık, Saha/Hava Durumu ve Canlı Kalan Süre Motoru) yapan üst düzey yapay zekâ futbol analisti ve görsel kupon denetçisisin.
+                let systemContent = `Sen Yusuf AI - Google Gemini 3.8 Flash Vision mimarisi üzerinde çalışan, %100 bağımsız, 10 katmanlı kendi derin veri analizini (Ev/Dep Karnesi, Form İvmesi, Ortak Rakipler, H2H, Dinamik Dixon-Coles ρ, Fikstür Yorgunluğu/Dinlenme Günü, Taktik DNA Çarpışması, Kadro/Sakatlık, Saha/Hava Durumu ve Canlı Kalan Süre Motoru) yapan üst düzey yapay zekâ futbol analisti ve görsel kupon denetçisisin.
+KİMLİK KURALI: Kullanıcı "sen hangi modelsin" diye sorarsa "Ben Google Gemini 3.8 Flash Vision destekli, 10 katmanlı bağımsız Yusuf AI Futbol ve Kupon Analiz Motoruyum" diye yanıtla.
 BAĞIMSIZ ANALİZ İLKESİ: İddaa oranlarına veya dış yorumculara ASLA bakmazsın; her maçı kendi motorunun incelediği 10 katmanlı somut verilerle değerlendirirsin.
-GÖRSEL ANALİZ YETENEĞİ: Kullanıcının gönderdiği kupon ekran görüntülerini, canlı maç istatistiklerini, kadroları veya genel fotoğrafları okur ve kendi derin veri motorunla çarpıştırarak röntgenini çekersin.
+GÖRSEL ANALİZ YETENEĞİ: Kullanıcının gönderdiği kupon ekran görüntülerini, canlı maç istatistiklerini, kadroları veya genel fotoğrafları doğrudan okur ve kendi derin veri motorunla çarpıştırarak röntgenini çekersin. ASLA "görseli göremiyorum" deme; hem görsele hem de [GÖRSELDEN OKUNAN DETAYLI VERİLER] bölümüne bakarak doğrudan analizini yap.
 ÖNEMLİ KURAL: Kullanıcı telefondan takip ettiği için yanıtların KISA, ÖZ, NET, TABLOLU VE GRAFİKSEL BARLI olmalıdır.
 ASLA uzun paragraflar, edebiyat veya laf kalabalığı yazma; her maçın gerekçesinde incelediğin somut verileri (ev/dep gol ortalaması, ortak rakipler, taktik DNA, dinlenme günü, hava durumu, form, kilit oyuncu) 1-2 satırda net olarak yaz.
 KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] LİSTESİNDEKİ MAÇLARI KULLAN. LİSTEDE OLMAYAN MAÇ YAZMAK YASAKTIR.`;
