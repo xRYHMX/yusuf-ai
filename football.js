@@ -275,66 +275,68 @@ async function getMatchDetail(matchId, date = mk.trToday()) {
     };
 }
 
-// Tek bir maçın 10 katmanlı derin özet satırını oluşturur
-function formatDeepMatchDetails(m, an) {
+// Tek bir maçın 10 katmanlı derin özet satırını oluşturur (forCoupon=true ise rationale ile çakışan tekrarları atlar)
+function formatDeepMatchDetails(m, an, opts = {}) {
+    const forCoupon = Boolean(opts.forCoupon);
     const parts = [];
     const hf = an.facts?.home;
     const af = an.facts?.away;
 
+    parts.push(`xG: ${an.lh.toFixed(2)}-${an.la.toFixed(2)} (ρ:${an.rho})`);
+
     if (hf && af) {
-        const hHomeStr = hf.homeGf !== null ? `Evde ${hf.homeGf} atıp ${hf.homeGa} yiyor` : `Genel ${hf.gf} atıp ${hf.ga} yiyor`;
-        const aAwayStr = af.awayGf !== null ? `Dep'te ${af.awayGf} atıp ${af.awayGa} yiyor` : `Genel ${af.gf} atıp ${af.ga} yiyor`;
-        parts.push(`Ev/Dep Karnesi: ${m.home} (${hHomeStr}, Form:${hf.formStr || '-'}, İstikrar:%${hf.consistencyPct || 70}) | ${m.away} (${aAwayStr}, Form:${af.formStr || '-'}, İstikrar:%${af.consistencyPct || 70})`);
+        if (!forCoupon) {
+            const hHomeStr = hf.homeGf !== null ? `Evde ${hf.homeGf} atıp ${hf.homeGa} yiyor` : `Genel ${hf.gf} atıp ${hf.ga} yiyor`;
+            const aAwayStr = af.awayGf !== null ? `Dep'te ${af.awayGf} atıp ${af.awayGa} yiyor` : `Genel ${af.gf} atıp ${af.ga} yiyor`;
+            parts.push(`Ev/Dep: ${m.home} (${hHomeStr}, Form:${hf.formStr || '-'}, İst:%${hf.consistencyPct || 70}) | ${m.away} (${aAwayStr}, Form:${af.formStr || '-'}, İst:%${af.consistencyPct || 70})`);
+        } else {
+            parts.push(`Form: ${m.home}(${hf.formStr || '-'}) vs ${m.away}(${af.formStr || '-'})`);
+        }
 
         const scen = [];
         if (hf.leadHoldPct !== null) scen.push(`${m.home} İY öndeyken %${hf.leadHoldPct} koruyor`);
         if (af.comebackPct !== null) scen.push(`${m.away} İY gerideyken %${af.comebackPct} puan çıkarıyor`);
-        if (scen.length) parts.push(`Senaryo Direnci: ${scen.join(' | ')}`);
+        if (scen.length) parts.push(`Direnç: ${scen.join(' | ')}`);
     }
 
-    if (an.tactical) {
-        parts.push(`Taktik DNA & Eşleşme: ${an.tactical.clashSummary}`);
+    if (!forCoupon && an.tactical) {
+        parts.push(`Taktik DNA: ${an.tactical.clashSummary}`);
     }
 
-    if (an.restH?.restDays || an.restA?.restDays) {
-        parts.push(`Fikstür & Yorgunluk: ${m.home} (${an.restH?.label || '-'}) | ${m.away} (${an.restA?.label || '-'})`);
+    if (!forCoupon && (an.restH?.restDays || an.restA?.restDays)) {
+        parts.push(`Dinlenme: ${m.home} (${an.restH?.label || '-'}) | ${m.away} (${an.restA?.label || '-'})`);
     }
 
-    if (an.commonSummary) parts.push(`Ortak Rakipler: ${an.commonSummary}`);
-    if (an.h2hSummary) parts.push(`Aradaki Maçlar: ${an.h2hSummary}`);
-    if (an.rosterSummary) parts.push(`Kadro & Eksik Etkisi: ${an.rosterSummary}`);
+    if (!forCoupon && an.commonSummary) parts.push(`Ortak Rakipler: ${an.commonSummary}`);
+    if (an.h2hSummary) parts.push(`H2H: ${an.h2hSummary}`);
+    if (an.rosterSummary) parts.push(`Kadro/Eksik: ${an.rosterSummary}`);
 
     if (an.intel) {
-        if (an.intel.weather) {
+        if (!forCoupon && an.intel.weather) {
             const st = an.intel.stadium ? `${an.intel.stadium} (${an.intel.weather.city})` : an.intel.weather.city;
-            const refStr = an.intel.referee ? ` | Hakem: ${an.intel.referee}` : '';
-            parts.push(`Saha & Hava: ${st} -> ${an.intel.weather.temp}°C, ${an.intel.weather.condition}, Yağış:%${an.intel.weather.rainProb}, Rüzgar:${an.intel.weather.wind}km/s${refStr}`);
+            parts.push(`Saha/Hava: ${st} ${an.intel.weather.temp}°C, ${an.intel.weather.condition}`);
         }
         if (an.intel.standings && (an.intel.standings.home || an.intel.standings.away)) {
             const sh = an.intel.standings.home;
             const sa = an.intel.standings.away;
             const sStr = [
-                sh ? `${m.home}: ${sh.rank ? sh.rank + '. sıra ' : ''}${sh.points}p (${sh.gp} maç)` : null,
-                sa ? `${m.away}: ${sa.rank ? sa.rank + '. sıra ' : ''}${sa.points}p (${sa.gp} maç)` : null
+                sh ? `${m.home}:${sh.rank ? sh.rank + '.' : ''}(${sh.points}p)` : null,
+                sa ? `${m.away}:${sa.rank ? sa.rank + '.' : ''}(${sa.points}p)` : null
             ].filter(Boolean).join(' vs ');
-            if (sStr) parts.push(`Puan Tablosu: ${sStr}`);
+            if (sStr) parts.push(`Tablo: ${sStr}`);
         }
         const leaders = [];
-        if (an.intel.homeLeaders?.length) leaders.push(`${m.home}: ${an.intel.homeLeaders.join(', ')}`);
-        if (an.intel.awayLeaders?.length) leaders.push(`${m.away}: ${an.intel.awayLeaders.join(', ')}`);
-        if (leaders.length) parts.push(`Kilit Oyuncular: ${leaders.join(' | ')}`);
-
-        if (an.intel.lineup && an.intel.lineup.hasLineup) {
-            parts.push(`Resmi İlk 11 Açıklandı: Ev (${an.intel.lineup.homeXi.slice(0, 5).join(', ')}...) | Dep (${an.intel.lineup.awayXi.slice(0, 5).join(', ')}...)`);
-        }
+        if (an.intel.homeLeaders?.length) leaders.push(`${m.home}: ${an.intel.homeLeaders[0]}`);
+        if (an.intel.awayLeaders?.length) leaders.push(`${m.away}: ${an.intel.awayLeaders[0]}`);
+        if (leaders.length) parts.push(`Golcü: ${leaders.join(' | ')}`);
     }
 
     if (an.liveState) {
         const ls = an.liveState;
-        parts.push(`CANLI MOTOR (${ls.minute}', Skor ${ls.currentScore}): Kalan xG ${ls.remLh}-${ls.remLa} | Kalan Süre +0,5 Üst:%${ls.remOver05} | Sıradaki Gol Ev:%${ls.nextGoalHome} Dep:%${ls.nextGoalAway} | Öneri: ${ls.bestLivePick}`);
+        parts.push(`CANLI (${ls.minute}', ${ls.currentScore}): Kalan xG ${ls.remLh}-${ls.remLa} | +0,5Ü:%${ls.remOver05} | Öneri:${ls.bestLivePick}`);
     }
 
-    return parts.length ? '   • Detay: ' + parts.join(' || ') : '';
+    return parts.length ? '   • Ek Veriler: ' + parts.join(' | ') : '';
 }
 
 // AI Sohbeti için %100 bağımsız derin analiz, güncel İddaa bülteni ve kupon bağlamı
@@ -364,14 +366,20 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
         } catch (_) {}
     }
 
+    const asksOnlyBanko = qNorm.includes('banko') && !qNorm.includes('surpriz');
+    const asksOnlySurp = qNorm.includes('surpriz') && !qNorm.includes('banko');
+
     // 1. Kuponlar özeti
     let bankoSummary = 'Günün %100 Bağımsız Model Banko Kuponu (Resmi İddaa Bülteni):\n';
     if (day.coupons.banko && day.coupons.banko.matches.length) {
         day.coupons.banko.matches.forEach((b, i) => {
-            bankoSummary += `${i + 1}. [${b.m.time}] ${b.m.home} - ${b.m.away} (${b.m.league.full}) | Tercih: ${b.label} (Model Güveni: %${Math.round(b.p * 100)}, İstikrar: %${b.an.avgConsistency || 75})\n   Gerekçe: ${b.rationale}\n`;
-            if (!isCompact) {
-                const deepLine = formatDeepMatchDetails(b.m, b.an);
-                if (deepLine) bankoSummary += `${deepLine}\n`;
+            bankoSummary += `${i + 1}. [${b.m.time}] ${b.m.home} - ${b.m.away} (${b.m.league.full}) | Tercih: ${b.label} (Model Güveni: %${Math.round(b.p * 100)}, İstikrar: %${b.an.avgConsistency || 75})\n`;
+            if (!asksOnlySurp) {
+                bankoSummary += `   Gerekçe: ${b.rationale}\n`;
+                if (!isCompact) {
+                    const deepLine = formatDeepMatchDetails(b.m, b.an, { forCoupon: true });
+                    if (deepLine) bankoSummary += `${deepLine}\n`;
+                }
             }
         });
         bankoSummary += `Strateji: ${day.coupons.banko.instruction}\n`;
@@ -382,10 +390,13 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
     let surpSummary = 'Günün %100 Bağımsız Sürpriz Kuponu (Resmi İddaa Bülteni):\n';
     if (day.coupons.surprise && day.coupons.surprise.matches.length) {
         day.coupons.surprise.matches.forEach((s, i) => {
-            surpSummary += `${i + 1}. [${s.m.time}] ${s.m.home} - ${s.m.away} (${s.m.league.full}) | Tercih: ${s.label} (Model Olasılığı: %${Math.round(s.p * 100)}, Değer Katı: ${s.lift ? s.lift.toFixed(1) + 'x' : '1.5x'})\n   Gerekçe: ${s.rationale}\n`;
-            if (!isCompact) {
-                const deepLine = formatDeepMatchDetails(s.m, s.an);
-                if (deepLine) surpSummary += `${deepLine}\n`;
+            surpSummary += `${i + 1}. [${s.m.time}] ${s.m.home} - ${s.m.away} (${s.m.league.full}) | Tercih: ${s.label} (Model Olasılığı: %${Math.round(s.p * 100)}, Değer Katı: ${s.lift ? s.lift.toFixed(1) + 'x' : '1.5x'})\n`;
+            if (!asksOnlyBanko) {
+                surpSummary += `   Gerekçe: ${s.rationale}\n`;
+                if (!isCompact) {
+                    const deepLine = formatDeepMatchDetails(s.m, s.an, { forCoupon: true });
+                    if (deepLine) surpSummary += `${deepLine}\n`;
+                }
             }
         });
         surpSummary += `Strateji: ${day.coupons.surprise.instruction}\n`;
@@ -407,7 +418,7 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
             return (a.m.order || 999) - (b.m.order || 999);
         });
 
-    const poolLimit = isCompact ? 10 : 18;
+    const poolLimit = isCompact ? 8 : 12;
     let upcomingPoolSummary = `\n[RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU - NESİNE & MAÇKOLİK ONAYLI (${preBulletin.length} aktif maçtan en kaliteli ${Math.min(poolLimit, preBulletin.length)} maç)]:\n`;
     preBulletin.slice(0, poolLimit).forEach(({ m, an }, i) => {
         const topSc = an.topScores && an.topScores[0] ? `${an.topScores[0].s}(%${Math.round(an.topScores[0].p * 100)})` : '1-1';

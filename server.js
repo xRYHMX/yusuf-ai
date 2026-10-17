@@ -94,19 +94,30 @@ const server = http.createServer(async (req, res) => {
                 const { messages, apiKey } = JSON.parse(body);
                 const activeKey = (apiKey && apiKey.trim()) 
                     ? apiKey.trim() 
-                    : (process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || '').trim();
+                    : (process.env.GEMINI_API_KEY || process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || '').trim();
 
-                if (!activeKey) {
-                    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-                    res.end(JSON.stringify({ 
-                        error: 'API anahtarı bulunamadı. Sol menünün altındaki "API Anahtarı" butonuna tıklayıp OpenAI (sk-...) veya Groq (gsk_...) API anahtarınızı kaydedin veya Render ayarlarından OPENAI_API_KEY / GROQ_API_KEY değişkeni olarak ekleyin.' 
-                    }));
-                    return;
+                const isGemini = activeKey.startsWith('AIza');
+                const isOpenRouter = activeKey.startsWith('sk-or-');
+                const isOpenAi = activeKey.startsWith('sk-') && !isOpenRouter;
+                const isGroq = activeKey.startsWith('gsk_');
+                const isKeyless = !activeKey;
+
+                let providerName = 'Dahili Ücretsiz AI (Anahtarsız)';
+                let providerBaseUrl = 'https://text.pollinations.ai/openai';
+
+                if (isGemini) {
+                    providerName = 'Google Gemini (Ücretsiz 1M Token)';
+                    providerBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai';
+                } else if (isOpenRouter) {
+                    providerName = 'OpenRouter (Ücretsiz Modeller)';
+                    providerBaseUrl = 'https://openrouter.ai/api/v1';
+                } else if (isOpenAi) {
+                    providerName = 'OpenAI (ChatGPT)';
+                    providerBaseUrl = 'https://api.openai.com/v1';
+                } else if (isGroq) {
+                    providerName = 'Groq (Ücretsiz Hızlı AI)';
+                    providerBaseUrl = 'https://api.groq.com/openai/v1';
                 }
-
-                const isOpenAi = activeKey.startsWith('sk-');
-                const providerName = isOpenAi ? 'OpenAI' : 'Groq';
-                const providerBaseUrl = isOpenAi ? 'https://api.openai.com/v1' : 'https://api.groq.com/openai/v1';
 
                 // Kullanıcının son mesajını ve varsa eklediği görselleri (base64 dataUrl) al
                 const userMessages = (messages || []).filter(m => m.role === 'user');
@@ -119,13 +130,17 @@ const server = http.createServer(async (req, res) => {
 
                 // AŞAMA 1: Kullanıcı fotoğraf / ekran görüntüsü attıysa Vision modeliyle görseldeki maçları, tercihleri ve istatistikleri oku
                 let visionExtractedText = '';
-                if (hasImages) {
-                    const visionModels = isOpenAi
-                        ? ['gpt-4o-mini', 'gpt-4o']
-                        : [
-                            'meta-llama/llama-4-scout-17b-16e-instruct',
-                            'meta-llama/llama-4-maverick-17b-128e-instruct'
-                        ];
+                if (hasImages && !isKeyless) {
+                    const visionModels = isGemini
+                        ? ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+                        : isOpenRouter
+                            ? ['google/gemini-2.0-flash-exp:free', 'qwen/qwen-2.5-vl-72b-instruct:free', 'meta-llama/llama-3.2-11b-vision-instruct:free']
+                            : isOpenAi
+                                ? ['gpt-4o-mini', 'gpt-4o']
+                                : [
+                                    'meta-llama/llama-4-scout-17b-16e-instruct',
+                                    'meta-llama/llama-4-maverick-17b-128e-instruct'
+                                ];
                     const visionContent = [
                         {
                             type: 'text',
@@ -184,7 +199,10 @@ Kullanıcının sorusu: "${lastUserMessage || 'Görseli incele ve analiz et'}"`
                     ? `${lastUserMessage}\n${visionExtractedText}`
                     : lastUserMessage;
                 try {
-                    sportsContext = await football.buildAiSportsContext(combinedSearchQuery, { hasImage: hasImages });
+                    sportsContext = await football.buildAiSportsContext(combinedSearchQuery, {
+                        compact: isKeyless,
+                        hasImage: hasImages
+                    });
                 } catch (e) {
                     console.error('Futbol bağlamı üretme hatası:', e.message);
                 }
@@ -233,17 +251,37 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                 };
 
                 let currentContextStr = sportsContext;
-                let compactFallbacked = false;
+                let compactFallbacked = isKeyless;
 
-                // Modellerin belirlenmesi (OpenAI ChatGPT veya Groq)
+                // Modellerin belirlenmesi (Google Gemini Free, OpenRouter Free, Groq Free, OpenAI veya Anahtarsız Bedava)
                 let candidateModels = [];
-                if (isOpenAi) {
-                    // ChatGPT Modelleri: gpt-4o en zeki ve en güçlü görsel/metin modeli
+                if (isKeyless) {
+                    candidateModels = ['openai-fast'];
+                } else if (isGemini) {
+                    // Google AI Studio (%100 Ücretsiz, 1.000.000 TPM Limit, 8192 Çıkış Tokeni, Native Vision)
+                    candidateModels = [
+                        'gemini-2.5-flash',
+                        'gemini-2.0-flash',
+                        'gemini-2.0-flash-lite',
+                        'gemini-1.5-flash'
+                    ];
+                } else if (isOpenRouter) {
                     candidateModels = hasImages
-                        ? ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
-                        : ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
+                        ? [
+                            'google/gemini-2.0-flash-exp:free',
+                            'qwen/qwen-2.5-vl-72b-instruct:free',
+                            'meta-llama/llama-3.2-11b-vision-instruct:free'
+                        ]
+                        : [
+                            'google/gemini-2.0-flash-exp:free',
+                            'deepseek/deepseek-chat-v3-0324:free',
+                            'meta-llama/llama-3.3-70b-instruct:free',
+                            'qwen/qwen-2.5-vl-72b-instruct:free'
+                        ];
+                } else if (isOpenAi) {
+                    candidateModels = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
                 } else {
-                    // Groq Modelleri
+                    // Groq Modelleri: llama-4-scout 30.000 TPM / 500.000 TPD ile 5 kat yüksek ücretsiz kotaya sahiptir, ilk sıraya alınır
                     candidateModels = hasImages
                         ? [
                             'meta-llama/llama-4-scout-17b-16e-instruct',
@@ -252,50 +290,15 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                             'llama-3.1-8b-instant'
                         ]
                         : [
-                            'llama-3.3-70b-versatile',
                             'meta-llama/llama-4-scout-17b-16e-instruct',
+                            'llama-3.3-70b-versatile',
                             'meta-llama/llama-4-maverick-17b-128e-instruct',
-                            'llama-3.1-8b-instant',
                             'qwen/qwen3-32b',
                             'openai/gpt-oss-120b',
                             'openai/gpt-oss-20b',
+                            'llama-3.1-8b-instant',
                             'allam-2-7b'
                         ];
-
-                    try {
-                        const modelsRes = await fetch(`${providerBaseUrl}/models`, {
-                            headers: { 'Authorization': `Bearer ${activeKey}` }
-                        });
-                        if (modelsRes.status === 401) {
-                            res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
-                            res.end(JSON.stringify({ error: `${providerName} API anahtarınız geçersiz veya hatalı (401). Sol alttaki API Anahtarı butonundan anahtarınızı kontrol edin.` }));
-                            return;
-                        }
-                        if (modelsRes.ok) {
-                            const modelsJson = await modelsRes.json();
-                            const modelIds = (modelsJson.data || []).map(m => m.id);
-                            
-                            const cleanChatModels = modelIds.filter(id => {
-                                const low = id.toLowerCase();
-                                return !low.includes('whisper') &&
-                                    !low.includes('guard') &&
-                                    !low.includes('tts') &&
-                                    !low.includes('orpheus') &&
-                                    !low.includes('embed') &&
-                                    !low.includes('playai') &&
-                                    !low.startsWith('canopylabs');
-                            });
-
-                            if (cleanChatModels.length > 0) {
-                                candidateModels = [
-                                    ...candidateModels.filter(m => cleanChatModels.includes(m)),
-                                    ...cleanChatModels.filter(m => !candidateModels.includes(m))
-                                ];
-                            }
-                        }
-                    } catch (e) {
-                        console.log('Model sorgusu atlandı:', e.message);
-                    }
                 }
 
                 // Modelleri sırayla dene
@@ -304,11 +307,10 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                 for (const modelToTry of candidateModels) {
                     console.log(`Deneniyor [${providerName}]: ${modelToTry}...`);
                     const isReasoningModel = modelToTry.includes('gpt-oss') || modelToTry.includes('qwen3') || modelToTry.includes('deepseek') || modelToTry.startsWith('o1') || modelToTry.startsWith('o3');
-                    const isNativeVision = isOpenAi || modelToTry.includes('llama-4-scout') || modelToTry.includes('llama-4-maverick');
+                    const isNativeVision = isGemini || isOpenAi || modelToTry.includes('llama-4-scout') || modelToTry.includes('llama-4-maverick') || modelToTry.includes('vl') || modelToTry.includes('gemini');
                     const activeHist = compactFallbacked ? recentHistory.slice(-2) : recentHistory;
                     
-                    // OpenAI gpt-4o'da doğrudan multimodal görsel de iletilir
-                    const sendRawImageInStage2 = hasImages && isNativeVision && (isOpenAi || !visionExtractedText);
+                    const sendRawImageInStage2 = hasImages && isNativeVision && (isGemini || isOpenAi || !visionExtractedText);
                     const finalMessages = buildFinalMessages(currentContextStr, activeHist, sendRawImageInStage2);
 
                     const reqPayload = {
@@ -317,24 +319,27 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                         stream: true
                     };
 
-                    // Token limitleri: OpenAI'da 4096 tam token verilir; kesinti asla yaşanmaz
                     if (modelToTry.startsWith('o1') || modelToTry.startsWith('o3')) {
                         reqPayload.max_completion_tokens = 4096;
-                    } else if (isOpenAi) {
+                    } else if (isGemini) {
+                        reqPayload.max_tokens = 8192;
+                    } else if (isOpenAi || isOpenRouter || isKeyless) {
                         reqPayload.max_tokens = 4096;
                     } else {
-                        reqPayload.max_tokens = isReasoningModel ? 4096 : (compactFallbacked ? 1600 : 2200);
-                        if (isReasoningModel) {
+                        reqPayload.max_tokens = isReasoningModel ? 4096 : 3200;
+                        if (isReasoningModel && isGroq) {
                             reqPayload.reasoning_effort = 'low';
                         }
                     }
 
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (activeKey) {
+                        headers['Authorization'] = `Bearer ${activeKey}`;
+                    }
+
                     const chatRes = await fetch(`${providerBaseUrl}/chat/completions`, {
                         method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${activeKey}`,
-                            'Content-Type': 'application/json'
-                        },
+                        headers,
                         body: JSON.stringify(reqPayload)
                     });
 
@@ -358,13 +363,7 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                     } else {
                         const errText = await chatRes.text();
                         lastApiError = errText;
-                        console.log(`${providerName} ${modelToTry} başarısız oldu (${chatRes.status}):`, errText);
-
-                        if (chatRes.status === 401) {
-                            res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
-                            res.end(JSON.stringify({ error: `${providerName} API anahtarınız geçersiz veya bakiyesi yetersiz (401). Sol alttaki API Anahtarı butonundan anahtarınızı kontrol edin.` }));
-                            return;
-                        }
+                        console.log(`${providerName} ${modelToTry} başarısız oldu (${chatRes.status}):`, errText.slice(0, 200));
 
                         // Token / Boyut limiti (413 veya 429) yaşanırsa bağlamı otomatik kompakt moda küçült
                         if (!compactFallbacked && (chatRes.status === 413 || chatRes.status === 429 || errText.includes('too large') || errText.includes('rate_limit'))) {
@@ -374,6 +373,55 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                             } catch (_) {
                                 currentContextStr = '';
                             }
+                        }
+                    }
+                }
+
+                // YEDEK MOTOR: Kullanıcının anahtarı yoksa, süresi dolmuşsa veya tüm modelleri limit yediyse otomatik olarak Dahili Anahtarsız Ücretsiz AI Motoruna düş!
+                if (!success) {
+                    console.log('[Fallback Engine] Anahtarsız Ücretsiz AI Motoru devreye giriyor...');
+                    try {
+                        if (!compactFallbacked) {
+                            currentContextStr = await football.buildAiSportsContext(combinedSearchQuery, { compact: true, hasImage: hasImages });
+                        }
+                    } catch (_) {}
+
+                    const fallbackMessages = buildFinalMessages(currentContextStr, recentHistory.slice(-2), false);
+                    for (let attempt = 1; attempt <= 2; attempt++) {
+                        try {
+                            const fbRes = await fetch('https://text.pollinations.ai/openai/chat/completions', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    model: 'openai-fast',
+                                    messages: fallbackMessages,
+                                    stream: true
+                                })
+                            });
+                            if (fbRes.ok) {
+                                console.log('BAŞARILI! Dahili Anahtarsız Ücretsiz AI Motoru yanıt veriyor.');
+                                res.writeHead(200, {
+                                    'Content-Type': 'text/event-stream; charset=utf-8',
+                                    'Cache-Control': 'no-cache',
+                                    'Connection': 'keep-alive'
+                                });
+                                const reader = fbRes.body.getReader();
+                                while (true) {
+                                    const { done, value } = await reader.read();
+                                    if (done) break;
+                                    res.write(value);
+                                }
+                                res.end();
+                                success = true;
+                                break;
+                            } else if (fbRes.status === 402 && attempt === 1) {
+                                // Ücretsiz IP hız sınırı varsa kısa bekleyip tekrar dene
+                                await new Promise(r => setTimeout(r, 6000));
+                            } else {
+                                lastApiError = await fbRes.text();
+                            }
+                        } catch (fbErr) {
+                            lastApiError = fbErr.message;
                         }
                     }
                 }

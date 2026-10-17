@@ -190,8 +190,28 @@ function toggleTheme() {
 }
 
 function inspectKeyProvider(key) {
-    if (!key) return null;
-    const clean = key.trim();
+    const clean = (key || '').trim();
+    if (!clean) {
+        return {
+            name: 'Dahili Ücretsiz AI',
+            badge: '🟢 Dahili Ücretsiz AI Aktif (Anahtarsız • 0 TL • Otomatik)',
+            btn: '🟢 Ücretsiz AI (Aktif)'
+        };
+    }
+    if (clean.startsWith('AIza')) {
+        return {
+            name: 'Google Gemini Free',
+            badge: '🟢 Google Gemini 2.5 Flash (%100 Ücretsiz • 1 Milyon Token & Görsel Okuma)',
+            btn: '🟢 Gemini Free (1M)'
+        };
+    }
+    if (clean.startsWith('sk-or-')) {
+        return {
+            name: 'OpenRouter Free',
+            badge: '🟢 OpenRouter Ücretsiz Modeller (Gemini / DeepSeek / Llama)',
+            btn: '🟢 OpenRouter Aktif'
+        };
+    }
     if (clean.startsWith('sk-')) {
         return {
             name: 'OpenAI (ChatGPT)',
@@ -202,13 +222,13 @@ function inspectKeyProvider(key) {
     if (clean.startsWith('gsk_')) {
         return {
             name: 'Groq',
-            badge: '🟢 Groq (Llama-3.3-70b & Llama-4-Scout)',
-            btn: '🟢 Groq Aktif'
+            badge: '🟢 Groq Ücretsiz AI (Llama-4-Scout 500K Token & Llama-3.3)',
+            btn: '🟢 Groq Free Aktif'
         };
     }
     return {
         name: 'Özel API',
-        badge: '🟢 API Anahtarı Tanımlı',
+        badge: '🟢 API Anahtarı Tanımlı (Limit Dolarsa Otomatik Ücretsiz AI Devrede)',
         btn: '🟢 API Kayıtlı'
     };
 }
@@ -216,22 +236,13 @@ function inspectKeyProvider(key) {
 function updateApiKeyProviderInfo(key) {
     if (!apiKeyProviderInfo) return;
     const p = inspectKeyProvider(key);
-    if (p) {
-        apiKeyProviderInfo.style.display = 'block';
-        apiKeyProviderInfo.textContent = p.badge;
-    } else {
-        apiKeyProviderInfo.style.display = 'none';
-        apiKeyProviderInfo.textContent = '';
-    }
+    apiKeyProviderInfo.style.display = 'block';
+    apiKeyProviderInfo.textContent = p.badge;
 }
 
 function updateApiKeyButtonState() {
     const p = inspectKeyProvider(savedApiKey);
-    if (p) {
-        apiKeyBtnText.textContent = p.btn;
-    } else {
-        apiKeyBtnText.textContent = 'API Anahtarı Yapıştır';
-    }
+    apiKeyBtnText.textContent = p.btn;
 }
 
 function bindEvents() {
