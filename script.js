@@ -1,7 +1,8 @@
 // Sohbet Verileri ve Durum
 let chats = JSON.parse(localStorage.getItem('ai_chats') || '[]');
 let currentChatId = null;
-let savedApiKey = localStorage.getItem('groq_api_key') || '';
+localStorage.removeItem('groq_api_key');
+localStorage.removeItem('gemini_aq_migrated');
 let currentTheme = localStorage.getItem('app_theme') || 'dark';
 let attachedFiles = []; // { name, type, isImage, dataUrl, textContent }
 
@@ -15,8 +16,6 @@ const newChatBtn = document.getElementById('newChatBtn');
 const clearAllBtn = document.getElementById('clearAllBtn');
 const historyList = document.getElementById('historyList');
 const suggestionCards = document.querySelectorAll('.suggestion-card');
-const setApiKeyBtn = document.getElementById('setApiKeyBtn');
-const apiKeyBtnText = document.getElementById('apiKeyBtnText');
 
 const themeToggleBtn = document.getElementById('themeToggleBtn');
 const themeIcon = document.getElementById('themeIcon');
@@ -27,13 +26,6 @@ const fileInput = document.getElementById('fileInput');
 const filePreviewContainer = document.getElementById('filePreviewContainer');
 const dropOverlay = document.getElementById('dropOverlay');
 const chatMain = document.getElementById('chatMain');
-
-const apiKeyModal = document.getElementById('apiKeyModal');
-const apiKeyModalInput = document.getElementById('apiKeyModalInput');
-const apiKeyProviderInfo = document.getElementById('apiKeyProviderInfo');
-const closeModalBtn = document.getElementById('closeModalBtn');
-const cancelModalBtn = document.getElementById('cancelModalBtn');
-const saveModalBtn = document.getElementById('saveModalBtn');
 
 const imageLightbox = document.getElementById('imageLightbox');
 const lightboxImg = document.getElementById('lightboxImg');
@@ -89,7 +81,6 @@ function init() {
     bindLightbox();
     bindFootballModule();
     updateView();
-    updateApiKeyButtonState();
 }
 
 function initSidebar() {
@@ -189,89 +180,8 @@ function toggleTheme() {
     applyTheme(nextTheme);
 }
 
-function inspectKeyProvider(key) {
-    const clean = (key || '').trim();
-    if (!clean) {
-        return {
-            name: 'Dahili Ücretsiz AI',
-            badge: '🟢 Dahili Ücretsiz AI Aktif (Anahtarsız • 0 TL • Otomatik)',
-            btn: '🟢 Ücretsiz AI (Aktif)'
-        };
-    }
-    if (clean.startsWith('AIza')) {
-        return {
-            name: 'Google Gemini Free',
-            badge: '🟢 Google Gemini 2.5 Flash (%100 Ücretsiz • 1 Milyon Token & Görsel Okuma)',
-            btn: '🟢 Gemini Free (1M)'
-        };
-    }
-    if (clean.startsWith('sk-or-')) {
-        return {
-            name: 'OpenRouter Free',
-            badge: '🟢 OpenRouter Ücretsiz Modeller (Gemini / DeepSeek / Llama)',
-            btn: '🟢 OpenRouter Aktif'
-        };
-    }
-    if (clean.startsWith('sk-')) {
-        return {
-            name: 'OpenAI (ChatGPT)',
-            badge: '🟢 OpenAI ChatGPT (GPT-4o Vision & 4096 Token)',
-            btn: '🟢 OpenAI (GPT-4o)'
-        };
-    }
-    if (clean.startsWith('gsk_')) {
-        return {
-            name: 'Groq',
-            badge: '🟢 Groq Ücretsiz AI (Llama-4-Scout 500K Token & Llama-3.3)',
-            btn: '🟢 Groq Free Aktif'
-        };
-    }
-    return {
-        name: 'Özel API',
-        badge: '🟢 API Anahtarı Tanımlı (Limit Dolarsa Otomatik Ücretsiz AI Devrede)',
-        btn: '🟢 API Kayıtlı'
-    };
-}
-
-function updateApiKeyProviderInfo(key) {
-    if (!apiKeyProviderInfo) return;
-    const p = inspectKeyProvider(key);
-    apiKeyProviderInfo.style.display = 'block';
-    apiKeyProviderInfo.textContent = p.badge;
-}
-
-function updateApiKeyButtonState() {
-    const p = inspectKeyProvider(savedApiKey);
-    apiKeyBtnText.textContent = p.btn;
-}
-
 function bindEvents() {
     themeToggleBtn.addEventListener('click', toggleTheme);
-
-    setApiKeyBtn.addEventListener('click', () => {
-        apiKeyModalInput.value = savedApiKey;
-        updateApiKeyProviderInfo(savedApiKey);
-        apiKeyModal.classList.add('active');
-        apiKeyModalInput.focus();
-    });
-
-    apiKeyModalInput.addEventListener('input', () => {
-        updateApiKeyProviderInfo(apiKeyModalInput.value);
-    });
-
-    closeModalBtn.addEventListener('click', () => { apiKeyModal.classList.remove('active'); });
-    cancelModalBtn.addEventListener('click', () => { apiKeyModal.classList.remove('active'); });
-
-    saveModalBtn.addEventListener('click', () => {
-        savedApiKey = apiKeyModalInput.value.trim();
-        localStorage.setItem('groq_api_key', savedApiKey);
-        updateApiKeyButtonState();
-        apiKeyModal.classList.remove('active');
-    });
-
-    apiKeyModal.addEventListener('click', (e) => {
-        if (e.target === apiKeyModal) apiKeyModal.classList.remove('active');
-    });
 
     attachBtn.addEventListener('click', () => { fileInput.click(); });
     fileInput.addEventListener('change', handleFileSelect);
@@ -606,8 +516,7 @@ async function streamAiResponse() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                    messages: currentMessages,
-                    apiKey: savedApiKey
+                    messages: currentMessages
                 })
             });
 

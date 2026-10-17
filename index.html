@@ -45,7 +45,7 @@
                 <div id="historyList" class="history-list"></div>
             </div>
 
-            <!-- Alt Kısım: Tema ve API Anahtarı Ayarı -->
+            <!-- Alt Kısım: Tema Ayarı -->
             <div class="sidebar-bottom">
                 <button id="themeToggleBtn" class="theme-toggle-btn" title="Temayı Değiştir">
                     <span id="themeIcon">
@@ -53,12 +53,6 @@
                         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
                     </span>
                     <span id="themeBtnText">Karanlık Tema</span>
-                </button>
-                <button id="setApiKeyBtn" class="api-key-btn">
-                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 2l-2 2m-1.5 1.5L16 7l-1.5-1.5L13 7l-2-2-4 4a5.5 5.5 0 0 0 7.78 7.78l8.44-8.44A1.5 1.5 0 0 0 21 2z"/>
-                    </svg>
-                    <span id="apiKeyBtnText">API Anahtarı</span>
                 </button>
             </div>
         </aside>
@@ -249,29 +243,6 @@
                 </div>
             </section>
         </main>
-    </div>
-
-    <!-- Özel Şık Modal (API Anahtarı) -->
-    <div id="apiKeyModal" class="modal-overlay">
-        <div class="modal-box">
-            <div class="modal-header">
-                <h3>Ücretsiz AI & API Ayarları</h3>
-                <button type="button" id="closeModalBtn" class="modal-close">&times;</button>
-            </div>
-            <p class="modal-desc">
-                <strong>Hiç anahtar girmeden (boş bırakarak)</strong> dahili ücretsiz AI'yı kullanabilir veya <strong>%100 Ücretsiz (0 TL, kartsız)</strong> 1 Milyon Token limitli <strong>Google Gemini (AIza...)</strong> ya da <strong>Groq (gsk_...)</strong> anahtarınızı yapıştırabilirsiniz.
-            </p>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
-                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="font-size:0.76rem;padding:4px 8px;border-radius:6px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);color:#10b981;text-decoration:none;font-weight:600;">⚡ Ücretsiz Gemini Key Al (1M Token • Kartsız)</a>
-                <a href="https://console.groq.com/keys" target="_blank" rel="noopener" style="font-size:0.76rem;padding:4px 8px;border-radius:6px;background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;text-decoration:none;font-weight:600;">🚀 Ücretsiz Groq Key Al</a>
-            </div>
-            <input type="password" id="apiKeyModalInput" class="modal-input" placeholder="Boş bırak (Anahtarsız Ücretsiz) veya AIza... / gsk_... / sk-...">
-            <div id="apiKeyProviderInfo" style="display:block;font-size:0.82rem;padding:6px 10px;border-radius:6px;background:var(--bg-sidebar);border:1px solid var(--border-color);color:var(--text-secondary);"></div>
-            <div class="modal-actions">
-                <button type="button" id="cancelModalBtn" class="btn-modal-cancel">İptal</button>
-                <button type="button" id="saveModalBtn" class="btn-modal-save">Kaydet</button>
-            </div>
-        </div>
     </div>
 
     <!-- Geçmişi Temizleme Onay Modalı (Şık Uyarı Kartı) -->
