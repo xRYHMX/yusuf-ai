@@ -2490,19 +2490,20 @@ body.theme-light .drop-overlay {
         max-width: 82vw !important;
         z-index: 1000 !important;
         background-color: var(--bg-sidebar) !important;
-        box-shadow: 6px 0 30px rgba(0, 0, 0, 0.6) !important;
+        box-shadow: 6px 0 30px rgba(0, 0, 0, 0.45) !important;
         transform: translateX(0) !important;
-        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.28s ease !important;
     }
 
     .sidebar.collapsed {
-        transform: translateX(-100%) !important;
+        transform: translateX(-105%) !important;
         width: 290px !important;
         min-width: 290px !important;
         padding: 16px 14px !important;
         margin-left: 0 !important;
-        border-right: 1px solid var(--border-color) !important;
-        opacity: 1 !important;
+        border-right: none !important;
+        box-shadow: none !important;
+        opacity: 0 !important;
         pointer-events: none !important;
     }
 
