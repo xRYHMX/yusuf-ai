@@ -1062,13 +1062,14 @@ function renderModelPerformance(perf) {
         const badgeIcon = v.won ? '✅ Kazandı' : '❌ Kaybetti';
         return `
             <div class="perf-verified-row">
-                <div class="perf-v-left">
+                <div class="perf-v-top">
                     <span class="perf-v-league">${escapeHtml(v.date || '')} • ${escapeHtml(v.league)}</span>
-                    <span class="perf-v-teams">${escapeHtml(v.match)} <strong>${escapeHtml(v.score)}</strong></span>
-                </div>
-                <div class="perf-v-right">
-                    <span class="perf-v-pick">${escapeHtml(v.pick)} (%${v.probPct})</span>
                     <span class="perf-v-badge ${badgeClass}">${badgeIcon}</span>
+                </div>
+                <div class="perf-v-teams">${escapeHtml(v.match)}</div>
+                <div class="perf-v-bottom">
+                    <span class="perf-v-score">⚽ Skor: <strong>${escapeHtml(v.score || '-')}</strong></span>
+                    <span class="perf-v-pick">🎯 ${escapeHtml(v.pick)} <strong>(%${v.probPct})</strong></span>
                 </div>
             </div>
         `;

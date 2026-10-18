@@ -343,20 +343,22 @@ body {
     flex: 1;
     height: 100vh;
     min-height: 0;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     position: relative;
-    max-width: 900px;
+    max-width: 1120px;
     margin: 0 auto;
     width: 100%;
     padding: 14px 20px 20px 20px;
     background-image: var(--ambient-glow);
     background-repeat: no-repeat;
     transition: max-width 0.25s ease;
+    overflow-x: hidden;
 }
 
 .app-layout.sidebar-collapsed .chat-main {
-    max-width: 980px;
+    max-width: 1200px;
 }
 
 /* Sürükle Bırak Katmanı (Drag & Drop Overlay) */
@@ -1521,7 +1523,11 @@ body.theme-light .drop-overlay {
 .coupons-scroll-container {
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
     overflow-y: auto;
+    overflow-x: hidden;
     padding-right: 4px;
     display: flex;
     flex-direction: column;
@@ -1532,8 +1538,14 @@ body.theme-light .drop-overlay {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 12px;
     padding: 8px 0;
+}
+
+.coupons-title-group {
+    min-width: 0;
+    flex: 1 1 260px;
 }
 
 .coupons-title-group h2 {
@@ -1569,14 +1581,16 @@ body.theme-light .drop-overlay {
 
 .coupons-cards-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 18px;
     padding-bottom: 24px;
+    width: 100%;
+    max-width: 100%;
 }
 
 @media (max-width: 860px) {
     .coupons-cards-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 
@@ -1591,6 +1605,8 @@ body.theme-light .drop-overlay {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
     position: relative;
     overflow: hidden;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .coupon-card.banko-card {
@@ -1607,6 +1623,7 @@ body.theme-light .drop-overlay {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 10px;
 }
 
@@ -1614,10 +1631,12 @@ body.theme-light .drop-overlay {
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
 }
 
 .coupon-badge-title .badge-icon {
     font-size: 1.6rem;
+    flex-shrink: 0;
 }
 
 .coupon-badge-title h3 {
@@ -1638,7 +1657,9 @@ body.theme-light .drop-overlay {
     border-radius: 20px;
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 5px;
+    max-width: 100%;
 }
 
 .coupon-stat-pill.gold {
@@ -1680,6 +1701,7 @@ body.theme-light .drop-overlay {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    min-width: 0;
 }
 
 .coupon-match-item {
@@ -1691,6 +1713,8 @@ body.theme-light .drop-overlay {
     flex-direction: column;
     gap: 8px;
     transition: all 0.15s ease;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .coupon-match-item:hover {
@@ -1702,6 +1726,8 @@ body.theme-light .drop-overlay {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
     font-size: 0.76rem;
     color: var(--text-muted);
 }
@@ -1709,25 +1735,29 @@ body.theme-light .drop-overlay {
 .match-item-time {
     font-weight: 600;
     color: var(--text-secondary);
+    white-space: normal;
+    word-break: break-word;
 }
 
 .match-item-league {
-    max-width: 220px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: break-word;
 }
 
 .match-item-teams {
     font-size: 0.92rem;
     font-weight: 600;
     color: var(--text-primary);
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.38;
 }
 
 .match-item-pick-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 8px;
     background: var(--bg-card);
     padding: 6px 10px;
@@ -2728,6 +2758,9 @@ body.theme-light .drop-overlay {
    ========================================================================== */
 .model-perf-section {
     margin-top: 16px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .perf-report-card {
@@ -2738,6 +2771,10 @@ body.theme-light .drop-overlay {
     display: flex;
     flex-direction: column;
     gap: 16px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .perf-report-header {
@@ -2772,8 +2809,10 @@ body.theme-light .drop-overlay {
 
 .perf-metrics-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
+    width: 100%;
+    min-width: 0;
 }
 
 .perf-metric-box {
@@ -2784,6 +2823,7 @@ body.theme-light .drop-overlay {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
 }
 
 .perf-m-label {
@@ -2810,8 +2850,10 @@ body.theme-light .drop-overlay {
 
 .perf-splits-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 12px;
+    width: 100%;
+    min-width: 0;
 }
 
 .perf-split-col {
@@ -2822,6 +2864,8 @@ body.theme-light .drop-overlay {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .perf-split-col h4, .perf-verified-box h4 {
@@ -2834,6 +2878,7 @@ body.theme-light .drop-overlay {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    min-width: 0;
 }
 
 .perf-mini-pill {
@@ -2844,7 +2889,9 @@ body.theme-light .drop-overlay {
     font-size: 0.73rem;
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 6px;
+    max-width: 100%;
 }
 
 .perf-mini-pill strong {
@@ -2864,71 +2911,118 @@ body.theme-light .drop-overlay {
     padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .perf-verified-list {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
 }
 
 .perf-verified-row {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 8px 10px;
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.perf-v-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-}
-
-.perf-v-left {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex-wrap: wrap;
     min-width: 0;
 }
 
 .perf-v-league {
-    font-size: 0.67rem;
+    font-size: 0.69rem;
     color: var(--text-muted);
+    white-space: normal;
+    word-break: break-word;
+    min-width: 0;
 }
 
 .perf-v-teams {
-    font-size: 0.78rem;
-    font-weight: 600;
+    font-size: 0.85rem;
+    font-weight: 700;
     color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    line-height: 1.38;
+    width: 100%;
 }
 
-.perf-v-teams strong {
-    color: var(--accent-sky);
-    font-family: var(--font-mono);
-    margin: 0 3px;
-}
-
-.perf-v-right {
+.perf-v-bottom {
     display: flex;
     align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding-top: 6px;
+    margin-top: 2px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    width: 100%;
+}
+
+.perf-v-score {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(56, 189, 248, 0.11);
+    border: 1px solid rgba(56, 189, 248, 0.28);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.perf-v-score strong {
+    color: var(--accent-sky);
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 0.77rem;
 }
 
 .perf-v-pick {
-    font-size: 0.72rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.73rem;
     font-weight: 600;
     color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.perf-v-pick strong {
+    color: #10b981;
+    font-family: var(--font-mono);
 }
 
 .perf-v-badge {
-    font-size: 0.69rem;
+    font-size: 0.7rem;
     font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 5px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .perf-status-won {
@@ -2943,16 +3037,43 @@ body.theme-light .drop-overlay {
     border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
-@media (max-width: 768px) {
-    .perf-metrics-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    .perf-splits-row {
-        grid-template-columns: 1fr;
-    }
+@media (max-width: 860px) {
     .perf-verified-list {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
 }
+
+@media (max-width: 768px) {
+    .perf-report-card {
+        padding: 12px;
+        gap: 12px;
+    }
+    .perf-metrics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+    .perf-splits-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+    }
+    .perf-verified-box {
+        padding: 10px;
+    }
+    .perf-verified-list {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+    }
+    .perf-verified-row {
+        padding: 10px;
+    }
+    .perf-v-teams {
+        font-size: 0.83rem;
+    }
+    .perf-v-score, .perf-v-pick {
+        font-size: 0.72rem;
+        padding: 3px 7px;
+    }
+}
+
 
 
