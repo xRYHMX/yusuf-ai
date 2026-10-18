@@ -84,19 +84,18 @@ async function enrichPriorityMatches(matches, maxCount = 32) {
     });
 }
 
-async function getAnalyzedDay(date = mk.trToday()) {
+const dayRefreshInFlight = new Map();
+
+async function _computeAnalyzedDay(date) {
     const now = Date.now();
-    const hit = dayAnalysisCache.get(date);
     const isToday = date === mk.trToday();
-    const ttl = isToday ? 45e3 : 15 * 60e3;
-    if (hit && now - hit.t < ttl) return hit.data;
 
     // 75 günlük model ile günün maçları + dış istihbarat (hava, stadyum, liderler) paralel çalışır
     const [model, matches] = await Promise.all([
         getWarmModel(date),
         (async () => {
             const mList = await mk.getDay(date);
-            await enrichPriorityMatches(mList, 32);
+            await enrichPriorityMatches(mList, 24);
             return mList;
         })()
     ]);
@@ -117,7 +116,7 @@ async function getAnalyzedDay(date = mk.trToday()) {
             try {
                 const tomorrowIso = mk.addDays(date, 1);
                 const tomMatches = await mk.getDay(tomorrowIso);
-                await enrichPriorityMatches(tomMatches, 24);
+                await enrichPriorityMatches(tomMatches, 20);
                 const tomItems = [];
                 for (const tm of tomMatches) {
                     try {
@@ -148,8 +147,29 @@ async function getAnalyzedDay(date = mk.trToday()) {
     });
 
     const data = { date, model, matches, items, couponItems, coupons };
-    dayAnalysisCache.set(date, { t: now, data });
+    dayAnalysisCache.set(date, { t: Date.now(), data });
     return data;
+}
+
+async function getAnalyzedDay(date = mk.trToday()) {
+    const now = Date.now();
+    const hit = dayAnalysisCache.get(date);
+    const isToday = date === mk.trToday();
+    const ttl = isToday ? 3 * 60e3 : 15 * 60e3;
+
+    // Stale-While-Revalidate: Önbellekte veri varsa kullanıcıyı 0ms beklet, süresi dolmuşsa arka planda yenile
+    if (hit) {
+        if (now - hit.t >= ttl && !dayRefreshInFlight.has(date)) {
+            const p = _computeAnalyzedDay(date).catch(() => {}).finally(() => dayRefreshInFlight.delete(date));
+            dayRefreshInFlight.set(date, p);
+        }
+        return hit.data;
+    }
+
+    if (dayRefreshInFlight.has(date)) return dayRefreshInFlight.get(date);
+    const p = _computeAnalyzedDay(date).finally(() => dayRefreshInFlight.delete(date));
+    dayRefreshInFlight.set(date, p);
+    return p;
 }
 
 // Maç listesi sorgusu (Sadece İddaa bültenindekiler veya tümü)
@@ -475,12 +495,15 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
         if (matchedItems.length > 0) {
             const maxMatched = hasImage ? 8 : (isCompact ? 3 : 5);
             const topMatched = matchedItems.slice(0, maxMatched);
-            await runWithConcurrency(topMatched, 6, async (item) => {
-                if (!item.m.intel || !item.m.intel.standings) {
-                    item.m.intel = await intel.enrichMatch(item.m, { fetchDeepSummary: true, fetchLineup: true });
-                    item.an = engine.analyze(day.model, item.m, { facts: true, intel: item.m.intel });
-                }
-            });
+            await Promise.race([
+                runWithConcurrency(topMatched, 6, async (item) => {
+                    if (!item.m.intel || !item.m.intel.standings) {
+                        item.m.intel = await intel.enrichMatch(item.m, { fetchDeepSummary: true, fetchLineup: true });
+                        item.an = engine.analyze(day.model, item.m, { facts: true, intel: item.m.intel });
+                    }
+                }),
+                new Promise(r => setTimeout(r, 500))
+            ]);
 
             relevantMatches = '\n[KULLANICININ SORDUĞU VEYA GÖRSELDEN OKUNAN MAÇLAR İÇİN 10 KATMANLI DERİN İNCELEME SONUÇLARI]:\n';
             topMatched.forEach(({ m, an }) => {

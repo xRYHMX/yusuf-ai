@@ -5,12 +5,13 @@ const url = require('url');
 const football = require('./football');
 
 const PORT = process.env.PORT || 3000;
+const modelCooldowns = new Map(); // 429/404 dönen modelleri hafızada tutar, her mesajda boşa beklemez
 
-// Sunucu kalktığında model ve günün İddaa bülteni arka planda ısınsın, her 5 dakikada bir taze kalsın
+// Sunucu kalktığında model ve günün İddaa bülteni arka planda ısınsın, her 2.5 dakikada bir taze kalsın
 football.getAnalyzedDay().catch(err => console.error('[Football Engine] Başlatma hatası:', err));
 setInterval(() => {
     football.getAnalyzedDay().catch(() => {});
-}, 5 * 60 * 1000);
+}, 150 * 1000);
 
 const server = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -129,24 +130,22 @@ const server = http.createServer(async (req, res) => {
                     : [];
                 const hasImages = latestImages.length > 0;
 
-                // AŞAMA 1: Kullanıcı fotoğraf / ekran görüntüsü attıysa Vision modeliyle görseldeki maçları, tercihleri ve istatistikleri oku
+                // AŞAMA 1: Sadece yerel vision desteği olmayan yedek sağlayıcılar için ön-OCR (Gemini ve OpenAI doğrudan tek aşamada görseli okur, 10 sn kazandırır)
                 let visionExtractedText = '';
-                if (hasImages && !isKeyless) {
-                    const visionModels = isGemini
-                        ? ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest']
-                        : [
-                            'meta-llama/llama-4-scout-17b-16e-instruct',
-                            'meta-llama/llama-4-maverick-17b-128e-instruct'
-                        ];
+                if (hasImages && !isKeyless && !isGemini && !isOpenAi) {
+                    const rawVisionModels = [
+                        'meta-llama/llama-4-scout-17b-16e-instruct',
+                        'meta-llama/llama-4-maverick-17b-128e-instruct'
+                    ];
+                    const visionModels = rawVisionModels.filter(m => !(modelCooldowns.get(m) > Date.now()));
                     const visionContent = [
                         {
                             type: 'text',
-                            text: `Bu görseli dikkatlice incele ve içindeki tüm verileri oku.
-- Eğer bir İddaa/Nesine/Maçkolik kuponu veya bülteniyse: Görseldeki tüm maçları (Ev Sahibi - Deplasman), oynanmış tercihleri (MS 1, 2.5 Üst, KG Var, İY 0.5 Üst vb.), oranları veya saatleri tek tek listele.
-- Eğer bir canlı maç istatistik ekranıysa: Takım adlarını, skoru, dakikayı, topla oynama, toplam şut, isabetli şut, korner, tehlikeli atak ve xG rakamlarını eksiksiz çıkar.
-- Eğer kadro/diziliş veya puan durumuysa: Takım ve oyuncu isimlerini çıkar.
-- Eğer futbol dışı genel bir görselse: Görseldeki tüm metinleri, nesneleri ve detayları net biçimde betimle.
-Kullanıcının sorusu: "${lastUserMessage || 'Görseli incele ve analiz et'}"`
+                            text: `Görseldeki verileri hızlı ve net maddeler halinde çıkar:
+- Kupon/bülten ise: Tüm maçları (Ev - Dep), tercihleri (MS 1, 2.5 Üst, KG Var vb.) ve oranları listele.
+- Canlı istatistik/kadro ise: Takım adlarını, skoru, dakikayı ve tüm istatistik rakamlarını yaz.
+- Genel görsel ise: İçeriği net betimle.
+Kullanıcı notu: "${lastUserMessage || 'Görseli analiz et'}"`
                         },
                         ...latestImages.map(urlStr => ({
                             type: 'image_url',
@@ -160,7 +159,7 @@ Kullanıcının sorusu: "${lastUserMessage || 'Görseli incele ve analiz et'}"`
                             const vReqBody = {
                                 model: vModel,
                                 messages: [{ role: 'user', content: visionContent }],
-                                max_tokens: 1200,
+                                max_tokens: 450,
                                 temperature: 0.1,
                                 stream: false
                             };
@@ -182,6 +181,9 @@ Kullanıcının sorusu: "${lastUserMessage || 'Görseli incele ve analiz et'}"`
                                 }
                             } else {
                                 const vErr = await vRes.text();
+                                if (vRes.status === 429 || vRes.status === 404) {
+                                    modelCooldowns.set(vModel, Date.now() + 30 * 60 * 1000);
+                                }
                                 console.log(`[Vision Engine - ${providerName}] ${vModel} hata (${vRes.status}):`, vErr.slice(0, 160));
                             }
                         } catch (ve) {
@@ -190,7 +192,7 @@ Kullanıcının sorusu: "${lastUserMessage || 'Görseli incele ve analiz et'}"`
                     }
                 }
 
-                // AŞAMA 2: Görselden okunan takım/maç isimlerini de kullanarak 10 katmanlı derin futbol analiz bağlamını oluştur
+                // AŞAMA 2: 10 katmanlı derin futbol analiz bağlamını oluştur (Bellekten 0ms Stale-While-Revalidate)
                 let sportsContext = '';
                 const combinedSearchQuery = visionExtractedText
                     ? `${lastUserMessage}\n${visionExtractedText}`
@@ -208,7 +210,7 @@ Kullanıcının sorusu: "${lastUserMessage || 'Görseli incele ve analiz et'}"`
                 let systemContent = `Sen Yusuf AI - Google Gemini 3.8 Flash Vision mimarisi üzerinde çalışan, %100 bağımsız, 10 katmanlı kendi derin veri analizini (Ev/Dep Karnesi, Form İvmesi, Ortak Rakipler, H2H, Dinamik Dixon-Coles ρ, Fikstür Yorgunluğu/Dinlenme Günü, Taktik DNA Çarpışması, Kadro/Sakatlık, Saha/Hava Durumu ve Canlı Kalan Süre Motoru) yapan üst düzey yapay zekâ futbol analisti ve görsel kupon denetçisisin.
 KİMLİK KURALI: Kullanıcı "sen hangi modelsin" diye sorarsa "Ben Google Gemini 3.8 Flash Vision destekli, 10 katmanlı bağımsız Yusuf AI Futbol ve Kupon Analiz Motoruyum" diye yanıtla.
 BAĞIMSIZ ANALİZ İLKESİ: İddaa oranlarına veya dış yorumculara ASLA bakmazsın; her maçı kendi motorunun incelediği 10 katmanlı somut verilerle değerlendirirsin.
-GÖRSEL ANALİZ YETENEĞİ: Kullanıcının gönderdiği kupon ekran görüntülerini, canlı maç istatistiklerini, kadroları veya genel fotoğrafları doğrudan okur ve kendi derin veri motorunla çarpıştırarak röntgenini çekersin. ASLA "görseli göremiyorum" deme; hem görsele hem de [GÖRSELDEN OKUNAN DETAYLI VERİLER] bölümüne bakarak doğrudan analizini yap.
+GÖRSEL ANALİZ YETENEĞİ: Kullanıcının gönderdiği kupon ekran görüntülerini, canlı maç istatistiklerini, kadroları veya genel fotoğrafları doğrudan kendi gözünle okur ve derin veri motorunla çarpıştırarak röntgenini çekersin. ASLA "görseli göremiyorum" deme; görseldeki her maçı (Ev Sahibi - Deplasman), oynanan tercihi ve istatistikleri doğrudan okuyup tek tek analiz et.
 ÖNEMLİ KURAL: Kullanıcı telefondan takip ettiği için yanıtların KISA, ÖZ, NET, TABLOLU VE GRAFİKSEL BARLI olmalıdır.
 ASLA uzun paragraflar, edebiyat veya laf kalabalığı yazma; her maçın gerekçesinde incelediğin somut verileri (ev/dep gol ortalaması, ortak rakipler, taktik DNA, dinlenme günü, hava durumu, form, kilit oyuncu) 1-2 satırda net olarak yaz.
 KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] LİSTESİNDEKİ MAÇLARI KULLAN. LİSTEDE OLMAYAN MAÇ YAZMAK YASAKTIR.`;
@@ -251,20 +253,23 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                 let currentContextStr = sportsContext;
                 let compactFallbacked = isKeyless;
 
-                // Modellerin belirlenmesi (Google Gemini Free, OpenRouter Free, Groq Free, OpenAI veya Anahtarsız Bedava)
+                // Modellerin belirlenmesi (Google Gemini Free Turbo, OpenRouter Free, Groq Free, OpenAI veya Anahtarsız Bedava)
                 let candidateModels = [];
                 if (isKeyless) {
                     candidateModels = ['openai-fast'];
                 } else if (isGemini) {
-                    // Google AI Studio (%100 Ücretsiz, 1.000.000 TPM Limit, 8192 Çıkış Tokeni, Native Vision)
-                    candidateModels = [
-                        'gemini-3.8-flash',
-                        'gemini-3.7-flash',
-                        'gemini-3.6-flash',
+                    // Google AI Studio (%100 Ücretsiz, 1.000.000 TPM Limit, ~1.2sn Turbo Yanıt)
+                    const allGemini = [
                         'gemini-3.5-flash',
-                        'gemini-flash-latest',
-                        'gemma-4-31b-it'
+                        'gemini-3.1-flash-lite',
+                        'gemini-3.6-flash',
+                        'gemini-3.7-flash',
+                        'gemini-3.8-flash',
+                        'gemini-3.5-flash-lite',
+                        'gemini-flash-lite-latest'
                     ];
+                    candidateModels = allGemini.filter(m => !(modelCooldowns.get(m) > Date.now()));
+                    if (candidateModels.length === 0) candidateModels = ['gemini-3.5-flash', 'gemini-3.1-flash-lite'];
                 } else if (isOpenRouter) {
                     candidateModels = hasImages
                         ? [
@@ -281,7 +286,6 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                 } else if (isOpenAi) {
                     candidateModels = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
                 } else {
-                    // Groq Modelleri: llama-4-scout 30.000 TPM / 500.000 TPD ile 5 kat yüksek ücretsiz kotaya sahiptir, ilk sıraya alınır
                     candidateModels = hasImages
                         ? [
                             'meta-llama/llama-4-scout-17b-16e-instruct',
@@ -310,7 +314,8 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                     const isNativeVision = isGemini || isOpenAi || modelToTry.includes('llama-4-scout') || modelToTry.includes('llama-4-maverick') || modelToTry.includes('vl') || modelToTry.includes('gemini');
                     const activeHist = compactFallbacked ? recentHistory.slice(-2) : recentHistory;
                     
-                    const sendRawImageInStage2 = hasImages && isNativeVision && (isGemini || isOpenAi || !visionExtractedText);
+                    // Aşama 1'de görsel zaten metne döküldüyse Aşama 2'de görseli tekrar base64 olarak yükleyip 2 kat süre harcama
+                    const sendRawImageInStage2 = hasImages && isNativeVision && !visionExtractedText;
                     const finalMessages = buildFinalMessages(currentContextStr, activeHist, sendRawImageInStage2);
 
                     const reqPayload = {
@@ -322,7 +327,10 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                     if (modelToTry.startsWith('o1') || modelToTry.startsWith('o3')) {
                         reqPayload.max_completion_tokens = 4096;
                     } else if (isGemini) {
-                        reqPayload.max_tokens = 8192;
+                        reqPayload.max_tokens = 4096;
+                        if (!modelToTry.includes('3.5-flash-lite') && !modelToTry.includes('flash-lite-latest')) {
+                            reqPayload.reasoning_effort = 'none';
+                        }
                     } else if (isOpenAi || isOpenRouter || isKeyless) {
                         reqPayload.max_tokens = 4096;
                     } else {
@@ -363,10 +371,13 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                     } else {
                         const errText = await chatRes.text();
                         lastApiError = errText;
+                        if (chatRes.status === 429 || chatRes.status === 404) {
+                            modelCooldowns.set(modelToTry, Date.now() + 30 * 60 * 1000);
+                        }
                         console.log(`${providerName} ${modelToTry} başarısız oldu (${chatRes.status}):`, errText.slice(0, 200));
 
-                        // Token / Boyut limiti (413 veya 429) yaşanırsa bağlamı otomatik kompakt moda küçült
-                        if (!compactFallbacked && (chatRes.status === 413 || chatRes.status === 429 || errText.includes('too large') || errText.includes('rate_limit'))) {
+                        // Boyut limiti (413) yaşanırsa bağlamı otomatik kompakt moda küçült
+                        if (!compactFallbacked && (chatRes.status === 413 || (!isGemini && chatRes.status === 429) || errText.includes('too large'))) {
                             compactFallbacked = true;
                             try {
                                 currentContextStr = await football.buildAiSportsContext(combinedSearchQuery, { compact: true, hasImage: hasImages });

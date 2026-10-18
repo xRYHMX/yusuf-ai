@@ -316,8 +316,8 @@ function handleFileSelect(e) {
     fileInput.value = '';
 }
 
-// Görselleri Vision motoru için netliğini bozmadan optimize eder (max 1280px, JPEG 0.84)
-function compressImageDataUrl(rawDataUrl, maxDim = 1280, quality = 0.84) {
+// Görselleri Vision motoru için netliğini bozmadan hızlandırır (max 960px, JPEG 0.78)
+function compressImageDataUrl(rawDataUrl, maxDim = 960, quality = 0.78) {
     return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => {
@@ -487,14 +487,16 @@ async function streamAiResponse() {
     const bubble = bubbleWrapper.querySelector('.msg-bubble');
     const activeChat = chats.find(c => c.id === currentChatId);
 
-    const conversationHistory = (activeChat ? activeChat.messages : []).map(m => {
+    const recentMsgs = (activeChat ? activeChat.messages : []).slice(-6);
+    const conversationHistory = recentMsgs.map((m, idx) => {
         let content = m.text || '';
         const images = [];
+        const isLatestMsg = idx === recentMsgs.length - 1;
         if (m.attachments && m.attachments.length > 0) {
             m.attachments.forEach(att => {
                 if (att.textContent) {
                     content += `\n\n[Ekli Dosya: ${att.name}]\n${att.textContent}`;
-                } else if (att.isImage && att.dataUrl) {
+                } else if (isLatestMsg && att.isImage && att.dataUrl) {
                     images.push(att.dataUrl);
                 }
             });
