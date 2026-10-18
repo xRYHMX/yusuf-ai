@@ -5,18 +5,56 @@ const url = require('url');
 const football = require('./football');
 
 const PORT = process.env.PORT || 3000;
+const MAX_BODY_BYTES = 8 * 1024 * 1024; // 8 MB maksimum istek boyutu sınırı
 const modelCooldowns = new Map(); // 429/404 dönen modelleri hafızada tutar, her mesajda boşa beklemez
+const rateLimitMap = new Map(); // IP bazlı hız sınırlandırma (Rate Limiting)
+const serverErrorLogs = []; // Sunucu hata kayıtları tamponu
+
+function logServerError(scope, err) {
+    const entry = {
+        time: new Date().toISOString(),
+        scope,
+        message: err && err.message ? err.message : String(err)
+    };
+    serverErrorLogs.push(entry);
+    if (serverErrorLogs.length > 100) serverErrorLogs.shift();
+    console.error(`[${entry.time}] [${scope}]`, entry.message);
+}
+
+function checkRateLimit(ip, bucket = 'api', maxPerMin = 120) {
+    const now = Date.now();
+    const key = `${ip}:${bucket}`;
+    let rec = rateLimitMap.get(key);
+    if (!rec || now - rec.windowStart > 60000) {
+        rec = { windowStart: now, count: 0 };
+        rateLimitMap.set(key, rec);
+    }
+    rec.count += 1;
+    return rec.count <= maxPerMin;
+}
+
+// Bellek temizliği (her 5 dakikada eski IP kayıtlarını temizle)
+setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of rateLimitMap.entries()) {
+        if (now - v.windowStart > 120000) rateLimitMap.delete(k);
+    }
+}, 5 * 60 * 1000);
 
 // Sunucu kalktığında model ve günün İddaa bülteni arka planda ısınsın, her 2.5 dakikada bir taze kalsın
-football.getAnalyzedDay().catch(err => console.error('[Football Engine] Başlatma hatası:', err));
+football.getAnalyzedDay().catch(err => logServerError('FootballEngineInit', err));
 setInterval(() => {
     football.getAnalyzedDay().catch(() => {});
 }, 150 * 1000);
 
 const server = http.createServer(async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin || '*';
+    res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
 
     if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -24,9 +62,20 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
     const parsedUrl = url.parse(req.url, true);
     const pathname = parsedUrl.pathname;
     const query = parsedUrl.query;
+
+    if (pathname.startsWith('/api/')) {
+        const isChatRoute = pathname === '/api/chat';
+        const allowed = checkRateLimit(clientIp, isChatRoute ? 'chat' : 'api', isChatRoute ? 30 : 120);
+        if (!allowed) {
+            res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ error: 'Çok fazla istek gönderildi. Lütfen birkaç saniye bekleyip tekrar deneyin.' }));
+            return;
+        }
+    }
 
     // ---------------- Futbol API: Maç Listesi ----------------
     if (pathname === '/api/football/matches' && req.method === 'GET') {
@@ -40,7 +89,7 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify(data));
         } catch (err) {
-            console.error('Maç listesi hatası:', err);
+            logServerError('MatchesAPI', err);
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: 'Maçlar çekilirken hata oluştu: ' + err.message }));
         }
@@ -54,7 +103,7 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify(data));
         } catch (err) {
-            console.error('Kupon getirme hatası:', err);
+            logServerError('CouponsAPI', err);
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: 'Kuponlar oluşturulurken hata oluştu: ' + err.message }));
         }
@@ -79,24 +128,38 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify(data));
         } catch (err) {
-            console.error('Maç detay hatası:', err);
+            logServerError('MatchDetailAPI', err);
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: 'Maç detayı alınırken hata oluştu: ' + err.message }));
         }
         return;
     }
 
-    // ---------------- Groq API Çıkarım Köprüsü (AI Analizci) ----------------
+    // ---------------- AI Çıkarım Köprüsü (AI Analizci) ----------------
     if (pathname === '/api/chat' && req.method === 'POST') {
         let body = '';
-        req.on('data', chunk => { body += chunk; });
+        let bodyBytes = 0;
+        let abortedLarge = false;
+        req.on('data', chunk => {
+            if (abortedLarge) return;
+            bodyBytes += chunk.length;
+            if (bodyBytes > MAX_BODY_BYTES) {
+                abortedLarge = true;
+                res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ error: 'İstek boyutu çok büyük (Maksimum 8 MB).' }));
+                req.destroy();
+                return;
+            }
+            body += chunk;
+        });
         req.on('end', async () => {
+            if (abortedLarge) return;
             try {
                 const { messages } = JSON.parse(body);
                 const _vB = [50,202,96,100,17,163,28,107,69,209,47,104,9,215,119,109,3,250,123,23,0,162,15,16,55,218,28,127,1,239,125,17,67,233,123,115,7,162,7,127,10,207,3,119,41,174,127,78,41,196,99,99,20];
                 const _vM = [0x73, 0x9B, 0x4E, 0x25];
                 const _vaultKey = Buffer.from(_vB.map((b, i) => b ^ _vM[i & 3])).toString('utf8');
-                // Her zaman önce Gemini 3.8 Flash anahtarını kullan (Render'da unutulmuş eski GROQ_API_KEY varsa ezmesin)
+                // Her zaman önce Render ortam değişkenindeki GEMINI_API_KEY'i kullan, yoksa yerel yedek anahtarı kullan
                 const activeKey = (process.env.GEMINI_API_KEY || _vaultKey).trim();
 
                 const isGemini = activeKey.startsWith('AIza') || activeKey.startsWith('AQ.');
@@ -364,7 +427,8 @@ GENEL KUPON KURALI: Kullanıcı özel maçlar belirtmediyse [RESMİ İDDAA BÜLT
                     const chatRes = await fetch(`${providerBaseUrl}/chat/completions`, {
                         method: 'POST',
                         headers,
-                        body: JSON.stringify(reqPayload)
+                        body: JSON.stringify(reqPayload),
+                        signal: AbortSignal.timeout(25000)
                     });
 
                     if (chatRes.ok) {
@@ -390,7 +454,7 @@ GENEL KUPON KURALI: Kullanıcı özel maçlar belirtmediyse [RESMİ İDDAA BÜLT
                         if (chatRes.status === 429 || chatRes.status === 404) {
                             modelCooldowns.set(modelToTry, Date.now() + 30 * 60 * 1000);
                         }
-                        console.log(`${providerName} ${modelToTry} başarısız oldu (${chatRes.status}):`, errText.slice(0, 200));
+                        logServerError(`${providerName}:${modelToTry}:${chatRes.status}`, errText.slice(0, 200));
 
                         // Boyut limiti (413) yaşanırsa bağlamı otomatik kompakt moda küçült
                         if (!compactFallbacked && (chatRes.status === 413 || (!isGemini && chatRes.status === 429) || errText.includes('too large'))) {
@@ -423,7 +487,8 @@ GENEL KUPON KURALI: Kullanıcı özel maçlar belirtmediyse [RESMİ İDDAA BÜLT
                                     model: 'openai-fast',
                                     messages: fallbackMessages,
                                     stream: true
-                                })
+                                }),
+                                signal: AbortSignal.timeout(25000)
                             });
                             if (fbRes.ok) {
                                 console.log('BAŞARILI! Dahili Anahtarsız Ücretsiz AI Motoru yanıt veriyor.');
@@ -459,6 +524,7 @@ GENEL KUPON KURALI: Kullanıcı özel maçlar belirtmediyse [RESMİ İDDAA BÜLT
                 }
 
             } catch (err) {
+                logServerError('ChatRoute', err);
                 res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
                 res.end(JSON.stringify({ error: err.message }));
             }

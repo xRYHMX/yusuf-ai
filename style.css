@@ -2723,4 +2723,236 @@ body.theme-light .drop-overlay {
     }
 }
 
+/* ==========================================================================
+   MODEL KALİBRASYON, BRIER SCORE, LOG LOSS VE DOĞRULAMA RAPORU
+   ========================================================================== */
+.model-perf-section {
+    margin-top: 16px;
+}
+
+.perf-report-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.perf-report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.perf-report-header h3 {
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.perf-report-header p {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.perf-updated-tag {
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.28);
+    color: var(--accent-sky);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 999px;
+}
+
+.perf-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+}
+
+.perf-metric-box {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.perf-m-label {
+    font-size: 0.73rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.perf-m-val {
+    font-family: var(--font-mono);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.perf-m-val.highlight-emerald {
+    color: #10b981;
+}
+
+.perf-m-sub {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+
+.perf-splits-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.perf-split-col {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.perf-split-col h4, .perf-verified-box h4 {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.perf-pills-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.perf-mini-pill {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    padding: 4px 8px;
+    font-size: 0.73rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.perf-mini-pill strong {
+    color: #10b981;
+    font-family: var(--font-mono);
+}
+
+.perf-mini-pill small {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+}
+
+.perf-verified-box {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.perf-verified-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 8px;
+}
+
+.perf-verified-row {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.perf-v-left {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.perf-v-league {
+    font-size: 0.67rem;
+    color: var(--text-muted);
+}
+
+.perf-v-teams {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.perf-v-teams strong {
+    color: var(--accent-sky);
+    font-family: var(--font-mono);
+    margin: 0 3px;
+}
+
+.perf-v-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.perf-v-pick {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.perf-v-badge {
+    font-size: 0.69rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 5px;
+}
+
+.perf-status-won {
+    background: rgba(16, 185, 129, 0.14);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.perf-status-lost {
+    background: rgba(239, 68, 68, 0.14);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+@media (max-width: 768px) {
+    .perf-metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .perf-splits-row {
+        grid-template-columns: 1fr;
+    }
+    .perf-verified-list {
+        grid-template-columns: 1fr;
+    }
+}
+
 

@@ -165,8 +165,8 @@
                 <div class="coupons-scroll-container">
                     <div class="coupons-header-bar">
                         <div class="coupons-title-group">
-                            <h2>Günün Analiz Kuponları</h2>
-                            <p>%100 bağımsız derin analiz motoru: Ev/deplasman karnesi, son 5 maç formu, ortak rakipler, H2H, hava şartları ve kilit oyuncular incelenerek hazırlanır.</p>
+                            <h2>Günün Analiz Kuponları & Model Doğrulama Raporu</h2>
+                            <p>10 katmanlı derin analiz motoru: xG/xGA, isabetli şut, korner/kart ortalamaları, son 5 & 10 maç formu, devre (İY/2Y) gol dağılımı, ortak rakipler, H2H, kadro/motivasyon ve 25+ Nesine bahis pazarı incelenerek hazırlanır.</p>
                         </div>
                         <div class="coupons-actions">
                             <button type="button" id="refreshCouponsBtn" class="btn-refresh" title="Kuponları Yenile">
@@ -197,7 +197,7 @@
                                     </div>
                                 </div>
                                 <div class="coupon-stat-pill">
-                                    <span class="stat-label">Ort. Güven:</span>
+                                    <span class="stat-label">Güven / Kombine:</span>
                                     <span class="stat-val" id="bankoConfidenceVal">%88</span>
                                 </div>
                             </div>
@@ -220,11 +220,11 @@
                                     <span class="badge-icon">🎯</span>
                                     <div>
                                         <h3 id="surpriseTitle">Sürpriz Kupon</h3>
-                                        <span class="coupon-subtitle" id="surpriseStrategy">Nesine Yüksek Oranlı Özel Pazarlar (MS&KG, MS&Üst, Devre KG, Skor, İY/MS)</span>
+                                        <span class="coupon-subtitle" id="surpriseStrategy">25+ Nesine Pazarı (MS&KG, MS&Üst, Devre KG, Korner, Kart, Handikap, Skor, İY/MS)</span>
                                     </div>
                                 </div>
                                 <div class="coupon-stat-pill gold">
-                                    <span class="stat-label">Ort. Değer Katı:</span>
+                                    <span class="stat-label">Değer / Kombine:</span>
                                     <span class="stat-val" id="surpriseLiftVal">2.1x</span>
                                 </div>
                             </div>
@@ -240,6 +240,9 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Model Kalibrasyon, Brier Score, Log Loss & Sonuçlanan Tahmin Performans Raporu -->
+                    <div id="modelPerfSection" class="model-perf-section" style="display: none;"></div>
                 </div>
             </section>
         </main>
