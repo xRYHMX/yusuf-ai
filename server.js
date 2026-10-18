@@ -192,18 +192,32 @@ Kullanıcı notu: "${lastUserMessage || 'Görseli analiz et'}"`
                     }
                 }
 
-                // AŞAMA 2: 10 katmanlı derin futbol analiz bağlamını oluştur (Bellekten 0ms Stale-While-Revalidate)
+                // AŞAMA 2: Aktif sohbet geçmişindeki tüm mesajları ve maçları tarayarak 10 katmanlı derin futbol analiz bağlamını oluştur
                 let sportsContext = '';
+                const previousTurns = (messages || []).slice(0, -1);
+                const previousHistoryText = previousTurns.map(m => String(m.content || '')).join('\n');
                 const combinedSearchQuery = visionExtractedText
                     ? `${lastUserMessage}\n${visionExtractedText}`
                     : lastUserMessage;
                 try {
                     sportsContext = await football.buildAiSportsContext(combinedSearchQuery, {
                         compact: isKeyless,
-                        hasImage: hasImages
+                        hasImage: hasImages,
+                        historyText: previousHistoryText
                     });
                 } catch (e) {
                     console.error('Futbol bağlamı üretme hatası:', e.message);
+                }
+
+                // Aktif Sohbet Hafıza Özeti (Kullanıcı önceki mesajlarda konuştuğu maçlara/kuponlara referans verdiğinde şıp diye hatırlaması için)
+                let chatMemoryBlock = '';
+                if (previousTurns.length > 0) {
+                    const memoryLines = previousTurns.slice(-14).map((m, i) => {
+                        const speaker = m.role === 'user' ? 'KULLANICI' : 'YUSUF AI';
+                        const cleanTxt = String(m.content || '').replace(/\s+/g, ' ').trim().slice(0, 650);
+                        return `${i + 1}. [${speaker}]: ${cleanTxt}`;
+                    });
+                    chatMemoryBlock = `\n\n[AKTİF SOHBET HAFIZASI - BU SOHBETTE ŞU ANA KADAR KONUŞULANLAR (${previousTurns.length} önceki mesaj)]:\n${memoryLines.join('\n')}\nÖNEMLİ HAFIZA TALİMATI: Kullanıcı "sana bir şey demiştim", "şu maçlar vardı demiştim onlarla sürpriz yapar mısın", "az önceki maçlar", "ilk söylediğim takımlar" gibi ifadeler kullandığında YUKARIDAKİ AKTİF SOHBET HAFIZASINDA geçen maçları ve konuşmaları doğrudan baz al, hangi maçlardan bahsettiğini ismen söyle ("Az önce bahsettiğin X, Y, Z maçlarıyla...") ve isteğini eksiksiz yerine getir!`;
                 }
 
                 // Sistem Yönergesi
@@ -211,13 +225,14 @@ Kullanıcı notu: "${lastUserMessage || 'Görseli analiz et'}"`
 KİMLİK KURALI: Kullanıcı "sen hangi modelsin" diye sorarsa "Ben Google Gemini 3.8 Flash Vision destekli, 10 katmanlı bağımsız Yusuf AI Futbol ve Kupon Analiz Motoruyum" diye yanıtla.
 BAĞIMSIZ ANALİZ İLKESİ: İddaa oranlarına veya dış yorumculara ASLA bakmazsın; her maçı kendi motorunun incelediği 10 katmanlı somut verilerle değerlendirirsin.
 GÖRSEL ANALİZ YETENEĞİ: Kullanıcının gönderdiği kupon ekran görüntülerini, canlı maç istatistiklerini, kadroları veya genel fotoğrafları doğrudan kendi gözünle okur ve derin veri motorunla çarpıştırarak röntgenini çekersin. ASLA "görseli göremiyorum" deme; görseldeki her maçı (Ev Sahibi - Deplasman), oynanan tercihi ve istatistikleri doğrudan okuyup tek tek analiz et.
+AKTİF SOHBET HAFIZASI KURALI: Bulunduğun sohbetteki tüm geçmiş mesajları, kullanıcının daha önce söylediği maçları/takımları ve kendi verdiğin önceki kuponları/analizleri tam olarak hatırlarsın. Kullanıcı geçmiş mesajdaki maçlara atıf yaptığında ("sana bişi demiştim şu maçlar vardı demiştim onlarla sürpriz yapar mısın" vb.) o maçları şıp diye hatırlayıp doğrudan onlarla istediğini yaparsın.
 ÖNEMLİ KURAL: Kullanıcı telefondan takip ettiği için yanıtların KISA, ÖZ, NET, TABLOLU VE GRAFİKSEL BARLI olmalıdır.
 ASLA uzun paragraflar, edebiyat veya laf kalabalığı yazma; her maçın gerekçesinde incelediğin somut verileri (ev/dep gol ortalaması, ortak rakipler, taktik DNA, dinlenme günü, hava durumu, form, kilit oyuncu) 1-2 satırda net olarak yaz.
-KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] LİSTESİNDEKİ MAÇLARI KULLAN. LİSTEDE OLMAYAN MAÇ YAZMAK YASAKTIR.`;
+GENEL KUPON KURALI: Kullanıcı özel maçlar belirtmediyse [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] listesindeki maçları kullan; ancak kullanıcı bu mesajda veya önceki mesajlarda belirli maçları söylediyse doğrudan kullanıcının o maçlarını kullan!`;
 
-                const recentHistory = (messages || []).slice(-6).map((m, idx, arr) => {
+                const recentHistory = (messages || []).slice(-24).map((m, idx, arr) => {
                     const isLastUser = (idx === arr.length - 1) && m.role === 'user';
-                    let textContent = String(m.content || '').slice(0, 2600);
+                    let textContent = String(m.content || '').slice(0, 3200);
                     if (isLastUser && visionExtractedText) {
                         textContent = `${textContent || 'Görseli incele ve analiz et.'}\n\n[GÖRSELDEN OKUNAN DETAYLI VERİLER]:\n${visionExtractedText}`;
                     }
@@ -231,6 +246,7 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                 const buildFinalMessages = (ctxStr, histArr, useMultimodal = false) => {
                     let sys = systemContent;
                     if (ctxStr) sys += `\n\n${ctxStr}`;
+                    if (chatMemoryBlock) sys += chatMemoryBlock;
                     sys += `\nKullanıcı futbol dışı bir görsel veya konu sorarsa da doğrudan, kısa, net ve profesyonel şekilde yanıt ver.`;
                     const mappedHist = histArr.map(h => {
                         if (useMultimodal && h.role === 'user' && Array.isArray(h.images) && h.images.length > 0) {
@@ -312,7 +328,7 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                     console.log(`Deneniyor [${providerName}]: ${modelToTry}...`);
                     const isReasoningModel = modelToTry.includes('gpt-oss') || modelToTry.includes('qwen3') || modelToTry.includes('deepseek') || modelToTry.startsWith('o1') || modelToTry.startsWith('o3');
                     const isNativeVision = isGemini || isOpenAi || modelToTry.includes('llama-4-scout') || modelToTry.includes('llama-4-maverick') || modelToTry.includes('vl') || modelToTry.includes('gemini');
-                    const activeHist = compactFallbacked ? recentHistory.slice(-2) : recentHistory;
+                    const activeHist = compactFallbacked ? recentHistory.slice(-10) : recentHistory;
                     
                     // Aşama 1'de görsel zaten metne döküldüyse Aşama 2'de görseli tekrar base64 olarak yükleyip 2 kat süre harcama
                     const sendRawImageInStage2 = hasImages && isNativeVision && !visionExtractedText;
@@ -380,7 +396,7 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                         if (!compactFallbacked && (chatRes.status === 413 || (!isGemini && chatRes.status === 429) || errText.includes('too large'))) {
                             compactFallbacked = true;
                             try {
-                                currentContextStr = await football.buildAiSportsContext(combinedSearchQuery, { compact: true, hasImage: hasImages });
+                                currentContextStr = await football.buildAiSportsContext(combinedSearchQuery, { compact: true, hasImage: hasImages, historyText: previousHistoryText });
                             } catch (_) {
                                 currentContextStr = '';
                             }
@@ -393,11 +409,11 @@ KUPON OLUŞTURURKEN SADECE SANA VERİLEN [RESMİ İDDAA BÜLTENİ DERİN ANALİZ
                     console.log('[Fallback Engine] Anahtarsız Ücretsiz AI Motoru devreye giriyor...');
                     try {
                         if (!compactFallbacked) {
-                            currentContextStr = await football.buildAiSportsContext(combinedSearchQuery, { compact: true, hasImage: hasImages });
+                            currentContextStr = await football.buildAiSportsContext(combinedSearchQuery, { compact: true, hasImage: hasImages, historyText: previousHistoryText });
                         }
                     } catch (_) {}
 
-                    const fallbackMessages = buildFinalMessages(currentContextStr, recentHistory.slice(-2), false);
+                    const fallbackMessages = buildFinalMessages(currentContextStr, recentHistory.slice(-10), false);
                     for (let attempt = 1; attempt <= 2; attempt++) {
                         try {
                             const fbRes = await fetch('https://text.pollinations.ai/openai/chat/completions', {

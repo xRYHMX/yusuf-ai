@@ -482,19 +482,35 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
         });
     }
 
-    // 3. Kullanıcının sorduğu veya attığı kupon resminden okunan spesifik takımlar / maçlar
+    // 3. Kullanıcının bu mesajda veya aynı sohbetin önceki mesajlarında konuştuğu / görselden okunan spesifik takımlar ve maçlar
     let relevantMatches = '';
-    const stopWords = new Set(['mac', 'maci', 'maclar', 'maclari', 'kupon', 'kuponu', 'analiz', 'bugun', 'bugunku', 'yarin', 'icin', 'nasil', 'olur', 'bana', 'yap', 'ver', 'ust', 'alt', 'gol', 'ilk', 'yari', 'ikinci', 'gunun', 'banko', 'surpriz', 'yuksek', 'oranli', 'deger', 'resmi', 'iddaa', 'nesine', 'bulteninden', 'oranlardan', 'bagimsiz', 'deplasman', 'karnesi', 'son', 'formu', 'ortak', 'rakipler', 'saha', 'hava', 'sartlari', 'kilit', 'oyuncularini', 'inceleyerek', 'guvendigin', 'maclik', 'tablolu', 'grafik', 'barli', 'olarak', 'cikar', 'hazirla', 'devre', 'karakteri', 'firsati', 'firsatlari', 'sistem', 'kombine', 'oynamaliyim', 'detayli', 'kesin', 'skor', 'handikap', 'resim', 'gorsel', 'fotograf', 'ekran', 'goruntusu', 'tutar', 'gelir', 'yatirir']);
-    const words = qNorm.split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !stopWords.has(w));
-    if (words.length > 0) {
-        const matchedItems = activePool.filter(({ m }) => {
-            const target = normTr(`${m.home} ${m.away} ${m.league.full} ${m.league.country}`);
-            return words.some(w => target.includes(w));
-        });
+    const historyNorm = normTr(options.historyText || '');
+    const stopWords = new Set(['mac', 'maci', 'maclar', 'maclari', 'kupon', 'kuponu', 'analiz', 'bugun', 'bugunku', 'yarin', 'icin', 'nasil', 'olur', 'bana', 'yap', 'ver', 'ust', 'alt', 'gol', 'ilk', 'yari', 'ikinci', 'gunun', 'banko', 'surpriz', 'yuksek', 'oranli', 'deger', 'resmi', 'iddaa', 'nesine', 'bulteninden', 'oranlardan', 'bagimsiz', 'deplasman', 'karnesi', 'son', 'formu', 'ortak', 'rakipler', 'saha', 'hava', 'sartlari', 'kilit', 'oyuncularini', 'inceleyerek', 'guvendigin', 'maclik', 'tablolu', 'grafik', 'barli', 'olarak', 'cikar', 'hazirla', 'devre', 'karakteri', 'firsati', 'firsatlari', 'sistem', 'kombine', 'oynamaliyim', 'detayli', 'kesin', 'skor', 'handikap', 'resim', 'gorsel', 'fotograf', 'ekran', 'goruntusu', 'tutar', 'gelir', 'yatirir', 'kanka', 'sana', 'bisi', 'birsey', 'demistim', 'vardi', 'onlarla', 'yapar', 'misin', 'bahsettigim', 'soyledigim', 'onceki', 'sohbette']);
+    const curWords = qNorm.split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !stopWords.has(w));
+    const histWords = historyNorm.split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !stopWords.has(w));
+    const allSearchWords = [...new Set([...curWords, ...histWords])];
 
-        if (matchedItems.length > 0) {
-            const maxMatched = hasImage ? 8 : (isCompact ? 3 : 5);
-            const topMatched = matchedItems.slice(0, maxMatched);
+    if (allSearchWords.length > 0) {
+        const scoredMatches = [];
+        for (const item of activePool) {
+            const { m } = item;
+            const target = normTr(`${m.home} ${m.away} ${m.league.full} ${m.league.country}`);
+            let matchScore = 0;
+            for (const w of curWords) {
+                if (target.includes(w)) matchScore += 10;
+            }
+            for (const w of histWords) {
+                if (target.includes(w)) matchScore += 3;
+            }
+            if (matchScore > 0) {
+                scoredMatches.push({ item, matchScore });
+            }
+        }
+        scoredMatches.sort((a, b) => b.matchScore - a.matchScore);
+
+        if (scoredMatches.length > 0) {
+            const maxMatched = isCompact ? 5 : 8;
+            const topMatched = scoredMatches.slice(0, maxMatched).map(x => x.item);
             await Promise.race([
                 runWithConcurrency(topMatched, 6, async (item) => {
                     if (!item.m.intel || !item.m.intel.standings) {
@@ -505,7 +521,7 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
                 new Promise(r => setTimeout(r, 500))
             ]);
 
-            relevantMatches = '\n[KULLANICININ SORDUĞU VEYA GÖRSELDEN OKUNAN MAÇLAR İÇİN 10 KATMANLI DERİN İNCELEME SONUÇLARI]:\n';
+            relevantMatches = '\n[KULLANICININ BU SOHBETTE SORDUĞU / BAHSETTİĞİ VEYA GÖRSELDEN OKUNAN MAÇLAR İÇİN 10 KATMANLI DERİN İNCELEME SONUÇLARI]:\n';
             topMatched.forEach(({ m, an }) => {
                 const bTag = m.inBulletin ? 'Resmi İddaa Bülteninde Var' : 'İddaa Dışı';
                 relevantMatches += `- [${m.time}] ${m.home} - ${m.away} (${m.league.full} | ${bTag}) | Durum: ${m.state === 'live' ? 'CANLI ' + m.label + ' (' + (m.score ? m.score.h + '-' + m.score.a : '') + ')' : m.state === 'post' ? 'MS ' + (m.score ? m.score.h + '-' + m.score.a : '') : 'Başlamadı'}\n`;
@@ -550,7 +566,8 @@ ${relevantMatches}
    - Kullanıcı **Bülten / Kadro / Farklı Bir Görsel** attıysa: Görseldeki tüm detayları eksiksiz oku ve sorusuna göre doğrudan yanıtla.
 4. SÜRPRİZ KUPON ÇEŞİTLİLİĞİ KURALI: Sürpriz kupon hazırlarken ASLA sadece İY/MS veya İY 1/2 seçme! Nesine bültenindeki yüksek oranlı özel pazarları çeşitlendirerek kullan: **MS 1 & KG Var**, **MS 2 & KG Var**, **MS X & KG Var**, **MS 1 & 2,5 Üst**, **MS 2 & 2,5 Üst**, **2,5 Üst & KG Var**, **İlk Yarı KG Var**, **2. Yarı KG Var**, **İlk Yarı 1,5 Üst**, **Handikaplı MS (-1)**, **Toplam 4-6 Gol**, **İY Kesin Skor**, **MS Kesin Skor** ve **İY/MS**.
 5. ASLA bahis oranları (1.85, 2.40 vb.) veya TL kazanç rakamları VERME (kullanıcı kendi kupon resmini atıp oran sormadığı sürece). Yalnızca kendi bağımsız model yüzdelerini, değer katını, xG değerlerini, taktik DNA ve saha/hava verilerini belirt.
-6. KESİN KURAL (HALÜSİNASYON YASAĞI): Kupon oluştururken yalnızca yukarıdaki [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] içinde yazılı olan maçları kullan!
+6. KESİN KURAL (HALÜSİNASYON YASAĞI): Genel kupon oluştururken yukarıdaki [RESMİ İDDAA BÜLTENİ DERİN ANALİZ MAÇ HAVUZU] listesindeki maçları kullan; ancak kullanıcı kendi mesajında veya sohbetin önceki mesajlarında belirli maçları söylediyse doğrudan kullanıcının o maçlarını baz al!
+7. AKTİF SOHBET HAFIZASI KURALI (ÇOK KRİTİK): Bu sohbetteki TÜM önceki mesajları (kullanıcının daha önce söylediği maçları, kuponları, attığı görselleri ve senin önceki cevaplarını) eksiksiz hatırla! Kullanıcı "sana bir şey demiştim", "şu maçlar vardı demiştim onlarla sürpriz yapar mısın", "az önceki maçlardan hangisi sağlam" gibi geçmişe atıf yaptığında, önceki mesajlarda bahsettiği maçları adını vererek ("Az önce bahsettiğin X, Y, Z maçlarını baz alarak...") doğrudan analiz et ve istediğini yap!
 `;
 }
 

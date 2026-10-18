@@ -68,6 +68,8 @@ const askAiSurpriseBtn = document.getElementById('askAiSurpriseBtn');
 // Modül Durum Değişkenleri
 let currentTab = 'chat';
 let couponsLoaded = false;
+let isGenerating = false;
+const defaultInputPlaceholder = messageInput ? messageInput.placeholder : 'Maç, kupon veya görsel analizi sor...';
 
 // Başlat
 init();
@@ -183,10 +185,14 @@ function toggleTheme() {
 function bindEvents() {
     themeToggleBtn.addEventListener('click', toggleTheme);
 
-    attachBtn.addEventListener('click', () => { fileInput.click(); });
+    attachBtn.addEventListener('click', () => {
+        if (isGenerating) return;
+        fileInput.click();
+    });
     fileInput.addEventListener('change', handleFileSelect);
 
     newChatBtn.addEventListener('click', () => {
+        if (isGenerating) return;
         switchTab('chat');
         currentChatId = null;
         chatMessages.innerHTML = '';
@@ -205,7 +211,7 @@ function bindEvents() {
     });
 
     clearAllBtn.addEventListener('click', () => {
-        if (chats.length === 0) return;
+        if (isGenerating || chats.length === 0) return;
         clearHistoryModal.classList.add('active');
     });
 
@@ -217,6 +223,7 @@ function bindEvents() {
     });
 
     confirmClearBtn.addEventListener('click', () => {
+        if (isGenerating) return;
         chats = [];
         currentChatId = null;
         saveChats();
@@ -229,6 +236,7 @@ function bindEvents() {
     // Öneri Kartları
     suggestionCards.forEach(card => {
         card.addEventListener('click', () => {
+            if (isGenerating) return;
             const prompt = card.dataset.prompt;
             switchTab('chat');
             messageInput.value = prompt;
@@ -247,6 +255,7 @@ function bindEvents() {
     messageInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
+            if (isGenerating) return;
             if (messageInput.value.trim() || attachedFiles.length > 0) {
                 submitCurrentMessage();
             }
@@ -255,6 +264,7 @@ function bindEvents() {
 
     chatForm.addEventListener('submit', (e) => {
         e.preventDefault();
+        if (isGenerating) return;
         submitCurrentMessage();
     });
 }
@@ -433,7 +443,14 @@ function adjustTextarea() {
 }
 
 function updateSendButtonState() {
-    sendButton.disabled = !(messageInput.value.trim() || attachedFiles.length > 0);
+    const hasContent = Boolean(messageInput.value.trim() || attachedFiles.length > 0);
+    sendButton.disabled = isGenerating || !hasContent;
+    if (attachBtn) attachBtn.disabled = isGenerating;
+    if (messageInput) {
+        messageInput.placeholder = isGenerating
+            ? 'Yusuf AI yanıt veriyor, lütfen bekleyin...'
+            : defaultInputPlaceholder;
+    }
 }
 
 function updateView() {
@@ -448,9 +465,11 @@ function updateView() {
 }
 
 async function submitCurrentMessage() {
+    if (isGenerating) return;
     const text = messageInput.value.trim();
-    if ((!text && attachedFiles.length === 0) || sendButton.disabled) return;
+    if (!text && attachedFiles.length === 0) return;
 
+    isGenerating = true;
     const currentFiles = [...attachedFiles];
 
     if (!currentChatId) {
@@ -478,7 +497,6 @@ async function submitCurrentMessage() {
         messageInput.blur();
     }
 
-    sendButton.disabled = true;
     await streamAiResponse();
 }
 
@@ -487,7 +505,8 @@ async function streamAiResponse() {
     const bubble = bubbleWrapper.querySelector('.msg-bubble');
     const activeChat = chats.find(c => c.id === currentChatId);
 
-    const recentMsgs = (activeChat ? activeChat.messages : []).slice(-6);
+    // Aktif sohbetteki tüm geçmişi (son 30 mesaja kadar) koru ki AI önceki mesajlarda konuşulan maçları eksiksiz hatırlasın
+    const recentMsgs = (activeChat ? activeChat.messages : []).slice(-30);
     const conversationHistory = recentMsgs.map((m, idx) => {
         let content = m.text || '';
         const images = [];
@@ -496,8 +515,12 @@ async function streamAiResponse() {
             m.attachments.forEach(att => {
                 if (att.textContent) {
                     content += `\n\n[Ekli Dosya: ${att.name}]\n${att.textContent}`;
-                } else if (isLatestMsg && att.isImage && att.dataUrl) {
-                    images.push(att.dataUrl);
+                } else if (att.isImage && att.dataUrl) {
+                    if (isLatestMsg) {
+                        images.push(att.dataUrl);
+                    } else if (!content.includes('[Bu mesajda kupon/maç görseli paylaşıldı]')) {
+                        content = `${content ? content + '\n' : ''}[Bu mesajda kupon/maç görseli paylaşıldı]`;
+                    }
                 }
             });
         }
@@ -527,7 +550,6 @@ async function streamAiResponse() {
                 const errData = await response.text();
                 bubble.textContent = `Hata (${response.status}): ${errData}`;
                 saveMessageToCurrentChat('ai', bubble.textContent, []);
-                sendButton.disabled = false;
                 return;
             }
 
@@ -610,7 +632,8 @@ async function streamAiResponse() {
         bubble.textContent = `Bağlantı hatası: ${err.message}`;
         saveMessageToCurrentChat('ai', bubble.textContent, []);
     } finally {
-        sendButton.disabled = false;
+        isGenerating = false;
+        updateSendButtonState();
     }
 }
 
@@ -697,6 +720,7 @@ function updateActiveHistoryItem() {
 }
 
 function loadChat(id) {
+    if (isGenerating) return;
     currentChatId = id;
     chatMessages.innerHTML = '';
     updateActiveHistoryItem();
@@ -722,6 +746,7 @@ function loadChat(id) {
 }
 
 function deleteChat(id) {
+    if (isGenerating) return;
     chats = chats.filter(c => c.id !== id);
     saveChats();
     if (currentChatId === id) {
@@ -884,6 +909,7 @@ function switchTab(tabName) {
 }
 
 function askAiDirectly(prompt) {
+    if (isGenerating) return;
     switchTab('chat');
     messageInput.value = prompt;
     adjustTextarea();
