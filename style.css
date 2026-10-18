@@ -3130,6 +3130,317 @@ body.theme-light .drop-overlay {
     }
 }
 
+/* ==========================================================================
+   YUSUF AI 2.0 - 7 KRİTİK DENETİM ÖĞESİ UI STİLLERİ
+   ========================================================================== */
 
+/* 1. Nesine Canlı Bülten & Oran Senkronizasyon Durum Çubuğu */
+.nesine-status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    font-size: 0.78rem;
+    flex-wrap: wrap;
+    transition: all 0.2s ease;
+}
 
+.nesine-status-bar.live {
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    color: var(--text-primary);
+}
 
+.nesine-status-bar.stale {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: var(--text-primary);
+}
+
+.nesine-st-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+}
+
+.nesine-st-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+    animation: pulseDot 2s infinite ease-in-out;
+    flex-shrink: 0;
+}
+
+.nesine-st-dot.red {
+    background: #ef4444;
+    box-shadow: 0 0 8px #ef4444;
+    animation: none;
+}
+
+@keyframes pulseDot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.nesine-st-title {
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.nesine-st-time {
+    font-family: var(--font-mono);
+    color: var(--accent-sky);
+    font-weight: 700;
+}
+
+.nesine-st-age {
+    color: var(--text-secondary);
+    font-size: 0.73rem;
+}
+
+.nesine-st-note {
+    font-size: 0.71rem;
+    color: var(--text-muted);
+}
+
+/* 2. Veri Güven Puanı (Ayrı Yeterlilik ve Güncellik) */
+.match-data-trust-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 5px 8px;
+    margin: 4px 0;
+}
+
+.trust-badge-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.trust-badge-pill.sufficiency {
+    background: rgba(56, 189, 248, 0.10);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    color: var(--text-secondary);
+}
+
+.trust-badge-pill.freshness {
+    background: rgba(16, 185, 129, 0.10);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    color: var(--text-secondary);
+}
+
+.trust-badge-pill.freshness.stale {
+    background: rgba(239, 68, 68, 0.10);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.trust-badge-pill.overall {
+    background: rgba(168, 85, 247, 0.10);
+    border: 1px solid rgba(168, 85, 247, 0.25);
+    color: var(--text-secondary);
+}
+
+.trust-badge-pill .trust-lbl {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+
+.trust-badge-pill .trust-val {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.trust-badge-pill.trust-high .trust-val {
+    color: #10b981;
+}
+
+.trust-badge-pill.trust-med .trust-val {
+    color: #f59e0b;
+}
+
+.trust-badge-pill.trust-low .trust-val {
+    color: #ef4444;
+}
+
+/* 3. Gerçek Korner ve Gerçek Şut İstatistik Kutuları */
+.match-real-stats-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin: 4px 0;
+    width: 100%;
+}
+
+.real-stat-box {
+    background: rgba(9, 13, 22, 0.35);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.real-stat-hdr {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.real-stat-hdr small {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 0.64rem;
+}
+
+.real-stat-vals {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.real-stat-vals strong {
+    color: var(--text-primary);
+}
+
+.real-stat-vals em {
+    font-style: normal;
+    color: var(--accent-sky);
+    font-size: 0.68rem;
+}
+
+.stat-sep {
+    color: var(--text-muted);
+    opacity: 0.5;
+}
+
+.stat-proj {
+    color: #10b981;
+    font-weight: 600;
+}
+
+/* 4. Sakatlık / Cezalı ve İlk 11 Kadro Bloğu */
+.match-squad-intel-block {
+    background: rgba(15, 23, 42, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 6px 9px;
+    margin: 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+}
+
+.squad-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.squad-type-badge {
+    background: rgba(56, 189, 248, 0.15);
+    color: var(--accent-sky);
+    font-size: 0.67rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.2px;
+}
+
+.squad-formation-tag {
+    font-size: 0.68rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
+.squad-sub-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 0.71rem;
+    line-height: 1.35;
+    flex-wrap: wrap;
+}
+
+.squad-sub-lbl {
+    font-weight: 700;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    min-width: 85px;
+}
+
+.squad-sub-content {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    color: var(--text-secondary);
+    flex: 1;
+}
+
+.squad-sub-content strong {
+    color: var(--text-primary);
+}
+
+.squad-missing .squad-sub-content {
+    color: #f87171;
+}
+
+/* 5. Sürpriz Kupon İstatistiksel Ters Sonuç Rozeti */
+.match-pick-badge.contrarian-badge {
+    background: linear-gradient(135deg, #7c3aed, #9333ea);
+    color: #ffffff;
+    font-size: 0.74rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
+}
+
+@media (max-width: 768px) {
+    .match-real-stats-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+    }
+    .match-data-trust-bar {
+        gap: 5px;
+        padding: 5px;
+    }
+    .trust-badge-pill {
+        font-size: 0.68rem;
+        padding: 2px 6px;
+    }
+    .squad-sub-lbl {
+        min-width: 100%;
+    }
+    .nesine-status-bar {
+        padding: 6px 10px;
+        gap: 6px;
+    }
+}

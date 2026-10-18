@@ -60,8 +60,8 @@ async function getWarmModel(asOf = mk.trToday()) {
     return modelBuildPromise;
 }
 
-// Öncelikli İddaa maçlarını dış istihbarat (Hava durumu, Stadyum, Gol kralları, Puan durumu, H2H) ile zenginleştirir
-async function enrichPriorityMatches(matches, maxCount = 32) {
+// Öncelikli İddaa maçlarını dış istihbarat + gerçek son maç korner/şut/kadro/eksik verileriyle zenginleştirir
+async function enrichPriorityMatches(matches, model, maxCount = 24) {
     const nowMs = Date.now();
     const candidates = matches
         .filter(m => m.state === 'pre' && m.inBulletin && new Date(m.kickoff).getTime() > nowMs)
@@ -76,9 +76,13 @@ async function enrichPriorityMatches(matches, maxCount = 32) {
 
     await runWithConcurrency(candidates, 8, async (m) => {
         const minsToKickoff = (new Date(m.kickoff).getTime() - nowMs) / 60000;
+        const homePast = (model?.teams?.get(m.homeId)?.last || []).slice(0, 6);
+        const awayPast = (model?.teams?.get(m.awayId)?.last || []).slice(0, 6);
         const info = await intel.enrichMatch(m, {
             fetchDeepSummary: m.mbs <= 2,
-            fetchLineup: minsToKickoff <= 75 && minsToKickoff >= -10
+            fetchLineup: minsToKickoff <= 75 && minsToKickoff >= -10,
+            homePastMatches: homePast,
+            awayPastMatches: awayPast
         });
         m.intel = info;
     });
@@ -87,18 +91,15 @@ async function enrichPriorityMatches(matches, maxCount = 32) {
 const dayRefreshInFlight = new Map();
 
 async function _computeAnalyzedDay(date) {
-    const now = Date.now();
     const isToday = date === mk.trToday();
 
-    // 75 günlük model ile günün maçları + dış istihbarat (hava, stadyum, liderler) paralel çalışır
+    // 75 günlük model ile günün maçları paralel çekilir, ardından modeldeki geçmiş maç ID'leriyle gerçek korner/şut/kadro istihbaratı toplanır
     const [model, matches] = await Promise.all([
         getWarmModel(date),
-        (async () => {
-            const mList = await mk.getDay(date);
-            await enrichPriorityMatches(mList, 24);
-            return mList;
-        })()
+        mk.getDay(date)
     ]);
+
+    await enrichPriorityMatches(matches, model, 20);
 
     const items = [];
     for (const m of matches) {
@@ -116,7 +117,7 @@ async function _computeAnalyzedDay(date) {
             try {
                 const tomorrowIso = mk.addDays(date, 1);
                 const tomMatches = await mk.getDay(tomorrowIso);
-                await enrichPriorityMatches(tomMatches, 20);
+                await enrichPriorityMatches(tomMatches, model, 16);
                 const tomItems = [];
                 for (const tm of tomMatches) {
                     try {
@@ -132,16 +133,24 @@ async function _computeAnalyzedDay(date) {
 
     const coupons = engine.buildCoupons(couponItems, model);
 
-    // Seçilen kupon maçlarında eksik derin özet (H2H / Puan durumu) varsa tamamla ve gerekçeyi güncelle
+    // Seçilen kupon maçlarında eksik derin özet (Gerçek Korner/Şut, Kadro/İlk 11, H2H, Puan Durumu) varsa tamamla ve gerekçeyi güncelle
     const selectedPicks = [
         ...(coupons.banko?.matches || []),
         ...(coupons.surprise?.matches || [])
     ];
     await runWithConcurrency(selectedPicks, 6, async (pick) => {
-        if (!pick.m.intel || (!pick.m.intel.standings && !pick.m.intel.espnH2H)) {
-            const deepIntel = await intel.enrichMatch(pick.m, { fetchDeepSummary: true });
+        if (!pick.m.intel || !pick.m.intel.realStats || (!pick.m.intel.standings && !pick.m.intel.espnH2H)) {
+            const homePast = (model?.teams?.get(pick.m.homeId)?.last || []).slice(0, 6);
+            const awayPast = (model?.teams?.get(pick.m.awayId)?.last || []).slice(0, 6);
+            const deepIntel = await intel.enrichMatch(pick.m, {
+                fetchDeepSummary: true,
+                fetchLineup: true,
+                homePastMatches: homePast,
+                awayPastMatches: awayPast
+            });
             pick.m.intel = deepIntel;
             pick.an = engine.analyze(model, pick.m, { facts: true, intel: deepIntel });
+            pick.dataTrust = pick.an.dataTrust;
             pick.rationale = engine.generateRationale(pick, pick.m, pick.an);
         }
     });
@@ -159,9 +168,8 @@ async function getAnalyzedDay(date = mk.trToday()) {
     const now = Date.now();
     const hit = dayAnalysisCache.get(date);
     const isToday = date === mk.trToday();
-    const ttl = isToday ? 3 * 60e3 : 15 * 60e3;
+    const ttl = isToday ? 2 * 60e3 : 10 * 60e3;
 
-    // Stale-While-Revalidate: Önbellekte veri varsa kullanıcıyı 0ms beklet, süresi dolmuşsa arka planda yenile
     if (hit) {
         if (now - hit.t >= ttl && !dayRefreshInFlight.has(date)) {
             const p = _computeAnalyzedDay(date).catch(() => {}).finally(() => dayRefreshInFlight.delete(date));
@@ -201,6 +209,7 @@ async function listMatches({ date = mk.trToday(), filter = 'all', search = '', c
     const bulletinMatches = day.matches.filter(x => x.inBulletin);
     return {
         date,
+        nesineStatus: mk.getNesineStatus(),
         counts: {
             total: bulletinMatches.length,
             pre: bulletinMatches.filter(x => x.state === 'pre').length,
@@ -222,7 +231,10 @@ async function listMatches({ date = mk.trToday(), filter = 'all', search = '', c
             youth: m.youth,
             women: m.women,
             inBulletin: m.inBulletin,
+            oddsFresh: m.oddsFresh,
+            oddsUpdatedAt: m.oddsUpdatedAt,
             quality: an.quality,
+            dataTrust: an.dataTrust || null,
             lh: +an.lh.toFixed(2),
             la: +an.la.toFixed(2),
             probs: {
@@ -246,6 +258,7 @@ async function getCoupons(date = mk.trToday()) {
     const bulletinMatches = day.matches.filter(x => x.inBulletin);
     return {
         date,
+        nesineStatus: mk.getNesineStatus(),
         totalMatches: bulletinMatches.length,
         preMatches: bulletinMatches.filter(x => x.state === 'pre').length,
         liveMatches: bulletinMatches.filter(x => x.state === 'live').length,
@@ -262,8 +275,15 @@ async function getMatchDetail(matchId, date = mk.trToday()) {
     const item = pool.find(x => String(x.m.id) === String(matchId));
     if (!item) return null;
 
-    if (!item.m.intel || !item.m.intel.standings) {
-        item.m.intel = await intel.enrichMatch(item.m, { fetchDeepSummary: true, fetchLineup: true });
+    if (!item.m.intel || !item.m.intel.realStats || !item.m.intel.standings) {
+        const homePast = (day.model?.teams?.get(item.m.homeId)?.last || []).slice(0, 6);
+        const awayPast = (day.model?.teams?.get(item.m.awayId)?.last || []).slice(0, 6);
+        item.m.intel = await intel.enrichMatch(item.m, {
+            fetchDeepSummary: true,
+            fetchLineup: true,
+            homePastMatches: homePast,
+            awayPastMatches: awayPast
+        });
         item.an = engine.analyze(day.model, item.m, { facts: true, intel: item.m.intel });
     }
 
@@ -279,14 +299,19 @@ async function getMatchDetail(matchId, date = mk.trToday()) {
 
     return {
         match: m,
+        nesineStatus: mk.getNesineStatus(),
         analysis: {
             quality: an.quality,
+            dataTrust: an.dataTrust || null,
             expectedGoals: {
                 home: +an.lh.toFixed(2),
                 away: +an.la.toFixed(2),
                 total: +(an.lh + an.la).toFixed(2)
             },
             projections: an.projections || null,
+            squad: an.squad || null,
+            rosterSummary: an.rosterSummary || null,
+            lineupSummary: an.lineupSummary || null,
             momentum: { home: an.momH, away: an.momA },
             h2hSummary: an.h2hSummary || null,
             commonSummary: an.commonSummary || null,
@@ -312,8 +337,18 @@ function formatDeepMatchDetails(m, an, opts = {}) {
     parts.push(`xG: ${an.lh.toFixed(2)}-${an.la.toFixed(2)} (ρ:${an.rho})`);
 
     if (pr) {
-        parts.push(`Şut/İsabet: ${pr.shotsH}/${pr.sotH} - ${pr.shotsA}/${pr.sotA} | Korner: ${pr.totalCorners} (İY:${pr.htCorners}) | Kart: ${pr.totalCards}`);
+        const realCornerTxt = (pr.realCornersHFor !== null && pr.realCornersAFor !== null)
+            ? `Gerçek Korner Ort(Son ${pr.cornerSampleH}/${pr.cornerSampleA}M): Ev ${pr.realCornersHFor} - Dep ${pr.realCornersAFor} (Beklenti:${pr.totalCorners})`
+            : `Korner:${pr.totalCorners}`;
+        const realShotTxt = (pr.realShotsHFor !== null && pr.realShotsAFor !== null)
+            ? `Gerçek Şut/İsabet Ort: Ev ${pr.realShotsHFor}/${pr.realSotHFor} - Dep ${pr.realShotsAFor}/${pr.realSotAFor}`
+            : `Şut/İsabet: ${pr.shotsH}/${pr.sotH} - ${pr.shotsA}/${pr.sotA}`;
+        parts.push(`${realShotTxt} | ${realCornerTxt} | Kart: ${pr.totalCards}`);
         if (pr.motivation) parts.push(`Motivasyon: ${pr.motivation}`);
+    }
+
+    if (an.dataTrust) {
+        parts.push(`Veri Güveni: %${an.dataTrust.overallScore} (Yeterlilik:%${an.dataTrust.sufficiencyScore}, Güncellik:%${an.dataTrust.freshnessScore})`);
     }
 
     if (hf && af) {
@@ -342,6 +377,7 @@ function formatDeepMatchDetails(m, an, opts = {}) {
     if (!forCoupon && an.commonSummary) parts.push(`Ortak Rakipler: ${an.commonSummary}`);
     if (an.h2hSummary) parts.push(`H2H: ${an.h2hSummary}`);
     if (an.rosterSummary) parts.push(`Kadro/Eksik: ${an.rosterSummary}`);
+    if (an.lineupSummary) parts.push(`${an.lineupSummary}`);
 
     if (an.intel) {
         if (!forCoupon && an.intel.weather) {
@@ -538,12 +574,19 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
             const topMatched = scoredMatches.slice(0, maxMatched).map(x => x.item);
             await Promise.race([
                 runWithConcurrency(topMatched, 6, async (item) => {
-                    if (!item.m.intel || !item.m.intel.standings) {
-                        item.m.intel = await intel.enrichMatch(item.m, { fetchDeepSummary: true, fetchLineup: true });
+                    if (!item.m.intel || !item.m.intel.standings || !item.m.intel.realStats) {
+                        const tH = day.model.teams.get(item.m.home);
+                        const tA = day.model.teams.get(item.m.away);
+                        item.m.intel = await intel.enrichMatch(item.m, {
+                            fetchDeepSummary: true,
+                            fetchLineup: true,
+                            homePastMatches: tH ? tH.last.slice(0, 10) : [],
+                            awayPastMatches: tA ? tA.last.slice(0, 10) : []
+                        });
                         item.an = engine.analyze(day.model, item.m, { facts: true, intel: item.m.intel });
                     }
                 }),
-                new Promise(r => setTimeout(r, 500))
+                new Promise(r => setTimeout(r, 900))
             ]);
 
             relevantMatches = '\n[KULLANICININ BU SOHBETTE SORDUĞU / BAHSETTİĞİ VEYA GÖRSELDEN OKUNAN MAÇLAR İÇİN 10 KATMANLI DERİN İNCELEME SONUÇLARI]:\n';
@@ -567,12 +610,17 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
     const perfLine = perf
         ? `[MODEL KALİBRASYON & GERÇEK SONUÇ DOĞRULAMA METRİKLERİ]: Brier Score: ${perf.brierScore} | Log Loss: ${perf.logLoss} | Doğrulanan Maç: ${perf.evaluatedMatches} | Genel İsabet Oranı: %${perf.hitRatePct} (${perf.bankoHits}/${perf.bankoTotal})`
         : '';
+    const nesineSt = day.nesineStatus || mackolik.getNesineStatus();
+    const nesineLine = nesineSt && nesineSt.isFresh && nesineSt.updatedAt
+        ? `[NESİNE CANLI ORAN DURUMU]: Güncel (${new Date(nesineSt.updatedAt).toLocaleTimeString('tr-TR')}, ${nesineSt.ageSeconds || 0} sn önce yenilendi)`
+        : `[NESİNE CANLI ORAN DURUMU]: Oran yenilenemediği için eski oranlar kullanılmadı.`;
 
     return `
 [YUSUF AI 2.0 - %100 BAĞIMSIZ 10 KATMANLI DERİN FUTBOL ANALİZ VE 25+ PAZAR MOTORU - ${today}]
 Bugün Resmi İddaa Bülteninde (Nesine / Maçkolik) Yer Alan Maç Sayısı: ${totalBulletinCount}
+${nesineLine}
 ${perfLine}
-NOT: Aşağıdaki tüm xG, xGA, isabetli şut, korner, kart ve olasılık yüzdeleri her takımın kendi ev/deplasman karnesini, son 5 ve son 10 maç form ivmesini, devre (İY/2Y) gol dağılımını, ortak rakiplere karşı performansını, H2H geçmişini, dinamik Dixon-Coles korelasyonunu (ρ), fikstür yoğunluğu / dinlenme günlerini, taktik DNA çarpışmasını, kadro/sakatlık etkisini, maçın önem/motivasyon durumunu ve hava/saha şartlarını kendi inceleyerek hesaplamıştır.
+NOT: Aşağıdaki tüm xG, xGA, gerçek şut/isabetli şut ortalaması, gerçek korner ortalaması, kart, sakat/cezalı/ilk 11 kadroları ve olasılık yüzdeleri her takımın kendi son 5 ve son 10 maçındaki gerçek istatistiklerinden ve 10 katmanlı modelden hesaplanmıştır. Oran yenilenemediğinde eski oran asla kullanılmaz.
 
 ${bankoSummary}
 ${surpSummary}

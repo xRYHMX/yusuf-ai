@@ -176,14 +176,17 @@ function parseNesineMarkets(maList) {
     return out;
 }
 
+const NESINE_TTL_MS = 2 * 60e3; // 2 dakika tazelik süresi
+
 async function getNesineOddsMap() {
     const now = Date.now();
-    if (nesineCache.map.size > 0 && now - nesineCache.t < 2 * 60e3) {
+    if (nesineCache.isFresh && nesineCache.map.size > 0 && now - nesineCache.t < NESINE_TTL_MS) {
         return nesineCache.map;
     }
     if (nesineInFlight) return nesineInFlight;
 
     nesineInFlight = (async () => {
+        let refreshed = false;
         try {
             const res = await fetch('https://cdnbulten.nesine.com/api/bulten/getprebultenfull', {
                 headers: { 'User-Agent': HEAD['User-Agent'], 'Accept': 'application/json' },
@@ -203,18 +206,53 @@ async function getNesineOddsMap() {
                         }
                     }
                     if (newMap.size > 0) {
-                        const timeStr = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
-                        nesineCache = { t: Date.now(), updatedAt: timeStr, map: newMap };
+                        const nowDate = new Date();
+                        const timeStr = nowDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
+                        nesineCache = {
+                            t: Date.now(),
+                            updatedAt: timeStr,
+                            updatedIso: nowDate.toISOString(),
+                            isFresh: true,
+                            error: null,
+                            map: newMap
+                        };
+                        refreshed = true;
                     }
                 }
             }
         } catch (_) {} finally {
             nesineInFlight = null;
         }
+        // Kesin Kural (Madde 3): Oran yenilenemediğinde eski oranı ASLA kullanma; önbelleği temizle
+        if (!refreshed) {
+            nesineCache = {
+                t: 0,
+                updatedAt: null,
+                updatedIso: null,
+                isFresh: false,
+                error: 'Nesine canlı oran servisi yenilenemedi; eski oranlar devre dışı bırakıldı.',
+                map: new Map()
+            };
+        }
         return nesineCache.map;
     })();
 
     return nesineInFlight;
+}
+
+function getNesineStatus() {
+    const ageSeconds = nesineCache.isFresh && nesineCache.t > 0
+        ? Math.max(0, Math.round((Date.now() - nesineCache.t) / 1000))
+        : null;
+    const isCurrentlyFresh = Boolean(nesineCache.isFresh && nesineCache.map.size > 0 && ageSeconds !== null && ageSeconds * 1000 < NESINE_TTL_MS * 1.5);
+    return {
+        isFresh: isCurrentlyFresh,
+        updatedAt: isCurrentlyFresh ? nesineCache.updatedAt : null,
+        updatedIso: isCurrentlyFresh ? nesineCache.updatedIso : null,
+        ageSeconds,
+        activeMatchCount: isCurrentlyFresh ? nesineCache.map.size : 0,
+        error: isCurrentlyFresh ? null : (nesineCache.error || 'Güncel Nesine oranı henüz çekilemedi.')
+    };
 }
 
 function parseRow(r, idx = 999) {
@@ -238,14 +276,14 @@ function parseRow(r, idx = 999) {
     if (state === 'live') minute = code === 2 ? 'İY' : /^\d+$/.test(txt) ? txt + "'" : txt;
 
     const hOdd = num(r[18]), dOdd = num(r[19]), aOdd = num(r[20]);
-    const odds = {
+    const histOdds = {
         h: hOdd, d: dOdd, a: aOdd,
         ms1: hOdd, msx: dOdd, ms2: aOdd,
         alt25: num(r[21]), ust25: num(r[22])
     };
     const iddaaCode = Number(r[14]) > 0 ? Number(r[14]) : null;
     const mbs = parseInt(r[34], 10) || 3;
-    const inBulletin = Boolean(iddaaCode && odds.h && odds.d && odds.a);
+    const inBulletin = Boolean(iddaaCode && hOdd && dOdd && aOdd);
     const youth = /\bU(15|16|17|18|19|20|21|23)\b/i.test(names) || /gençlik|youth|reserve/i.test(names);
     const women = /\(K\)|kad[ıi]n|women|\bW\b/i.test(names);
     const reserve = /\bII\b|Bölgesel|[34]\.\s*Lig| Amateur|Amatör/i.test(names);
@@ -268,8 +306,12 @@ function parseRow(r, idx = 999) {
         women,
         reserve,
         inBulletin,
-        odds,
+        // Geçmişte tamamlanmış maçlarda istatistiksel baz kalibrasyon için histOdds saklanır,
+        // ancak güncel/gelecek maçlarda yalnızca canlı Nesine oranı yenilendiyse doldurulur.
+        odds: state === 'post' ? histOdds : {},
+        oddsFresh: false,
         oddsUpdatedAt: null,
+        oddsAgeSeconds: null,
         nesineMarketsCount: 0
     };
 }
@@ -279,8 +321,13 @@ async function getDay(iso) {
     const today = trToday();
     const file = path.join(DAY_DIR, iso + '.json');
     const mem = memCache.get(iso);
-    const ttl = iso === today ? 45e3 : iso > today ? 10 * 60e3 : 30 * 60e3;
-    if (mem && Date.now() - mem.t < ttl) return mem.matches;
+    const ttl = iso === today ? 45e3 : iso > today ? 90e3 : 30 * 60e3;
+    if (mem && Date.now() - mem.t < ttl) {
+        // Bugün/yarın için önbellekteki maçların oran tazeliğini kontrol et
+        if (iso < today || (nesineCache.isFresh && Date.now() - nesineCache.t < NESINE_TTL_MS)) {
+            return mem.matches;
+        }
+    }
 
     // 3+ gün öncesi artık değişmez: diskten kalıcı oku
     if (iso < addDays(today, -3) && fs.existsSync(file)) {
@@ -298,15 +345,26 @@ async function getDay(iso) {
         iso >= today ? getNesineOddsMap() : Promise.resolve(new Map())
     ]);
     if (rows === null) return mem ? mem.matches : [];
-    const fetchTimeStr = nesineCache.updatedAt || new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
+    const isNesineFresh = Boolean(iso >= today && nesineCache.isFresh && nesineCache.updatedAt && nesineMap && nesineMap.size > 0);
+    const ageSec = isNesineFresh ? Math.max(0, Math.round((Date.now() - nesineCache.t) / 1000)) : null;
+
     const matches = rows.map((r, i) => {
         const m = parseRow(r, i);
         if (!m) return null;
-        if (m.iddaaCode && nesineMap && nesineMap.has(m.iddaaCode)) {
-            m.odds = { ...m.odds, ...nesineMap.get(m.iddaaCode) };
-            m.oddsUpdatedAt = fetchTimeStr;
-        } else if (m.inBulletin) {
-            m.oddsUpdatedAt = fetchTimeStr;
+        if (iso >= today) {
+            // Madde 3: Yalnızca canlı Nesine oranı başarıyla yenilendiyse gerçek oranları ata;
+            // yenilenemediyse eski/yedek oranı ASLA kullanma!
+            if (isNesineFresh && m.iddaaCode && nesineMap.has(m.iddaaCode)) {
+                m.odds = { ...nesineMap.get(m.iddaaCode) };
+                m.oddsFresh = true;
+                m.oddsUpdatedAt = nesineCache.updatedAt;
+                m.oddsAgeSeconds = ageSec;
+            } else {
+                m.odds = {};
+                m.oddsFresh = false;
+                m.oddsUpdatedAt = null;
+                m.oddsAgeSeconds = null;
+            }
         }
         m.nesineMarketsCount = Object.entries(m.odds || {}).filter(([k, v]) => !['h', 'd', 'a'].includes(k) && typeof v === 'number' && v > 1.01).length;
         return m;
@@ -333,4 +391,5 @@ async function getRange(fromIso, toIso, concurrency = 10) {
     return out;
 }
 
-module.exports = { getDay, getRange, getNesineOddsMap, trToday, addDays };
+module.exports = { getDay, getRange, getNesineOddsMap, getNesineStatus, trToday, addDays };
+

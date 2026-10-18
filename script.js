@@ -1014,6 +1014,40 @@ function renderCoupons(data) {
     const homeSurpEl = document.getElementById('homeSurpriseCardTitle');
     const topBadge = document.getElementById('couponBadge');
 
+    // 0. NESİNE CANLI BÜLTEN & ORAN SENKRONİZASYON DURUMU (Item 3)
+    const statusBar = document.getElementById('nesineLiveStatusBar');
+    if (statusBar) {
+        if (data.nesineStatus && data.nesineStatus.updatedAt) {
+            statusBar.style.display = 'flex';
+            if (data.nesineStatus.isFresh) {
+                const timeStr = new Date(data.nesineStatus.updatedAt).toLocaleTimeString('tr-TR');
+                statusBar.className = 'nesine-status-bar live';
+                statusBar.innerHTML = `
+                    <div class="nesine-st-pill live">
+                        <span class="nesine-st-dot"></span>
+                        <span class="nesine-st-title">Nesine Canlı Bülten:</span>
+                        <strong class="nesine-st-time">${timeStr}</strong>
+                        <span class="nesine-st-age">(${data.nesineStatus.ageSeconds || 0} sn önce güncellendi • %100 Canlı Oranlar)</span>
+                    </div>
+                    <div class="nesine-st-note">
+                        <span>⚡ Kural: Oran yenilenemediğinde veya bültende kapalı olduğunda eski oran asla kullanılmaz.</span>
+                    </div>
+                `;
+            } else {
+                statusBar.className = 'nesine-status-bar stale';
+                statusBar.innerHTML = `
+                    <div class="nesine-st-pill stale">
+                        <span class="nesine-st-dot red"></span>
+                        <span class="nesine-st-title">Nesine Canlı Oran Durumu:</span>
+                        <span class="nesine-st-age">Oran yenilenemediği için eski oranlar silindi. Yalnızca taze oranlı maçlar değerlenir.</span>
+                    </div>
+                `;
+            }
+        } else {
+            statusBar.style.display = 'none';
+        }
+    }
+
     // 1. BANKO KUPONU
     const banko = data.banko;
     if (banko) {
@@ -1235,13 +1269,18 @@ function createCouponMatchElement(item, isSurprise) {
             ? `<span class="match-pick-conf" style="color:var(--text-secondary);">EV: ${item.evPct >= 0 ? '+' : ''}%${item.evPct}</span>`
             : `<span class="match-pick-conf" style="color:var(--text-muted);">EV Hesaplanamadı (Oran Yok)</span>`;
 
-    // Her tahminde 4 ayrı bilgiyi açıkça gösteren şeffaflık tablosu
+    // Sürpriz Kupon için İstatistiksel Ters Sonuç Tipi Rozeti (Item 6)
+    const contrarianBadge = item.contrarianType
+        ? `<span class="match-pick-badge contrarian-badge" title="Favori yerine yüksek oranlı istatistiksel ters sonuç">⚡ ${escapeHtml(item.contrarianType)}</span>`
+        : '';
+
+    // Her tahminde 4 ayrı bilgiyi açıkça gösteren şeffaflık tablosu (Item 3)
     const oddDisplayVal = hasRealOdd
         ? item.realOdd.toFixed(2)
         : 'Oran bulunamadı (Bu pazar bültende kapalı)';
     const oddTimeDisplayVal = hasRealOdd && item.oddsUpdatedAt
-        ? item.oddsUpdatedAt
-        : 'Oran verisi yok';
+        ? `${item.oddsUpdatedAt} ${item.oddsFresh ? '🟢 Canlı' : '⚠️ Yenilenemedi'}`
+        : 'Oran yenilenemedi (Eski oran kullanılmadı)';
     const evDisplayVal = (hasRealOdd && item.evPct !== null && item.evPct !== undefined)
         ? `${item.evPct >= 0 ? '+' : ''}%${item.evPct}${isValueBet ? ' (Value Bet)' : ' (Negatif EV)'}`
         : 'Gerçek oran bulunamadığı için hesaplanamadı';
@@ -1267,15 +1306,137 @@ function createCouponMatchElement(item, isSurprise) {
         </div>
     `;
 
-    // 10 katmanlı derin analiz rozetleri (xG, İsabetli Şut, Korner, Kart, Son 5/10 Form, Taktik DNA, Risk Seviyesi, Hava Durumu, Gol Kralı)
+    // Veri Güven Puanı: Veri Yeterliliği & Veri Güncelliği Ayrı Ayrı (Item 7)
+    let dataTrustHtml = '';
+    const dt = an.dataTrust || item.dataTrust;
+    if (dt && typeof dt.sufficiencyScore === 'number') {
+        const suffClass = dt.sufficiencyScore >= 75 ? 'trust-high' : dt.sufficiencyScore >= 50 ? 'trust-med' : 'trust-low';
+        const freshClass = dt.freshnessScore >= 75 ? 'trust-high' : dt.freshnessScore >= 50 ? 'trust-med' : 'trust-low';
+        const overallClass = dt.overallScore >= 75 ? 'trust-high' : dt.overallScore >= 50 ? 'trust-med' : 'trust-low';
+
+        dataTrustHtml = `
+            <div class="match-data-trust-bar">
+                <div class="trust-badge-pill sufficiency ${suffClass}" title="Kadro, form, xG, H2H, korner ve şut geçmişi yeterlilik seviyesi">
+                    <span class="trust-lbl">📋 Veri Yeterliliği:</span>
+                    <strong class="trust-val">%${dt.sufficiencyScore}</strong>
+                </div>
+                <div class="trust-badge-pill freshness ${freshClass}" title="Nesine canlı oran tazeliği ve anlık veri güncelleme durumu">
+                    <span class="trust-lbl">🕒 Veri Güncelliği:</span>
+                    <strong class="trust-val">%${dt.freshnessScore}</strong>
+                </div>
+                <div class="trust-badge-pill overall ${overallClass}" title="Ağırlıklı toplam veri güven skoru">
+                    <span class="trust-lbl">🛡️ Veri Güven Puanı:</span>
+                    <strong class="trust-val">%${dt.overallScore}</strong>
+                </div>
+            </div>
+        `;
+    }
+
+    // Gerçek Korner ve Gerçek Şut / İsabetli Şut Ortalamaları (Item 1 & Item 2)
+    let realStatsHtml = '';
+    if (pr) {
+        const hCorn = (pr.realCornersHFor !== null && pr.realCornersHFor !== undefined) ? pr.realCornersHFor.toFixed(1) : null;
+        const aCorn = (pr.realCornersAFor !== null && pr.realCornersAFor !== undefined) ? pr.realCornersAFor.toFixed(1) : null;
+        const hShots = (pr.realShotsHFor !== null && pr.realShotsHFor !== undefined) ? pr.realShotsHFor.toFixed(1) : null;
+        const aShots = (pr.realShotsAFor !== null && pr.realShotsAFor !== undefined) ? pr.realShotsAFor.toFixed(1) : null;
+        const hSot = (pr.realSotHFor !== null && pr.realSotHFor !== undefined) ? pr.realSotHFor.toFixed(1) : null;
+        const aSot = (pr.realSotAFor !== null && pr.realSotAFor !== undefined) ? pr.realSotAFor.toFixed(1) : null;
+
+        const cornerLine = (hCorn !== null && aCorn !== null)
+            ? `<div class="real-stat-box">
+                <div class="real-stat-hdr">🚩 Gerçek Korner Ortalaması <small>(${escapeHtml(pr.cornerDataSource || 'Geçmiş Maçlar')})</small></div>
+                <div class="real-stat-vals">
+                    <span><strong>${escapeHtml(m.home)}:</strong> ${hCorn}</span>
+                    <span class="stat-sep">•</span>
+                    <span><strong>${escapeHtml(m.away)}:</strong> ${aCorn}</span>
+                    <span class="stat-sep">•</span>
+                    <span class="stat-proj">Model Beklentisi: <strong>${pr.totalCorners}</strong></span>
+                </div>
+               </div>`
+            : `<div class="real-stat-box">
+                <div class="real-stat-hdr">🚩 Korner Beklentisi</div>
+                <div class="real-stat-vals"><span class="stat-proj">Model Beklentisi: <strong>${pr.totalCorners} korner</strong></span></div>
+               </div>`;
+
+        const shotLine = (hShots !== null && aShots !== null)
+            ? `<div class="real-stat-box">
+                <div class="real-stat-hdr">🎯 Gerçek Şut & İsabet Ortalaması <small>(${escapeHtml(pr.shotDataSource || 'Geçmiş Maçlar')})</small></div>
+                <div class="real-stat-vals">
+                    <span><strong>${escapeHtml(m.home)}:</strong> ${hShots} şut <em>(${hSot} isabet)</em></span>
+                    <span class="stat-sep">•</span>
+                    <span><strong>${escapeHtml(m.away)}:</strong> ${aShots} şut <em>(${aSot} isabet)</em></span>
+                </div>
+               </div>`
+            : `<div class="real-stat-box">
+                <div class="real-stat-hdr">🎯 Şut Beklentisi</div>
+                <div class="real-stat-vals"><span class="stat-proj">Model: <strong>${pr.sotH} - ${pr.sotA} isabetli şut</strong></span></div>
+               </div>`;
+
+        realStatsHtml = `<div class="match-real-stats-row">${cornerLine}${shotLine}</div>`;
+    }
+
+    // Sakatlık, Cezalı Oyuncular ve İlk 11 Kadrosu (Item 4)
+    let squadHtml = '';
+    const sq = an.squad || (m.intel && m.intel.squad);
+    if (sq) {
+        const homeMiss = (sq.homeMissing && sq.homeMissing.length) ? sq.homeMissing : [];
+        const awayMiss = (sq.awayMissing && sq.awayMissing.length) ? sq.awayMissing : [];
+        const hasMissing = homeMiss.length > 0 || awayMiss.length > 0;
+
+        const homeXI = (sq.homeXI && sq.homeXI.length) ? sq.homeXI : [];
+        const awayXI = (sq.awayXI && sq.awayXI.length) ? sq.awayXI : [];
+        const hasXI = homeXI.length > 0 || awayXI.length > 0;
+
+        if (hasMissing || hasXI) {
+            let missRow = '';
+            if (hasMissing) {
+                const hMissStr = homeMiss.length ? homeMiss.slice(0, 3).map(p => escapeHtml(p.name || p)).join(', ') : 'Eksik bildirilmedi';
+                const aMissStr = awayMiss.length ? awayMiss.slice(0, 3).map(p => escapeHtml(p.name || p)).join(', ') : 'Eksik bildirilmedi';
+                missRow = `
+                    <div class="squad-sub-row squad-missing">
+                        <span class="squad-sub-lbl">🏥 Eksik/Cezalı:</span>
+                        <div class="squad-sub-content">
+                            <span><strong>${escapeHtml(m.home)}:</strong> ${hMissStr}</span>
+                            <span class="stat-sep">•</span>
+                            <span><strong>${escapeHtml(m.away)}:</strong> ${aMissStr}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            let xiRow = '';
+            if (hasXI) {
+                const hXiStr = homeXI.slice(0, 4).map(p => escapeHtml(p.name || p)).join(', ') + (homeXI.length > 4 ? '...' : '');
+                const aXiStr = awayXI.slice(0, 4).map(p => escapeHtml(p.name || p)).join(', ') + (awayXI.length > 4 ? '...' : '');
+                xiRow = `
+                    <div class="squad-sub-row squad-xi">
+                        <span class="squad-sub-lbl">👥 ${escapeHtml(sq.lineupType || 'İlk 11')}:</span>
+                        <div class="squad-sub-content">
+                            <span><strong>${escapeHtml(m.home)}:</strong> ${hXiStr}</span>
+                            <span class="stat-sep">•</span>
+                            <span><strong>${escapeHtml(m.away)}:</strong> ${aXiStr}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            squadHtml = `
+                <div class="match-squad-intel-block">
+                    <div class="squad-hdr">
+                        <span class="squad-type-badge">${escapeHtml(sq.lineupType || 'Kadro Verisi')}</span>
+                        ${(sq.homeFormation || sq.awayFormation) ? `<span class="squad-formation-tag">Diziliş: ${escapeHtml(sq.homeFormation || '-')} vs ${escapeHtml(sq.awayFormation || '-')}</span>` : ''}
+                    </div>
+                    ${missRow}
+                    ${xiRow}
+                </div>
+            `;
+        }
+    }
+
+    // 10 katmanlı derin analiz rozetleri (xG, Son 5/10 Form, Taktik DNA, Risk Seviyesi, Hava Durumu, Gol Kralı)
     const chips = [];
     if (typeof an.lh === 'number' && typeof an.la === 'number') {
         chips.push(`<span class="intel-chip">📊 xG: ${an.lh.toFixed(2)} - ${an.la.toFixed(2)}</span>`);
-    }
-    if (pr) {
-        chips.push(`<span class="intel-chip">🎯 İsabetli Şut: ${pr.sotH} - ${pr.sotA}</span>`);
-        chips.push(`<span class="intel-chip">🚩 Korner: ${pr.totalCorners}</span>`);
-        chips.push(`<span class="intel-chip">🟨 Kart: ${pr.totalCards}</span>`);
     }
     if (an.tactical?.homeTags?.[0] || an.tactical?.awayTags?.[0]) {
         chips.push(`<span class="intel-chip">🧬 ${escapeHtml(an.tactical.homeTags[0] || '')} / ${escapeHtml(an.tactical.awayTags[0] || '')}</span>`);
@@ -1319,14 +1480,20 @@ function createCouponMatchElement(item, isSurprise) {
             ${escapeHtml(m.home)} <span style="color:var(--text-muted);font-weight:400;">vs</span> ${escapeHtml(m.away)}
         </div>
         <div class="match-item-pick-row">
-            <span class="match-pick-badge ${isSurprise ? 'gold-badge' : ''}">${escapeHtml(item.label)}</span>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <span class="match-pick-badge ${isSurprise ? 'gold-badge' : ''}">${escapeHtml(item.label)}</span>
+                ${contrarianBadge}
+            </div>
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <span class="match-pick-conf">%${probPct} Model Olasılığı</span>
                 ${oddBadge}
                 ${valueBadge}
             </div>
         </div>
+        ${dataTrustHtml}
         ${transparencyGridHtml}
+        ${realStatsHtml}
+        ${squadHtml}
         ${chipsHtml}
         <div class="match-item-rationale">${escapeHtml(item.rationale)}</div>
         <div class="match-item-actions">
@@ -1335,7 +1502,7 @@ function createCouponMatchElement(item, isSurprise) {
     `;
 
     div.querySelector('.btn-ai-action').addEventListener('click', () => {
-        const prompt = `${m.home} vs ${m.away} (${m.league.full}) maçını xG/xGA, isabetli şut, korner/kart ortalamaları, son 10 maç formu, ortak rakipler, H2H, hava şartları ve 25+ Nesine pazarıyla derinlemesine analiz et.`;
+        const prompt = `${m.home} vs ${m.away} (${m.league.full}) maçını xG/xGA, gerçek şut ve korner ortalamaları, sakatlık/ilk 11 durumu, son 10 maç formu, ortak rakipler, H2H, hava şartları ve 25+ Nesine pazarıyla derinlemesine analiz et.`;
         askAiDirectly(prompt);
     });
 
