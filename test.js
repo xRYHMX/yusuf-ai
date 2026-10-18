@@ -1,11 +1,11 @@
 /**
- * Yusuf AI - Kapsamlı Otomatik Test Paketi (Jack'in İnceleme Denetimleri v2)
+ * Yusuf AI - Kapsamlı Otomatik Test Paketi (Jack'in İnceleme Denetimleri v3)
  * 
  * 1. Mackolik veri kaynağı doğrulama: Boş/hatalı yanıtın (null) ile meşru boş günün ([]) ayrımı (mackolik.js)
  * 2. getDay önbellek davranışı: Gerçek enjekte fetch fonksiyonuyla bayat oranların anında boşaltılması (mackolik.js)
- * 3. Çapraz pazar marj sızıntısı engeli ve EV hesaplama güvenliği (engine.js)
- * 4. İzole sentetik test fixture'ları ile model doğrulama eşiği (N>=50, hitRate>=70%, Brier<=0.220, LogLoss<=1.150) (engine.js)
- * 5. Delta Yöntemi varyans aralığı, N>=50 ampirik doğrulama şartı ve yetersiz örneklem dürüstlüğü (engine.js)
+ * 3. Çapraz pazar marj sızıntısı engeli ve Çifte Şans EV devre dışı bırakma (engine.js)
+ * 4. İzole sentetik test fixture'ları, eksik metrik ve bağımsız maç tekilliği denetimi (engine.js)
+ * 5. Delta Yöntemi varyans aralığı, elle nEff parametresinin ampirik doğrulama sayılmaması (engine.js)
  * 6. Banko kuponu kalite/tazelik barajı, "Bilinmiyor" zaman damgası ve yanıltıcı ifade engeli (engine.js)
  * 7. Sürpriz kupon Sistem 3-4-5 getiri simülasyonu ve eksik oran kalkanı (engine.js)
  * 8. Maç öncesi tahmin kilitlemede oddsFresh kontrolü (engine.js)
@@ -36,6 +36,7 @@ async function it(name, fn) {
 const mockVerifiedTable = {
     walkForwardRecords: Array.from({ length: 60 }, (_, i) => ({
         id: `mock_v_${i}`,
+        matchId: 900000 + i,
         won: i < 45, // 45 / 60 = %75.0 (>= %70)
         brier: 0.190, // <= 0.220
         logLoss: 0.550 // <= 1.150
@@ -45,15 +46,38 @@ const mockVerifiedTable = {
 const mockUnverifiedTable = {
     walkForwardRecords: Array.from({ length: 35 }, (_, i) => ({
         id: `mock_u_${i}`,
+        matchId: 800000 + i,
         won: i < 28, // %80.0 başarı fakat N=35 (< 50)
         brier: 0.185,
         logLoss: 0.520
     }))
 };
 
+// Jack Kontrol 3: 60 sonuçlanmış maç var ama sadece 10 tanesinde Brier ve LogLoss var (eksik kayıt denetimi)
+const mockIncompleteMetricsTable = {
+    walkForwardRecords: Array.from({ length: 60 }, (_, i) => ({
+        id: `mock_inc_${i}`,
+        matchId: 700000 + i,
+        won: i < 45,
+        brier: i < 10 ? 0.190 : null,
+        logLoss: i < 10 ? 0.550 : null
+    }))
+};
+
+// Jack Kontrol 3: 60 kayıt var ama 30 maç tekrarlanmış (bağımsız olmayan maç denetimi)
+const mockDuplicateMatchesTable = {
+    walkForwardRecords: Array.from({ length: 60 }, (_, i) => ({
+        id: `mock_dup_${i}`,
+        matchId: 600000 + (i % 30), // Yalnızca 30 tekil maç!
+        won: i < 45,
+        brier: 0.190,
+        logLoss: 0.550
+    }))
+};
+
 async function runTests() {
     console.log('================================================================');
-    console.log('  Yusuf AI - Jack & Fox Kapsamlı Teknik Denetim Testleri (v2)');
+    console.log('  Yusuf AI - Jack & Fox Kapsamlı Teknik Denetim Testleri (v3)');
     console.log('================================================================\n');
 
     // ----------------------------------------------------
@@ -103,7 +127,6 @@ async function runTests() {
 
     await it('2.1: getDay fonksiyonuna sahte failingFetch enjekte edildiğinde (rows=null) maçları korumalı ve bayat oranları derhal boşaltmalı', async () => {
         const todayIso = mackolik.trToday();
-        // Belleğe canlı oranı olan bir test maçı kaydedelim
         mackolik.memCache.set(todayIso, {
             t: Date.now() - 100000,
             matches: [
@@ -119,7 +142,6 @@ async function runTests() {
             ]
         });
 
-        // Jack Kontrol 3 Düzeltmesi: getDay() fonksiyonunu doğrudan sahte bağlantı hatası ile çalıştırıyoruz!
         const failingFetch = async () => ({ ok: false, status: 503, text: async () => 'Service Unavailable' });
         const result = await mackolik.getDay(todayIso, failingFetch);
 
@@ -132,9 +154,9 @@ async function runTests() {
     });
 
     // ----------------------------------------------------
-    // TEST GRUBU 3: EV Hesabında Çapraz Pazar Marj Sızıntısının Engellenmesi (engine.js)
+    // TEST GRUBU 3: EV Hesabında Çapraz Pazar Marj Sızıntısı & Çifte Şans Engeli (engine.js)
     // ----------------------------------------------------
-    console.log('\n--- TEST 3: EV Hesabında Çapraz Pazar Marj Sızıntısı & Overround (engine.js) ---');
+    console.log('\n--- TEST 3: EV Hesabında Çapraz Pazar Marj Sızıntısı & Çifte Şans (engine.js) ---');
 
     await it('3.1: Tamamlayıcı pazar oranları yoksa EV HESAPLANMAMALI (ev: null dönmeli, 1.08 uydurulmamalı)', () => {
         const incompleteOdds = { ms1: 2.10 };
@@ -166,17 +188,23 @@ async function runTests() {
     });
 
     await it('3.4: Jack Kontrol 1: Pazar tamamlayıcıları eksikse (örn. ev_ust05 tekil veya ust25 için alt25 yoksa) 1X2 marjı ASLA çapraz ödünç alınmamalı, EV null dönmeli', () => {
-        // Durum A: ev_ust05 tekil prop; bültende 1X2 var ama ev_ust05 tamamlayıcısı yok
         const crossOddsA = { ev_ust05: 1.45, ms1: 2.10, msx: 3.30, ms2: 3.60 };
         const resA = engine.computeExpectedValue(0.75, 1.45, 'ev_ust05', crossOddsA);
         assert.strictEqual(resA.ev, null, 'Farklı pazarın (1X2) marjı ev_ust05 pazarına çapraz uygulanamaz');
         assert.strictEqual(resA.overround, null);
 
-        // Durum B: ust25 var, 1X2 oranları tam var, fakat alt25 eksik
         const crossOddsB = { ust25: 1.85, ms1: 2.10, msx: 3.30, ms2: 3.60 };
         const resB = engine.computeExpectedValue(0.60, 1.85, 'ust25', crossOddsB);
         assert.strictEqual(resB.ev, null, 'Hedef pazarın (2.5 Üst) kendi tamamlayıcısı (2.5 Alt) yoksa 1X2 marjı ödünç alınamaz');
         assert.strictEqual(resB.overround, null);
+    });
+
+    await it('3.5: Jack Kontrol 1: Çifte şans pazarında (dc1x, dc12, dcx2) seçenekler birbirini dışlamadığı için (sum(P)=2.0) EV hesabı null dönmeli', () => {
+        const dcOdds = { dc1x: 1.35, dc12: 1.40, dcx2: 1.55 };
+        const res = engine.computeExpectedValue(0.70, 1.35, 'dc1x', dcOdds);
+        assert.strictEqual(res.ev, null, 'Çifte şans için EV kesinlikle null olmalı');
+        assert.strictEqual(res.overround, null);
+        assert.ok(res.reason.includes('Çifte şans'));
     });
 
     // ----------------------------------------------------
@@ -205,6 +233,18 @@ async function runTests() {
         assert.strictEqual(metrics.sampleCount, 35);
         assert.strictEqual(metrics.isVerified, false, 'N < 50 iken model asla doğrulanmış sayılamaz');
         assert.ok(metrics.reason.includes('Yetersiz geçmiş örneklem'));
+    });
+
+    await it('4.4: Jack Kontrol 3: 60 maçın yalnızca 10 tanesinde Brier/LogLoss varsa model DOĞRULANMAMIŞ (isVerified=false) sayılmalı', () => {
+        const metrics = engine.getModelVerificationMetrics(mockIncompleteMetricsTable);
+        assert.strictEqual(metrics.isVerified, false, 'Eksik metrikli kayıtlar doğrulanmış sayılamaz');
+        assert.ok(metrics.reason.includes('Eksik kalibrasyon verisi'));
+    });
+
+    await it('4.5: Jack Kontrol 3: Örneklemde tekrarlanan/kopya maçlar varsa (bağımsız olmayan maçlar) model DOĞRULANMAMIŞ (isVerified=false) sayılmalı', () => {
+        const metrics = engine.getModelVerificationMetrics(mockDuplicateMatchesTable);
+        assert.strictEqual(metrics.isVerified, false, 'Tekrarlanan maç içeren örneklem bağımsız sayılamaz');
+        assert.ok(metrics.reason.includes('tekrarlanan maç kayıtları'));
     });
 
     // ----------------------------------------------------
@@ -240,6 +280,14 @@ async function runTests() {
         const widthSmall = ciSmall.highPct - ciSmall.lowPct;
         const widthLarge = ciLarge.highPct - ciLarge.lowPct;
         assert.ok(widthLarge < widthSmall, `Büyük örneklemde güven aralığı daha dar olmalı: ${widthLarge} < ${widthSmall}`);
+    });
+
+    await it('5.4: Jack Kontrol 2: computeJointConfidenceInterval fonksiyonuna elle N=200 verilse dahi ampirik doğrulama sayılmamalı (isEmpirical=false kalmalı)', () => {
+        const probs = [0.85, 0.85, 0.85, 0.85];
+        const ci = engine.computeJointConfidenceInterval(probs, 200);
+        assert.strictEqual(ci.nEff, 200);
+        assert.strictEqual(ci.isEmpirical, false, 'Elle girilen nEff tek başına ampirik doğrulama sayılamaz');
+        assert.ok(ci.verificationReason.includes('Manuel parametre'));
     });
 
     // ----------------------------------------------------

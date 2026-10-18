@@ -1288,9 +1288,6 @@ const MARKET_COMPANIONS = {
     h: ['ms1', 'msx', 'ms2'],
     d: ['ms1', 'msx', 'ms2'],
     a: ['ms1', 'msx', 'ms2'],
-    dc1x: ['dc1x', 'dc12', 'dcx2'],
-    dc12: ['dc1x', 'dc12', 'dcx2'],
-    dcx2: ['dc1x', 'dc12', 'dcx2'],
     iy1: ['iy1', 'iyx', 'iy2'],
     iyx: ['iy1', 'iyx', 'iy2'],
     iy2: ['iy1', 'iyx', 'iy2'],
@@ -1320,6 +1317,19 @@ function computeExpectedValue(modelProb, realOdd, marketKey = null, matchOdds = 
     }
     const rawEv = (p * odd) - 1;
     const rawEvPct = +(rawEv * 100).toFixed(1);
+
+    // Jack Kontrolü: Çifte şans pazarında (dc1x, dc12, dcx2) seçenekler birbirini dışlamaz (toplam olasılık 2.0'dır).
+    // Basit toplamla marjdan arındırma yapılamaz; uygun bir model geliştirilene kadar EV hesabı devre dışıdır.
+    if (marketKey && marketKey.startsWith('dc')) {
+        return {
+            ev: null,
+            evPct: null,
+            rawEvPct,
+            calibratedProb: null,
+            overround: null,
+            reason: 'Çifte şans pazarında seçenekler birbirini dışlamadığı için (sum(P)=2.0) klasik marjdan arındırma yapılamaz; EV hesabı devre dışıdır.'
+        };
+    }
 
     // Jack Kontrol 1: Her pazar için yalnızca kendi tamamlayıcı oranları aranır.
     // Başka bir pazarın (ör. 1X2 veya 2.5 Alt/Üst) marjı ASLA başka bir pazara çapraz uygulanamaz!
@@ -1748,16 +1758,18 @@ function computeJointConfidenceInterval(probs, nEff = null, z = 1.645, customTab
     const validProbs = probs.map(Number).filter(p => isFinite(p) && p > 0.001 && p < 0.999);
     if (validProbs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null, nEff: null, isEmpirical: false, verificationReason: 'Geçerli olasılık yok' };
 
-    let effectiveN = nEff;
-    let isEmpirical = false;
+    // Jack Kontrol 2: isEmpirical YALNIZCA modelin bağımsız test metrikleri getModelVerificationMetrics()
+    // tarafından tam olarak doğrulandığında true olabilir!
+    // Fonksiyona dışarıdan elle nEff verilmesi ampirik doğrulama sayılamaz (sadece teorik varyans simülasyonudur).
+    const metrics = getModelVerificationMetrics(customTable);
+    const isManualOverride = typeof nEff === 'number' && nEff > 0;
+    const effectiveN = isManualOverride ? nEff : (metrics.nEff || 20);
+    const isEmpirical = !isManualOverride && Boolean(metrics.isVerified);
+
     let verificationReason = '';
-    if (typeof effectiveN === 'number' && effectiveN > 0) {
-        isEmpirical = effectiveN >= 50;
-        verificationReason = isEmpirical ? `Doğrudan belirtilen N=${effectiveN} derinliği kullanıldı.` : `N=${effectiveN} < 50 olduğu için ampirik doğrulama şartı karşılanmadı.`;
+    if (isManualOverride) {
+        verificationReason = `Manuel parametre N=${effectiveN} kullanıldı (teorik simülasyondur, ampirik doğrulama sayılmaz).`;
     } else {
-        const metrics = getModelVerificationMetrics(customTable);
-        effectiveN = metrics.nEff || 20;
-        isEmpirical = metrics.isVerified;
         verificationReason = metrics.reason;
     }
 
@@ -1800,16 +1812,46 @@ function getModelVerificationMetrics(customTable = null) {
             };
         }
 
+        // Jack Kontrolü: 1. Bağımsız maç kontrolü (tekil matchId / id doğrulaması)
+        // Tekrarlanan veya kopyalanmış maç kayıtları bağımsız örneklem sayılamaz!
+        const uniqueMatchKeys = new Set(resolved.map(r => String(r.matchId || r.id || '')));
+        if (uniqueMatchKeys.size < count) {
+            return {
+                isVerified: false,
+                sampleCount: uniqueMatchKeys.size,
+                hitRatePct: +((resolved.filter(r => r.won).length / count) * 100).toFixed(1),
+                brierScore: null,
+                logLoss: null,
+                nEff: Math.max(10, uniqueMatchKeys.size),
+                reason: `Örneklemde tekrarlanan maç kayıtları tespit edildi (${uniqueMatchKeys.size} tekil / ${count} toplam). Tüm maçlar bağımsız olmalıdır.`
+            };
+        }
+
+        // Jack Kontrolü: 2. Eksiksiz metrik kontrolü (Tüm sonuçlanmış kayıtlarda geçerli Brier ve LogLoss zorunludur)
+        const validBrierRecords = resolved.filter(r => typeof r.brier === 'number' && isFinite(r.brier));
+        const validLogLossRecords = resolved.filter(r => typeof r.logLoss === 'number' && isFinite(r.logLoss));
+        if (validBrierRecords.length !== count || validLogLossRecords.length !== count) {
+            return {
+                isVerified: false,
+                sampleCount: count,
+                hitRatePct: +((resolved.filter(r => r.won).length / count) * 100).toFixed(1),
+                brierScore: null,
+                logLoss: null,
+                nEff: Math.max(10, count),
+                reason: `Eksik kalibrasyon verisi: ${count} sonucun yalnızca Brier:${validBrierRecords.length}, LogLoss:${validLogLossRecords.length} adedinde metrik mevcut. Tüm kayıtlarda eksiksiz kalibrasyon puanı bulunmalıdır.`
+            };
+        }
+
         const hits = resolved.filter(r => r.won).length;
         const hitRatePct = +((hits / count) * 100).toFixed(1);
 
-        const brierList = resolved.filter(r => typeof r.brier === 'number').map(r => r.brier);
-        const avgBrier = brierList.length ? +(brierList.reduce((a, b) => a + b, 0) / brierList.length).toFixed(3) : null;
+        const brierList = validBrierRecords.map(r => r.brier);
+        const avgBrier = +(brierList.reduce((a, b) => a + b, 0) / brierList.length).toFixed(3);
 
-        const logLossList = resolved.filter(r => typeof r.logLoss === 'number').map(r => r.logLoss);
-        const avgLogLoss = logLossList.length ? +(logLossList.reduce((a, b) => a + b, 0) / logLossList.length).toFixed(3) : null;
+        const logLossList = validLogLossRecords.map(r => r.logLoss);
+        const avgLogLoss = +(logLossList.reduce((a, b) => a + b, 0) / logLossList.length).toFixed(3);
 
-        const isVerified = (count >= 50) && (hitRatePct >= 70.0) && (avgBrier !== null && avgBrier <= 0.220) && (avgLogLoss !== null && avgLogLoss <= 1.150);
+        const isVerified = (count >= 50) && (hitRatePct >= 70.0) && (avgBrier <= 0.220) && (avgLogLoss <= 1.150);
 
         return {
             isVerified,
@@ -1819,7 +1861,7 @@ function getModelVerificationMetrics(customTable = null) {
             logLoss: avgLogLoss,
             nEff: count,
             reason: isVerified
-                ? `Model geçmiş ${count} maçta başarıyla doğrulandı (İsabet: %${hitRatePct}, Brier: ${avgBrier}, LogLoss: ${avgLogLoss}).`
+                ? `Model geçmiş ${count} bağımsız maçta başarıyla doğrulandı (İsabet: %${hitRatePct}, Brier: ${avgBrier}, LogLoss: ${avgLogLoss}).`
                 : `Model eşik şartlarını karşılamadı (İsabet: %${hitRatePct}/%70, Brier: ${avgBrier}/0.220, LogLoss: ${avgLogLoss}/1.150).`
         };
     } catch (_) {
