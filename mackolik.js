@@ -241,12 +241,14 @@ async function getNesineOddsMap() {
         } finally {
             nesineInFlight = null;
         }
-        // Kesin Kural (Madde 3): Oran yenilenemediğinde eski oranı ASLA kullanma; önbelleği temizle
+        // Kesin Kural (Madde 3 & Jack Kontrol 1): Oran yenilenemediğinde eski oranı ASLA kullanma; önbelleği temizle, son güncelleme zamanını koru
         if (!refreshed) {
+            const preservedUpdatedAt = nesineCache.updatedAt || null;
+            const preservedUpdatedIso = nesineCache.updatedIso || null;
             nesineCache = {
                 t: 0,
-                updatedAt: null,
-                updatedIso: null,
+                updatedAt: preservedUpdatedAt,
+                updatedIso: preservedUpdatedIso,
                 isFresh: false,
                 error: 'Nesine canlı oran servisi yenilenemedi; eski oranlar devre dışı bırakıldı.',
                 map: new Map()
@@ -370,7 +372,21 @@ async function getDay(iso) {
         rawFetch(iso),
         iso >= today ? getNesineOddsMap() : Promise.resolve(new Map())
     ]);
-    if (rows === null) return mem ? mem.matches : [];
+    if (rows === null) {
+        if (!mem) return [];
+        if (iso >= today) {
+            // Jack Kontrol 1: Veri kaynağı yenilenemediğinde eski oranları geçersiz işaretle. oddsFresh = false yap, oranları boşalt, son güncelleme zamanını koru.
+            return mem.matches.map(m => ({
+                ...m,
+                oddsFresh: false,
+                odds: {},
+                oddsUpdatedAt: m.oddsUpdatedAt || nesineCache.updatedAt || null,
+                oddsAgeSeconds: null,
+                nesineMarketsCount: 0
+            }));
+        }
+        return mem.matches;
+    }
     const isNesineFresh = Boolean(iso >= today && nesineCache.isFresh && nesineCache.updatedAt && nesineMap && nesineMap.size > 0);
     const ageSec = isNesineFresh ? Math.max(0, Math.round((Date.now() - nesineCache.t) / 1000)) : null;
 
@@ -378,8 +394,8 @@ async function getDay(iso) {
         const m = parseRow(r, i);
         if (!m) return null;
         if (iso >= today) {
-            // Madde 3: Yalnızca canlı Nesine oranı başarıyla yenilendiyse gerçek oranları ata;
-            // yenilenemediyse eski/yedek oranı ASLA kullanma!
+            // Madde 3 & Jack Kontrol 1: Yalnızca canlı Nesine oranı başarıyla yenilendiyse gerçek oranları ata;
+            // yenilenemediyse eski/yedek oranı ASLA kullanma; oranları boşalt ve son güncelleme zamanını koru!
             if (isNesineFresh && m.iddaaCode && nesineMap.has(m.iddaaCode)) {
                 m.odds = { ...nesineMap.get(m.iddaaCode) };
                 m.oddsFresh = true;
@@ -388,7 +404,7 @@ async function getDay(iso) {
             } else {
                 m.odds = {};
                 m.oddsFresh = false;
-                m.oddsUpdatedAt = null;
+                m.oddsUpdatedAt = nesineCache.updatedAt || m.oddsUpdatedAt || null;
                 m.oddsAgeSeconds = null;
             }
         }

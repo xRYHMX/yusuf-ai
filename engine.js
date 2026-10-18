@@ -1279,18 +1279,67 @@ function analyze(model, m, opts = {}) {
 // ---------------- Gerçek Value Bet (Beklenen Değer - EV) & Kalibrasyon Shrinkage ----------------
 // Ham EV = (Model olasılığı × Gerçek Nesine oranı) - 1
 // Jack'in 2. Kontrolü: Yüksek EV tek başına iyi tahmin anlamına gelmez; uç sapmaları önlemek için
-// piyasa konsensüsüne doğru Bayesyen Shrinkage (kalibrasyon düzeltmesi) uygulanır.
-function computeExpectedValue(modelProb, realOdd) {
+// 1X2 pazarında 3 oranın toplamından, Alt/Üst veya KG pazarında 2 oranın toplamından gerçek marjsız (vig-free)
+// overround hesaplanır ve Bayesyen Shrinkage (kalibrasyon düzeltmesi) uygulanır.
+const MARKET_COMPANIONS = {
+    ms1: ['ms1', 'msx', 'ms2'],
+    msx: ['ms1', 'msx', 'ms2'],
+    ms2: ['ms1', 'msx', 'ms2'],
+    h: ['ms1', 'msx', 'ms2'],
+    d: ['ms1', 'msx', 'ms2'],
+    a: ['ms1', 'msx', 'ms2'],
+    dc1x: ['dc1x', 'dc12', 'dcx2'],
+    dc12: ['dc1x', 'dc12', 'dcx2'],
+    dcx2: ['dc1x', 'dc12', 'dcx2'],
+    iy1: ['iy1', 'iyx', 'iy2'],
+    iyx: ['iy1', 'iyx', 'iy2'],
+    iy2: ['iy1', 'iyx', 'iy2'],
+    alt15: ['alt15', 'ust15'],
+    ust15: ['alt15', 'ust15'],
+    alt25: ['alt25', 'ust25'],
+    ust25: ['alt25', 'ust25'],
+    alt35: ['alt35', 'ust35'],
+    ust35: ['alt35', 'ust35'],
+    iyalt05: ['iyalt05', 'iyust05'],
+    iyust05: ['iyalt05', 'iyust05'],
+    iyalt15: ['iyalt15', 'iyust15'],
+    iyust15: ['iyalt15', 'iyust15'],
+    kgv: ['kgv', 'kgy'],
+    kgy: ['kgv', 'kgy'],
+    tg01: ['tg01', 'tg23', 'tg46', 'tg7p'],
+    tg23: ['tg01', 'tg23', 'tg46', 'tg7p'],
+    tg46: ['tg01', 'tg23', 'tg46', 'tg7p'],
+    tg7p: ['tg01', 'tg23', 'tg46', 'tg7p']
+};
+
+function computeExpectedValue(modelProb, realOdd, marketKey = null, matchOdds = null) {
     const p = Number(modelProb);
     const odd = Number(realOdd);
     if (!isFinite(p) || !isFinite(odd) || p <= 0 || odd <= 1.0) {
-        return { ev: null, evPct: null, rawEvPct: null, calibratedProb: null };
+        return { ev: null, evPct: null, rawEvPct: null, calibratedProb: null, overround: null };
     }
     const rawEv = (p * odd) - 1;
     const rawEvPct = +(rawEv * 100).toFixed(1);
 
+    // Jack Kontrol 2: Sabit 1.07 yerine dinamik pazar marjı (vig-free overround) hesaplanır:
+    // 1X2'de sum(1/ms1 + 1/msx + 1/ms2), Alt/Üst'te sum(1/alt + 1/ust), KG'de sum(1/kgv + 1/kgy)
+    let overround = null;
+    if (matchOdds && typeof matchOdds === 'object') {
+        const companions = marketKey ? MARKET_COMPANIONS[marketKey] : null;
+        if (companions && companions.every(k => typeof matchOdds[k] === 'number' && matchOdds[k] > 1.01)) {
+            overround = companions.reduce((sum, k) => sum + (1 / matchOdds[k]), 0);
+        } else if (matchOdds.ms1 > 1.01 && matchOdds.msx > 1.01 && matchOdds.ms2 > 1.01) {
+            overround = (1 / matchOdds.ms1) + (1 / matchOdds.msx) + (1 / matchOdds.ms2);
+        } else if (matchOdds.alt25 > 1.01 && matchOdds.ust25 > 1.01) {
+            overround = (1 / matchOdds.alt25) + (1 / matchOdds.ust25);
+        }
+    }
+    const effectiveOverround = (overround && isFinite(overround) && overround >= 1.01 && overround <= 1.45)
+        ? overround
+        : 1.08;
+
     // Piyasa marjsız (vig-free) zımni olasılık
-    const impliedMktProb = Math.max(0.02, Math.min(0.95, (1 / odd) / 1.07));
+    const impliedMktProb = Math.max(0.02, Math.min(0.95, (1 / odd) / effectiveOverround));
     // %35 piyasa konsensüsüne Bayesyen çekim (Shrinkage) ile aşırı şişik sapmaları kalibre et
     const calibratedProb = 0.65 * p + 0.35 * impliedMktProb;
     const calibratedEv = (calibratedProb * odd) - 1;
@@ -1300,7 +1349,8 @@ function computeExpectedValue(modelProb, realOdd) {
         ev: +calibratedEv.toFixed(4),
         evPct,
         rawEvPct,
-        calibratedProb: +calibratedProb.toFixed(3)
+        calibratedProb: +calibratedProb.toFixed(3),
+        overround: +effectiveOverround.toFixed(4)
     };
 }
 
@@ -1317,8 +1367,8 @@ function picksOf(match, an) {
         const hasRealOdd = Boolean(isOddsFresh && match.odds && typeof match.odds[key] === 'number' && isFinite(match.odds[key]) && match.odds[key] > 1.01);
         const realOdd = hasRealOdd ? +match.odds[key].toFixed(2) : null;
         const oddsUpdatedAt = hasRealOdd ? (match.oddsUpdatedAt || null) : null;
-        const evData = hasRealOdd ? computeExpectedValue(pv, realOdd) : { ev: null, evPct: null, rawEvPct: null, calibratedProb: null };
-        const { ev, evPct, rawEvPct, calibratedProb } = evData;
+        const evData = hasRealOdd ? computeExpectedValue(pv, realOdd, key, match.odds) : { ev: null, evPct: null, rawEvPct: null, calibratedProb: null, overround: null };
+        const { ev, evPct, rawEvPct, calibratedProb, overround } = evData;
         const isValueBet = Boolean(hasRealOdd && typeof ev === 'number' && ev > 0);
         const oddStatusText = hasRealOdd
             ? `${realOdd.toFixed(2)}`
@@ -1341,6 +1391,8 @@ function picksOf(match, an) {
             oddsUpdatedAt,
             ev,
             evPct,
+            rawEvPct,
+            overround,
             isValueBet,
             oddStatusText,
             evStatusText,
@@ -1504,7 +1556,7 @@ function isMainstreamMatch(m) {
 // ---------------- Madde 6: Sürpriz Kupon Algoritması (Favori Takımlar Yerine Yüksek Oranlı, İstatistiksel Ters Sonuçlar) ----------------
 function scoreSurpriseCandidate(pk, m, an, model) {
     if (!SURPRISE_GROUPS.includes(pk.group)) return null;
-    const baseRate = model.base[pk.key] || 0.08;
+    const baseRate = (model && model.base && model.base[pk.key]) || 0.08;
     const lift = pk.p / baseRate;
 
     const hasRealOdd = Boolean(pk.hasRealOdd && typeof pk.realOdd === 'number' && pk.realOdd > 1.01 && typeof pk.ev === 'number');
@@ -1672,28 +1724,60 @@ function scoreSurpriseCandidate(pk, m, an, model) {
     return { ...pk, lift, score, contrarianType, contrarianThesis, m, an };
 }
 
+// ---------------- Jack Kontrol 1 & 4: Delta Yöntemi ile Kombine Güven Aralığı Hesaplayıcı ----------------
+// J = prod(p_i) için Delta Yöntemi: Var(ln J) = sum((1 - p_i) / (n_eff * p_i))
+// Z = 1.645 (%90 Güven Aralığı): J_low = J * exp(-Z * SE), J_high = J * exp(+Z * SE)
+function computeJointConfidenceInterval(probs, nEff = 20, z = 1.645) {
+    if (!Array.isArray(probs) || probs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null };
+    const validProbs = probs.map(Number).filter(p => isFinite(p) && p > 0.001 && p < 0.999);
+    if (validProbs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null };
+
+    const joint = validProbs.reduce((acc, p) => acc * p, 1);
+    const varLnJ = validProbs.reduce((sum, p) => sum + ((1 - p) / (nEff * p)), 0);
+    const seLnJ = Math.sqrt(Math.max(0, varLnJ));
+
+    const lowProb = Math.max(0.01, joint * Math.exp(-z * seLnJ));
+    const highProb = Math.min(0.99, joint * Math.exp(z * seLnJ));
+
+    return {
+        jointPct: +(joint * 100).toFixed(1),
+        lowPct: +(lowProb * 100).toFixed(1),
+        highPct: +(highProb * 100).toFixed(1),
+        seLnJ: +seLnJ.toFixed(4)
+    };
+}
+
+// Jack Kontrol 3: Modelin geçmiş tahmin başarısı doğrulanmadan yüksek güven etiketi verilmez
+function isModelPerformanceVerified() {
+    try {
+        const table = loadPredictionTestTable();
+        const records = table.walkForwardRecords || [];
+        const resolved = records.filter(r => r && typeof r.won === 'boolean');
+        if (resolved.length < 15) return false;
+        const hits = resolved.filter(r => r.won).length;
+        const hitRate = hits / resolved.length;
+        return hitRate >= 0.70;
+    } catch (_) {
+        return false;
+    }
+}
+
 function buildCoupons(items, model, opts = {}) {
     const bankoN = opts.bankoN || 4, surpN = opts.surpN || 5;
     const nowTimeStr = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
 
-    // BANKO: Önce ana bülten (MBS 1-2, bilinen profesyonel ligler) A/B kalitesi, yetmezse genel İddaa bülteni
+    // BANKO: Yalnızca A ve B kalitesindeki maçlar kabul edilir; C kalite maçlara ASLA geçilmez (Madde 3 & Jack Kontrolü)
     let cands = items.filter(it => qualifies(it.m, it.an, 'B') && isMainstreamMatch(it.m));
-    if (cands.length < bankoN * 2) {
-        cands = items.filter(it => qualifies(it.m, it.an, 'C') && isMainstreamMatch(it.m));
-    }
-    if (cands.length < bankoN) {
-        cands = items.filter(it => qualifies(it.m, it.an, 'A'));
-    }
     if (cands.length < bankoN) {
         cands = items.filter(it => qualifies(it.m, it.an, 'B'));
-    }
-    if (cands.length < bankoN) {
-        cands = items.filter(it => qualifies(it.m, it.an, 'C'));
     }
 
     const bankoPool = [];
     for (const it of cands) {
-        const allBankoPicks = picksOf(it.m, it.an).filter(p => BANKO_KEYS.includes(p.key));
+        // Jack Kontrol 3: Yalnızca güncel gerçek oranı olan ve oddsFresh = true olan tercihler bankoya girebilir!
+        const allBankoPicks = picksOf(it.m, it.an).filter(p => BANKO_KEYS.includes(p.key) && p.hasRealOdd && p.oddsFresh);
+        if (!allBankoPicks.length) continue;
+
         let playable = allBankoPicks.filter(p => p.p >= 0.66 && p.p <= 0.88);
         if (!playable.length) playable = allBankoPicks.filter(p => p.p >= 0.62 && p.p <= 0.91);
         if (!playable.length) playable = allBankoPicks;
@@ -1702,26 +1786,34 @@ function buildCoupons(items, model, opts = {}) {
         const consistencyBonus = ((it.an.avgConsistency || 70) - 68) * 0.0018;
         const trustBonus = ((it.an.dataTrust?.overallScore || 65) - 65) * 0.001;
         playable.sort((a, b) => {
-            const oddBonusA = a.hasRealOdd ? 0.03 : 0;
-            const oddBonusB = b.hasRealOdd ? 0.03 : 0;
-            const scoreA = a.p + (BANKO_PRIMARY_KEYS.has(a.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0) + oddBonusA;
-            const scoreB = b.p + (BANKO_PRIMARY_KEYS.has(b.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0) + oddBonusB;
+            const scoreA = a.p + (BANKO_PRIMARY_KEYS.has(a.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0) + 0.03;
+            const scoreB = b.p + (BANKO_PRIMARY_KEYS.has(b.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0) + 0.03;
             return scoreB - scoreA;
         });
 
         const best = playable[0];
         if (best) {
-            const rankScore = best.p + (BANKO_PRIMARY_KEYS.has(best.key) ? 0.05 : 0) + (it.an.quality === 'A' ? 0.04 : 0) + mbsBonus + consistencyBonus + trustBonus + (best.hasRealOdd ? 0.02 : 0);
+            const rankScore = best.p + (BANKO_PRIMARY_KEYS.has(best.key) ? 0.05 : 0) + (it.an.quality === 'A' ? 0.04 : 0) + mbsBonus + consistencyBonus + trustBonus + 0.02;
+            const modelVerified = isModelPerformanceVerified();
+            let confidenceLevel;
+            if (best.isValueBet) {
+                confidenceLevel = `Value Bet (+%${best.evPct} EV • Kalibre Edildi)`;
+            } else if (modelVerified && best.p >= 0.80) {
+                confidenceLevel = 'Çok Yüksek Güven (Doğrulanmış Model)';
+            } else if (modelVerified) {
+                confidenceLevel = 'Yüksek Güven (Doğrulanmış Model)';
+            } else if (best.p >= 0.80) {
+                confidenceLevel = 'Yüksek Model Olasılığı (Tarihsel Doğrulama Bekliyor)';
+            } else {
+                confidenceLevel = 'Dengeli Model Olasılığı (Tarihsel Doğrulama Bekliyor)';
+            }
+
             bankoPool.push({
                 ...best,
                 rankScore,
-                confidenceLevel: best.isValueBet
-                    ? `Çok Yüksek Güven • Value Bet (+%${best.evPct} EV)`
-                    : best.p >= 0.80
-                        ? 'Çok Yüksek Güven'
-                        : 'Yüksek Güven',
+                confidenceLevel,
                 riskLevel: best.p >= 0.80 ? 'Düşük Risk' : 'Kontrollü Düşük Risk',
-                updatedAt: best.oddsUpdatedAt || nowTimeStr,
+                updatedAt: best.oddsUpdatedAt || null,
                 rationale: generateRationale(best, it.m, it.an),
                 m: it.m,
                 an: it.an
@@ -1782,7 +1874,7 @@ function buildCoupons(items, model, opts = {}) {
                 ...cand,
                 confidenceLevel: confLabel,
                 riskLevel: cand.p >= 0.30 ? 'Orta-Yüksek Sürpriz Risk (Ters Sonuç)' : 'Yüksek Sürpriz Risk (Sistem 3-4-5 Önerilir)',
-                updatedAt: cand.oddsUpdatedAt || nowTimeStr,
+                updatedAt: cand.oddsUpdatedAt || null,
                 rationale: generateRationale(cand, cand.m, cand.an)
             });
         }
@@ -1817,11 +1909,18 @@ function buildCoupons(items, model, opts = {}) {
         }
     }
 
+    const bankoProbs = banko.map(x => x.p);
+    const bankoCI = computeJointConfidenceInterval(bankoProbs, 20, 1.645);
     const bankoConfidence = banko.length ? Math.round((banko.reduce((s, x) => s + x.p, 0) / banko.length) * 100) : null;
-    const bankoJointConfidence = banko.length ? Math.round(banko.reduce((acc, x) => acc * x.p, 1) * 100) : null;
+    const bankoJointConfidence = bankoCI.jointPct;
     const minBankoPct = banko.length ? Math.round(Math.min(...banko.map(x => x.p)) * 100) : null;
+    const bankoVarLow = bankoCI.lowPct;
+    const bankoVarHigh = bankoCI.highPct;
+
+    const surpProbs = surprise.map(x => x.p);
+    const surpCI = computeJointConfidenceInterval(surpProbs, 20, 1.645);
     const surpAvgLift = surprise.length ? (surprise.reduce((s, x) => s + x.lift, 0) / surprise.length).toFixed(1) : null;
-    const surpJointConfidence = surprise.length ? +(surprise.reduce((acc, x) => acc * x.p, 1) * 100).toFixed(1) : null;
+    const surpJointConfidence = surpCI.jointPct;
     const surpValueBetCount = surprise.filter(x => x.isValueBet).length;
     const surpAvgOdd = surprise.filter(x => x.hasRealOdd).length
         ? +(surprise.filter(x => x.hasRealOdd).reduce((s, x) => s + x.realOdd, 0) / surprise.filter(x => x.hasRealOdd).length).toFixed(2)
@@ -1830,19 +1929,20 @@ function buildCoupons(items, model, opts = {}) {
     // Jack'in Kontrol 4 Tespiti: Sürpriz kupon için Sistem 3-4-5 maliyet ve beklenen getiri simülasyonu
     const systemSimulation = (surprise.length === 5) ? simulateSystem345(surprise, 20) : null;
 
-    // Jack'in Kontrol 1 Tespiti: Kombine olasılığı bağımsızlık varsayımına dayanır; lig/maç kovaryans bandı açıkça belirtilir
-    const bankoVarLow = bankoJointConfidence !== null ? Math.max(8, bankoJointConfidence - 6) : null;
-    const bankoVarHigh = bankoJointConfidence !== null ? Math.min(95, bankoJointConfidence + 5) : null;
+    // Jack'in Kontrol 1 & 4 Tespiti: Kombine olasılığı bağımsızlık varsayımına dayanır; Delta Yöntemi ile asimptotik varyans aralığı hesaplanır
+    const lastBankoOddsUpdate = banko.find(b => b.oddsUpdatedAt)?.oddsUpdatedAt || nowTimeStr;
     const bankoInstruction = banko.length
-        ? `Bu ${banko.length} maçın tekil ortalama güveni %${bankoConfidence} (en düşük %${minBankoPct}). Maçların bağımsızlık varsayımı ile birlikte gelme olasılığı (Kombine: p1×p2×p3×p4) %${bankoJointConfidence} olup, model içi günlük varyans güven bandı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir. Son güncelleme: ${nowTimeStr}.`
-        : 'Şu an bültende kriterlere uygun yaklaşan banko maç bulunamadı.';
+        ? `Bu ${banko.length} maçın tekil ortalama güveni %${bankoConfidence} (en düşük %${minBankoPct}). Maçların bağımsızlık varsayımı ile birlikte gelme olasılığı (Kombine: p1×p2×p3×p4) %${bankoJointConfidence} olup, Delta Yöntemi istatistiksel %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir. Son oran kontrolü: ${lastBankoOddsUpdate}.`
+        : 'Şu an bültende kriterlere uygun (A/B kalite, güncel gerçek oranlı) banko maç bulunamadı.';
 
     const sysTxt = systemSimulation
-        ? ` | [SİSTEM 3-4-5 ANALİZİ: Toplam 16 Kolon • Kupon Maliyeti: ${systemSimulation.totalCost} TL (20 TL/kolon) | En az 3 maçın tutarak kazanç sağlama ihtimali: %${systemSimulation.pAtLeast3WinPct} | Min 3'lü Getiri: ${systemSimulation.min3Payout} TL, 5'li Getiri: ${systemSimulation.all5Payout} TL, Beklenen Geri Dönüş: ${systemSimulation.expectedPayout} TL (Beklenen ROI: +%${systemSimulation.roiPct})]`
+        ? systemSimulation.hasRealOdds
+            ? ` | [SİSTEM 3-4-5 GERÇEK KAZANÇ SİMÜLASYONU: Toplam 16 Kolon • Kupon Maliyeti: ${systemSimulation.totalCost} TL (20 TL/kolon) | En az 3 maçın tutarak kazanç sağlama ihtimali: %${systemSimulation.pAtLeast3WinPct} | Gerçek Oranlarla Min 3'lü Getiri: ${systemSimulation.min3Payout} TL, 5'li Getiri: ${systemSimulation.all5Payout} TL, Beklenen Geri Dönüş: ${systemSimulation.expectedPayout} TL (Beklenen ROI: +%${systemSimulation.roiPct})]`
+            : ` | [SİSTEM 3-4-5 ANALİZİ: Toplam 16 Kolon • Kupon Maliyeti: ${systemSimulation.totalCost} TL | En az 3 maçın tutarak kazanç sağlama ihtimali: %${systemSimulation.pAtLeast3WinPct} | ${systemSimulation.statusMessage}]`
         : '';
 
     const surpInstruction = surprise.length
-        ? `Piyasa favorileri elenerek yüksek oranlı, istatistiksel olarak anlamlı ters sonuçlardan seçilen ${surprise.length} maçın sıklık çarpanı ortalama ${surpAvgLift}x${surpAvgOdd ? ` (Ortalama Gerçek Nesine Oranı: ${surpAvgOdd})` : ''} seviyesindedir (${surpValueBetCount}/${surprise.length} seçimde gerçek Nesine oranı ile pozitif EV / Value Bet doğrulandı; 5'li düz kombine olasılığı %${surpJointConfidence} olduğu için Sistem 3-4-5 önerilir).${sysTxt} Son güncelleme: ${nowTimeStr}.`
+        ? `Piyasa favorileri elenerek yüksek oranlı, istatistiksel olarak anlamlı ters sonuçlardan seçilen ${surprise.length} maçın sıklık çarpanı ortalama ${surpAvgLift}x${surpAvgOdd ? ` (Ortalama Gerçek Nesine Oranı: ${surpAvgOdd})` : ''} seviyesindedir (${surpValueBetCount}/${surprise.length} seçimde gerçek Nesine oranı ile pozitif EV / Value Bet doğrulandı; 5'li düz kombine olasılığı %${surpJointConfidence} [Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}] olduğu için Sistem 3-4-5 önerilir).${sysTxt} Son güncelleme: ${nowTimeStr}.`
         : 'Şu an bültende kriterlere uygun yaklaşan sürpriz maç bulunamadı.';
 
     return {
@@ -1854,7 +1954,7 @@ function buildCoupons(items, model, opts = {}) {
             confidence: bankoConfidence,
             jointConfidence: bankoJointConfidence,
             jointVarianceBand: { low: bankoVarLow, high: bankoVarHigh },
-            updatedAt: nowTimeStr,
+            updatedAt: lastBankoOddsUpdate,
             matches: banko
         },
         surprise: {
@@ -1865,6 +1965,7 @@ function buildCoupons(items, model, opts = {}) {
             avgLift: surpAvgLift,
             avgOdd: surpAvgOdd,
             jointConfidence: surpJointConfidence,
+            jointVarianceBand: { low: surpCI.lowPct, high: surpCI.highPct },
             valueBetCount: surpValueBetCount,
             systemSimulation,
             updatedAt: nowTimeStr,
@@ -1876,7 +1977,7 @@ function buildCoupons(items, model, opts = {}) {
 // ---------------- Jack'in Kontrol 4 Çözümü: Sistem 3-4-5 Kombinatorik Maliyet & Getiri Simülatörü ----------------
 function simulateSystem345(matches, unitPrice = 20) {
     if (matches.length !== 5) return null;
-    const odds = matches.map(m => (m.hasRealOdd && m.realOdd > 1) ? m.realOdd : (m.p > 0 ? +(1 / m.p).toFixed(2) : 2.0));
+    const allHaveRealOdds = matches.every(m => m.hasRealOdd && m.oddsFresh && typeof m.realOdd === 'number' && m.realOdd > 1.01);
     const probs = matches.map(m => m.p);
 
     const comb3 = [];
@@ -1903,6 +2004,42 @@ function simulateSystem345(matches, unitPrice = 20) {
     const totalCost = totalColumns * unitPrice; // 320 TL
 
     let pMin3Win = 0;
+    for (let mask = 0; mask < 32; mask++) {
+        let maskProb = 1;
+        let hits = 0;
+        for (let i = 0; i < 5; i++) {
+            if ((mask & (1 << i)) !== 0) {
+                maskProb *= probs[i];
+                hits++;
+            } else {
+                maskProb *= (1 - probs[i]);
+            }
+        }
+        if (hits >= 3) {
+            pMin3Win += maskProb;
+        }
+    }
+
+    // Jack Kontrol 4: Eksik gerçek oran varsa gerçek kazanç simülasyonu gösterilmez (1/p varsayımsal oranla kazanç hesaplanmaz)
+    if (!allHaveRealOdds) {
+        return {
+            systemName: 'Sistem 3-4-5',
+            totalColumns,
+            unitPrice,
+            totalCost,
+            pAtLeast3WinPct: +(pMin3Win * 100).toFixed(1),
+            hasRealOdds: false,
+            isHypothetical: true,
+            statusMessage: 'Kuponda gerçek/güncel Nesine oranı eksik maçlar bulunduğu için kazanç ve ROI simülasyonu gösterilmez (varsayımsal 1/p oranlarıyla getiri simüle edilmez).',
+            min3Payout: null,
+            max3Payout: null,
+            all5Payout: null,
+            expectedPayout: null,
+            roiPct: null
+        };
+    }
+
+    const odds = matches.map(m => m.realOdd);
     let expectedPayout = 0;
     let min3Payout = Infinity;
     let max3Payout = 0;
@@ -1922,7 +2059,6 @@ function simulateSystem345(matches, unitPrice = 20) {
 
         const hits = won.length;
         if (hits >= 3) {
-            pMin3Win += maskProb;
             let maskPayout = 0;
             for (const c of comb3) {
                 if (c.every(idx => won.includes(idx))) {
@@ -1954,6 +2090,9 @@ function simulateSystem345(matches, unitPrice = 20) {
         unitPrice,
         totalCost,
         pAtLeast3WinPct: +(pMin3Win * 100).toFixed(1),
+        hasRealOdds: true,
+        isHypothetical: false,
+        statusMessage: 'Tüm oranlar güncel gerçek Nesine oranlarıyla doğrulandı.',
         min3Payout: +min3Payout.toFixed(0),
         max3Payout: +max3Payout.toFixed(0),
         all5Payout: +all5Payout.toFixed(0),
@@ -2003,13 +2142,16 @@ function selectTopPreMatchPick(m, an) {
 
     const top = cands[0];
     if (!top) return null;
-    const hasRealOdd = Boolean(m.odds && typeof m.odds[top.key] === 'number' && m.odds[top.key] > 1.01);
+    // Jack Kontrol 5: oddsFresh kontrolü zorunludur; bayat/yenilenemeyen oranlar tabloya ve EV'ye yazılamaz!
+    const isOddsFresh = Boolean(m.oddsFresh);
+    const hasRealOdd = Boolean(isOddsFresh && m.odds && typeof m.odds[top.key] === 'number' && m.odds[top.key] > 1.01);
     const realOdd = hasRealOdd ? +m.odds[top.key].toFixed(2) : null;
-    const { evPct } = hasRealOdd ? computeExpectedValue(top.p, realOdd) : { evPct: null };
+    const { evPct } = hasRealOdd ? computeExpectedValue(top.p, realOdd, top.key, m.odds) : { evPct: null };
     return {
         ...top,
         hasRealOdd,
         realOdd,
+        oddsFresh: isOddsFresh,
         oddsUpdatedAt: hasRealOdd ? (m.oddsUpdatedAt || null) : null,
         evPct
     };
@@ -2310,7 +2452,12 @@ module.exports = {
     qualifies,
     generateRationale,
     isMainstreamMatch,
-    evaluateModelPerformance
+    evaluateModelPerformance,
+    selectTopPreMatchPick,
+    simulateSystem345,
+    computeJointConfidenceInterval,
+    MARKET_COMPANIONS,
+    isModelPerformanceVerified
 };
 
 
