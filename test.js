@@ -1,13 +1,13 @@
 /**
- * Yusuf AI - Kapsamlı Otomatik Test Paketi (Jack'in İnceleme Denetimleri)
+ * Yusuf AI - Kapsamlı Otomatik Test Paketi (Jack'in İnceleme Denetimleri v2)
  * 
- * 1. Mackolik veri kaynağı doğrulama: Boş/hatalı yanıtın (null) ile boş günün ([]) ayrımı (mackolik.js)
- * 2. getDay önbellek davranışı: Veri kaynağı çöktüğünde maçların korunması ve bayat oranların iptali (mackolik.js)
- * 3. EV hesabında 1.08 varsayımının tamamen kaldırılması; tamamlayıcı oran yoksa EV iptali (engine.js)
- * 4. Model doğrulama eşiği: En az 50 maç, %70+ başarı, Brier Score <= 0.220 ve Log Loss kontrolü (engine.js)
- * 5. Delta Yöntemi varyansının gerçek model test örnekleminden (nEff) doğrulanması (engine.js)
- * 6. Banko kuponu kalite barajı (A/B şartı, C reddi, taze oran şartı) (engine.js)
- * 7. Sürpriz kupon Sistem 3-4-5 getiri güvenliği (1/p varsayımsal getiri engeli) (engine.js)
+ * 1. Mackolik veri kaynağı doğrulama: Boş/hatalı yanıtın (null) ile meşru boş günün ([]) ayrımı (mackolik.js)
+ * 2. getDay önbellek davranışı: Gerçek enjekte fetch fonksiyonuyla bayat oranların anında boşaltılması (mackolik.js)
+ * 3. Çapraz pazar marj sızıntısı engeli ve EV hesaplama güvenliği (engine.js)
+ * 4. İzole sentetik test fixture'ları ile model doğrulama eşiği (N>=50, hitRate>=70%, Brier<=0.220, LogLoss<=1.150) (engine.js)
+ * 5. Delta Yöntemi varyans aralığı, N>=50 ampirik doğrulama şartı ve yetersiz örneklem dürüstlüğü (engine.js)
+ * 6. Banko kuponu kalite/tazelik barajı, "Bilinmiyor" zaman damgası ve yanıltıcı ifade engeli (engine.js)
+ * 7. Sürpriz kupon Sistem 3-4-5 getiri simülasyonu ve eksik oran kalkanı (engine.js)
  * 8. Maç öncesi tahmin kilitlemede oddsFresh kontrolü (engine.js)
  */
 
@@ -31,17 +31,37 @@ async function it(name, fn) {
     }
 }
 
+// Jack Kontrol 4: Testler yerel diskteki prediction_test_table.json dosyasına bağımlı olamaz!
+// İzole, taşınabilir ve sıfır disk durumunda da çalışan sentetik test tabloları:
+const mockVerifiedTable = {
+    walkForwardRecords: Array.from({ length: 60 }, (_, i) => ({
+        id: `mock_v_${i}`,
+        won: i < 45, // 45 / 60 = %75.0 (>= %70)
+        brier: 0.190, // <= 0.220
+        logLoss: 0.550 // <= 1.150
+    }))
+};
+
+const mockUnverifiedTable = {
+    walkForwardRecords: Array.from({ length: 35 }, (_, i) => ({
+        id: `mock_u_${i}`,
+        won: i < 28, // %80.0 başarı fakat N=35 (< 50)
+        brier: 0.185,
+        logLoss: 0.520
+    }))
+};
+
 async function runTests() {
     console.log('================================================================');
-    console.log('  Yusuf AI - Jack & Fox Kapsamlı Teknik Denetim Testleri');
+    console.log('  Yusuf AI - Jack & Fox Kapsamlı Teknik Denetim Testleri (v2)');
     console.log('================================================================\n');
 
     // ----------------------------------------------------
-    // TEST GRUBU 1: Mackolik Veri Doğrulaması & Şema Kontrolü (mackolik.js)
+    // TEST GRUBU 1: Mackolik Veri Doğrulaması & Şema Ayrımı (mackolik.js)
     // ----------------------------------------------------
     console.log('--- TEST 1: Mackolik Veri Doğrulaması & Şema Ayrımı (mackolik.js) ---');
 
-    await it('1.1: Boş veya yalnızca boşluk yanıt geldiğinde rawFetch null hata sonucu dönmeli (boş liste [] sanılmamalı)', async () => {
+    await it('1.1: Boş veya yalnızca boşluk yanıt geldiğinde rawFetch null hata sonucu dönmeli', async () => {
         const mockEmptyFetch = async () => ({ ok: true, text: async () => '   ' });
         const res = await mackolik.rawFetch('2026-10-18', mockEmptyFetch);
         assert.strictEqual(res, null, 'Boş yanıt null dönmeli, [] dönerek maçları silmemeli');
@@ -77,15 +97,15 @@ async function runTests() {
     });
 
     // ----------------------------------------------------
-    // TEST GRUBU 2: getDay Önbellek Davranışı & Bayat Oran İptali
+    // TEST GRUBU 2: getDay Önbellek Davranışı & Doğrudan Fonksiyon Sınaması (mackolik.js)
     // ----------------------------------------------------
-    console.log('\n--- TEST 2: getDay Önbellek Davranışı & Bayat Oran İptali (mackolik.js) ---');
+    console.log('\n--- TEST 2: getDay Önbellek Davranışı & Doğrudan Kod Sınaması (mackolik.js) ---');
 
-    await it('2.1: getDay veri kaynağına ulaşılamadığında (rows=null) maçları korumalı, bayat oranları derhal boşaltmalı', async () => {
+    await it('2.1: getDay fonksiyonuna sahte failingFetch enjekte edildiğinde (rows=null) maçları korumalı ve bayat oranları derhal boşaltmalı', async () => {
         const todayIso = mackolik.trToday();
         // Belleğe canlı oranı olan bir test maçı kaydedelim
         mackolik.memCache.set(todayIso, {
-            t: Date.now() - 100000, // ttl dolmuş olsun
+            t: Date.now() - 100000,
             matches: [
                 {
                     id: 777777,
@@ -99,48 +119,41 @@ async function runTests() {
             ]
         });
 
-        // rawFetch başarısız olsun (null dönsün)
-        const cachedMatches = mackolik.memCache.get(todayIso).matches;
-        // getDay satır 377-387 mantığını doğrudan test et:
-        const sanitized = cachedMatches.map(m => ({
-            ...m,
-            oddsFresh: false,
-            odds: {},
-            oddsUpdatedAt: m.oddsUpdatedAt,
-            oddsAgeSeconds: null
-        }));
+        // Jack Kontrol 3 Düzeltmesi: getDay() fonksiyonunu doğrudan sahte bağlantı hatası ile çalıştırıyoruz!
+        const failingFetch = async () => ({ ok: false, status: 503, text: async () => 'Service Unavailable' });
+        const result = await mackolik.getDay(todayIso, failingFetch);
 
-        assert.strictEqual(sanitized[0].oddsFresh, false, 'Kaynak yenilenemeyince oddsFresh=false olmalı');
-        assert.deepStrictEqual(sanitized[0].odds, {}, 'Kaynak yenilenemeyince oranlar boşaltılmalı');
-        assert.strictEqual(sanitized[0].oddsUpdatedAt, '16:00:00', 'Son güncelleme zamanı korunmalı');
+        assert.ok(Array.isArray(result) && result.length === 1, 'Maç listesi silinmemeli, korunmalı');
+        assert.strictEqual(result[0].id, 777777);
+        assert.strictEqual(result[0].home, 'Takım A');
+        assert.strictEqual(result[0].oddsFresh, false, 'Kaynak yenilenemeyince oddsFresh=false olmalı');
+        assert.deepStrictEqual(result[0].odds, {}, 'Kaynak yenilenemeyince bayat oranlar derhal boşaltılmalı');
+        assert.strictEqual(result[0].oddsUpdatedAt, '16:00:00', 'Son güncelleme zamanı korunmalı');
     });
 
     // ----------------------------------------------------
-    // TEST GRUBU 3: EV Hesabında 1.08 Varsayımının Kaldırılması (engine.js)
+    // TEST GRUBU 3: EV Hesabında Çapraz Pazar Marj Sızıntısının Engellenmesi (engine.js)
     // ----------------------------------------------------
-    console.log('\n--- TEST 3: EV Hesabında 1.08 Varsayımının Kaldırılması (engine.js) ---');
+    console.log('\n--- TEST 3: EV Hesabında Çapraz Pazar Marj Sızıntısı & Overround (engine.js) ---');
 
-    await it('3.1: Tamamlayıcı pazar oranları yoksa (tekil oran verilmişse) EV HESAPLANMAMALI (ev: null dönmeli)', async () => {
-        // Sadece MS1 oranı var, MSX ve MS2 yok; Alt/Üst de yok
+    await it('3.1: Tamamlayıcı pazar oranları yoksa EV HESAPLANMAMALI (ev: null dönmeli, 1.08 uydurulmamalı)', () => {
         const incompleteOdds = { ms1: 2.10 };
         const res = engine.computeExpectedValue(0.55, 2.10, 'ms1', incompleteOdds);
 
-        assert.strictEqual(res.ev, null, 'Tamamlayıcı oran yoksa ev null olmalı (1.08 uydurulmamalı)');
-        assert.strictEqual(res.evPct, null, 'evPct null olmalı');
-        assert.strictEqual(res.calibratedProb, null, 'calibratedProb null olmalı');
-        assert.strictEqual(res.overround, null, 'overround null olmalı');
-        assert.ok(typeof res.rawEvPct === 'number', 'Ham EV referans olarak kalabilir');
+        assert.strictEqual(res.ev, null, 'Tamamlayıcı oran yoksa ev null olmalı');
+        assert.strictEqual(res.evPct, null);
+        assert.strictEqual(res.calibratedProb, null);
+        assert.strictEqual(res.overround, null);
     });
 
     await it('3.2: 1X2 pazarında 3 oran da varsa tam overround S = sum(1/O) hesaplanıp EV üretilmeli', () => {
         const fullOdds = { ms1: 2.00, msx: 3.30, ms2: 3.60 };
-        // S = 1/2.00 + 1/3.30 + 1/3.60 = 0.50 + 0.3030 + 0.2778 = 1.0808
         const res = engine.computeExpectedValue(0.56, 2.00, 'ms1', fullOdds);
 
         const expectedS = +((1 / 2.00) + (1 / 3.30) + (1 / 3.60)).toFixed(4);
         assert.strictEqual(res.overround, expectedS, `Overround tam 3 oranın toplamı olmalı: ${expectedS}`);
         assert.ok(res.ev !== null, 'Tüm oranlar varken EV hesaplanmalı');
-        assert.ok(res.calibratedProb !== null, 'Kalibre olasılık hesaplanmalı');
+        assert.ok(res.calibratedProb !== null);
     });
 
     await it('3.3: 2.5 Alt/Üst pazarında 2 oran varsa overround tam sum(1/alt + 1/ust) hesaplanmalı', () => {
@@ -148,51 +161,78 @@ async function runTests() {
         const res = engine.computeExpectedValue(0.58, 1.95, 'ust25', ouOdds);
 
         const expectedS = +((1 / 1.85) + (1 / 1.95)).toFixed(4);
-        assert.strictEqual(res.overround, expectedS, `Overround tam 2 oranın toplamı olmalı: ${expectedS}`);
+        assert.strictEqual(res.overround, expectedS);
         assert.ok(res.ev !== null);
     });
 
-    // ----------------------------------------------------
-    // TEST GRUBU 4: Model Doğrulama Eşiği & Brier / Log Loss Kontrolü
-    // ----------------------------------------------------
-    console.log('\n--- TEST 4: Model Doğrulama Eşiği (N>=50, Brier, Log Loss) (engine.js) ---');
+    await it('3.4: Jack Kontrol 1: Pazar tamamlayıcıları eksikse (örn. ev_ust05 tekil veya ust25 için alt25 yoksa) 1X2 marjı ASLA çapraz ödünç alınmamalı, EV null dönmeli', () => {
+        // Durum A: ev_ust05 tekil prop; bültende 1X2 var ama ev_ust05 tamamlayıcısı yok
+        const crossOddsA = { ev_ust05: 1.45, ms1: 2.10, msx: 3.30, ms2: 3.60 };
+        const resA = engine.computeExpectedValue(0.75, 1.45, 'ev_ust05', crossOddsA);
+        assert.strictEqual(resA.ev, null, 'Farklı pazarın (1X2) marjı ev_ust05 pazarına çapraz uygulanamaz');
+        assert.strictEqual(resA.overround, null);
 
-    await it('4.1: getModelVerificationMetrics fonksiyonu doğrulanmış metrikleri raporlamalı', () => {
-        const metrics = engine.getModelVerificationMetrics();
-        assert.ok(typeof metrics === 'object', 'Metrik nesnesi dönmeli');
-        assert.ok('isVerified' in metrics, 'isVerified alanı bulunmalı');
-        assert.ok('sampleCount' in metrics, 'sampleCount alanı bulunmalı');
-        assert.ok('hitRatePct' in metrics, 'hitRatePct alanı bulunmalı');
-        assert.ok('brierScore' in metrics, 'brierScore alanı bulunmalı');
-        assert.ok('logLoss' in metrics, 'logLoss alanı bulunmalı');
-        assert.ok('nEff' in metrics, 'nEff alanı bulunmalı');
-    });
-
-    await it('4.2: Model doğrulama eşiği: Gerçek geçmiş veride 198 maç, %75.8 başarı ve Brier 0.208 ile model doğrulanmış olmalı', () => {
-        const metrics = engine.getModelVerificationMetrics();
-        assert.ok(metrics.sampleCount >= 50, `Örneklem en az 50 olmalı (Mevcut: ${metrics.sampleCount})`);
-        assert.ok(metrics.hitRatePct >= 70.0, `Başarı oranı en az %70 olmalı (Mevcut: %${metrics.hitRatePct})`);
-        assert.ok(metrics.brierScore !== null && metrics.brierScore <= 0.220, `Brier Score <= 0.220 olmalı (Mevcut: ${metrics.brierScore})`);
-        assert.strictEqual(metrics.isVerified, true, 'Tüm katı kriterleri karşılayan model doğrulanmış sayılmalı');
+        // Durum B: ust25 var, 1X2 oranları tam var, fakat alt25 eksik
+        const crossOddsB = { ust25: 1.85, ms1: 2.10, msx: 3.30, ms2: 3.60 };
+        const resB = engine.computeExpectedValue(0.60, 1.85, 'ust25', crossOddsB);
+        assert.strictEqual(resB.ev, null, 'Hedef pazarın (2.5 Üst) kendi tamamlayıcısı (2.5 Alt) yoksa 1X2 marjı ödünç alınamaz');
+        assert.strictEqual(resB.overround, null);
     });
 
     // ----------------------------------------------------
-    // TEST GRUBU 5: Delta Yöntemi Güven Aralığı ve nEff Doğrulaması
+    // TEST GRUBU 4: Sentetik Fixture ile Model Doğrulama Eşiği (N>=50, Brier, Log Loss)
     // ----------------------------------------------------
-    console.log('\n--- TEST 5: Delta Yöntemi ve Gerçek Örneklem (nEff) Doğrulaması (engine.js) ---');
+    console.log('\n--- TEST 4: Model Doğrulama Eşiği & İzole Sentetik Fixture (engine.js) ---');
 
-    await it('5.1: computeJointConfidenceInterval nEff belirtilmediğinde gerçek test örneklem sayısını (N=198) kullanmalı', () => {
+    await it('4.1: getModelVerificationMetrics metrik nesnesi doğru şemayı sağlamalı', () => {
+        const metrics = engine.getModelVerificationMetrics(mockVerifiedTable);
+        assert.strictEqual(typeof metrics, 'object');
+        assert.strictEqual(metrics.sampleCount, 60);
+        assert.strictEqual(metrics.hitRatePct, 75.0);
+        assert.strictEqual(metrics.brierScore, 0.190);
+        assert.strictEqual(metrics.logLoss, 0.550);
+        assert.strictEqual(metrics.isVerified, true);
+    });
+
+    await it('4.2: N>=50, %70+ başarı, Brier<=0.220 ve LogLoss<=1.150 şartlarını sağlayan sentetik fixture doğrulanmalı', () => {
+        const metrics = engine.getModelVerificationMetrics(mockVerifiedTable);
+        assert.strictEqual(metrics.isVerified, true, 'Kriterleri sağlayan model doğrulanmış olmalı');
+        assert.ok(metrics.reason.includes('başarıyla doğrulandı'));
+    });
+
+    await it('4.3: Jack Kontrol 4: N=35 (<50) olan yetersiz örneklem yüksek başarıya sahip olsa dahi DOĞRULANMAMIŞ (isVerified=false) sayılmalı', () => {
+        const metrics = engine.getModelVerificationMetrics(mockUnverifiedTable);
+        assert.strictEqual(metrics.sampleCount, 35);
+        assert.strictEqual(metrics.isVerified, false, 'N < 50 iken model asla doğrulanmış sayılamaz');
+        assert.ok(metrics.reason.includes('Yetersiz geçmiş örneklem'));
+    });
+
+    // ----------------------------------------------------
+    // TEST GRUBU 5: Delta Yöntemi Güven Aralığı ve Örneklem Boyutu
+    // ----------------------------------------------------
+    console.log('\n--- TEST 5: Delta Yöntemi ve Güven Aralığı Doğrulaması (engine.js) ---');
+
+    await it('5.1: computeJointConfidenceInterval doğrulanmış fixture ile N=60 derinliğini ve ampirik durumu (isEmpirical=true) yansıtmalı', () => {
         const probs = [0.85, 0.87, 0.88, 0.83];
-        const ci = engine.computeJointConfidenceInterval(probs);
+        const ci = engine.computeJointConfidenceInterval(probs, null, 1.645, mockVerifiedTable);
 
-        assert.strictEqual(ci.jointPct, 54.0, 'Ortak olasılık %54.0');
-        assert.ok(ci.nEff >= 50, `nEff gerçek model test örnekleminden gelmeli (nEff=${ci.nEff})`);
-        assert.strictEqual(ci.isEmpirical, true, 'isEmpirical true olmalı');
-        assert.ok(ci.lowPct < ci.jointPct, `Alt sınır küçük olmalı: ${ci.lowPct} < ${ci.jointPct}`);
-        assert.ok(ci.highPct > ci.jointPct, `Üst sınır büyük olmalı: ${ci.highPct} > ${ci.jointPct}`);
+        assert.strictEqual(ci.jointPct, 54.0);
+        assert.strictEqual(ci.nEff, 60);
+        assert.strictEqual(ci.isEmpirical, true);
+        assert.ok(ci.lowPct < ci.jointPct);
+        assert.ok(ci.highPct > ci.jointPct);
     });
 
-    await it('5.2: Örneklem büyüklüğü (nEff) arttıkça Delta Yöntemi varyans aralığının daraldığı kanıtlanmalı', () => {
+    await it('5.2: Jack Kontrol 2: Örneklem N<50 olduğunda isEmpirical=false dönmeli ve dürüst gerekçe üretilmeli', () => {
+        const probs = [0.85, 0.87, 0.88, 0.83];
+        const ci = engine.computeJointConfidenceInterval(probs, null, 1.645, mockUnverifiedTable);
+
+        assert.strictEqual(ci.nEff, 35);
+        assert.strictEqual(ci.isEmpirical, false, 'N < 50 iken isEmpirical false olmalı');
+        assert.ok(ci.verificationReason.includes('Yetersiz'));
+    });
+
+    await it('5.3: Örneklem büyüklüğü (nEff) arttıkça Delta Yöntemi varyans aralığının daraldığı kanıtlanmalı', () => {
         const probs = [0.85, 0.85, 0.85, 0.85];
         const ciSmall = engine.computeJointConfidenceInterval(probs, 20);
         const ciLarge = engine.computeJointConfidenceInterval(probs, 200);
@@ -203,9 +243,9 @@ async function runTests() {
     });
 
     // ----------------------------------------------------
-    // TEST GRUBU 6: Banko Kuponu Kalite ve Oran Güvenliği
+    // TEST GRUBU 6: Banko Kuponu Kalite, Zaman Damgası & Açıklama Güvenliği
     // ----------------------------------------------------
-    console.log('\n--- TEST 6: Banko Kuponu Kalite ve Güvenlik Barajı (engine.js) ---');
+    console.log('\n--- TEST 6: Banko Kuponu Kalite, Zaman Damgası & Açıklama Güvenliği (engine.js) ---');
 
     await it('6.1: C kalite maçlar banko kuponuna ASLA giremez', () => {
         const cMatches = [
@@ -229,6 +269,41 @@ async function runTests() {
         assert.strictEqual(coupons.banko.matches.length, 0, 'Oranı taze olmayan maç bankoya giremez');
     });
 
+    await it('6.3: Jack Kontrol 5: Oran güncelleme saati yoksa sistem saati uydurulmamalı, Bilinmiyor dönmeli', () => {
+        const matchesNoTimestamp = [
+            {
+                m: { id: 201, home: 'Real Madrid', away: 'Mallorca', oddsFresh: true, odds: { ms1: 1.35, msx: 4.50, ms2: 8.00 }, mbs: 1, inBulletin: true, state: 'pre' },
+                an: { quality: 'A', p: { ms1: 0.88 } }
+            },
+            {
+                m: { id: 202, home: 'Barcelona', away: 'Getafe', oddsFresh: true, odds: { ms1: 1.30, msx: 4.80, ms2: 9.00 }, mbs: 1, inBulletin: true, state: 'pre' },
+                an: { quality: 'A', p: { ms1: 0.89 } }
+            }
+        ];
+        const coupons = engine.buildCoupons(matchesNoTimestamp, {}, { bankoN: 2, customTable: mockVerifiedTable });
+        assert.strictEqual(coupons.banko.updatedAt, 'Bilinmiyor', 'Güncelleme saati yoksa Bilinmiyor olmalı');
+        assert.ok(coupons.banko.instruction.includes('Son oran kontrolü: Bilinmiyor'));
+    });
+
+    await it('6.4: Jack Kontrol 2: isEmpirical=false olduğunda kupon açıklaması yanıltıcı doğrulanmış ifadesi içermemeli, teorik ve yetersiz örneklem uyarısı taşımalı', () => {
+        const matches = [
+            {
+                m: { id: 301, home: 'PSG', away: 'Metz', oddsFresh: true, odds: { ms1: 1.25, msx: 5.50, ms2: 11.00 }, oddsUpdatedAt: '18:45:00', mbs: 1, inBulletin: true, state: 'pre' },
+                an: { quality: 'A', p: { ms1: 0.88 } }
+            },
+            {
+                m: { id: 302, home: 'Bayern', away: 'Bochum', oddsFresh: true, odds: { ms1: 1.20, msx: 6.00, ms2: 13.00 }, oddsUpdatedAt: '18:45:00', mbs: 1, inBulletin: true, state: 'pre' },
+                an: { quality: 'A', p: { ms1: 0.90 } }
+            }
+        ];
+        const coupons = engine.buildCoupons(matches, {}, { bankoN: 2, customTable: mockUnverifiedTable });
+        assert.strictEqual(coupons.banko.updatedAt, '18:45:00');
+        assert.ok(coupons.banko.instruction.includes('teorik %90 güven aralığı'), 'Doğrulanmamış kuponda teorik aralık belirtilmeli');
+        assert.ok(coupons.banko.instruction.includes('Yetersiz geçmiş örneklem'), 'Yetersiz örneklem açıkça söylenmeli');
+        assert.ok(coupons.banko.instruction.includes('kesin başarı garantisi taşımaz'), 'Kesin garanti taşımadığı açıkça yazmalı');
+        assert.strictEqual(coupons.banko.instruction.includes('maçla kalibre edildi'), false, 'Yetersiz örneklemde kalibre edildi denilemez');
+    });
+
     // ----------------------------------------------------
     // TEST GRUBU 7: Sürpriz Kupon Sistem 3-4-5 Güvenliği
     // ----------------------------------------------------
@@ -239,7 +314,7 @@ async function runTests() {
             { key: 'msx', p: 0.35, hasRealOdd: true, realOdd: 3.20, oddsFresh: true },
             { key: 'ms2', p: 0.30, hasRealOdd: true, realOdd: 3.40, oddsFresh: true },
             { key: 'ust35', p: 0.32, hasRealOdd: true, realOdd: 3.10, oddsFresh: true },
-            { key: 'kgv', p: 0.40, hasRealOdd: false, realOdd: null, oddsFresh: false }, // Eksik!
+            { key: 'kgv', p: 0.40, hasRealOdd: false, realOdd: null, oddsFresh: false },
             { key: 'dcx2', p: 0.38, hasRealOdd: true, realOdd: 2.30, oddsFresh: true }
         ];
 

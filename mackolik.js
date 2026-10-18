@@ -360,12 +360,12 @@ function parseRow(r, idx = 999) {
 }
 
 const memCache = new Map();
-async function getDay(iso) {
+async function getDay(iso, customFetch = null) {
     const today = trToday();
     const file = path.join(DAY_DIR, iso + '.json');
     const mem = memCache.get(iso);
     const ttl = iso === today ? 45e3 : iso > today ? 90e3 : 30 * 60e3;
-    if (mem && Date.now() - mem.t < ttl) {
+    if (mem && Date.now() - mem.t < ttl && !customFetch) {
         // Bugün/yarın için önbellekteki maçların oran tazeliğini kontrol et
         if (iso < today || (nesineCache.isFresh && Date.now() - nesineCache.t < NESINE_TTL_MS)) {
             return mem.matches;
@@ -373,7 +373,7 @@ async function getDay(iso) {
     }
 
     // 3+ gün öncesi artık değişmez: diskten kalıcı oku
-    if (iso < addDays(today, -3) && fs.existsSync(file)) {
+    if (iso < addDays(today, -3) && fs.existsSync(file) && !customFetch) {
         try {
             const c = JSON.parse(fs.readFileSync(file, 'utf8'));
             if (Array.isArray(c) && (c.length === 0 || 'mbs' in c[0])) {
@@ -384,7 +384,7 @@ async function getDay(iso) {
     }
 
     const [rows, nesineMap] = await Promise.all([
-        rawFetch(iso),
+        rawFetch(iso, customFetch),
         iso >= today ? getNesineOddsMap() : Promise.resolve(new Map())
     ]);
     if (rows === null) {

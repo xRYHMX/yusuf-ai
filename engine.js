@@ -1321,17 +1321,13 @@ function computeExpectedValue(modelProb, realOdd, marketKey = null, matchOdds = 
     const rawEv = (p * odd) - 1;
     const rawEvPct = +(rawEv * 100).toFixed(1);
 
-    // Jack Kontrol 2: Sabit 1.07 veya varsayılan 1.08 yerine gerçek pazar marjı (vig-free overround) aranır:
-    // 1X2'de sum(1/ms1 + 1/msx + 1/ms2), Alt/Üst'te sum(1/alt + 1/ust), KG'de sum(1/kgv + 1/kgy)
+    // Jack Kontrol 1: Her pazar için yalnızca kendi tamamlayıcı oranları aranır.
+    // Başka bir pazarın (ör. 1X2 veya 2.5 Alt/Üst) marjı ASLA başka bir pazara çapraz uygulanamaz!
     let overround = null;
-    if (matchOdds && typeof matchOdds === 'object') {
-        const companions = marketKey ? MARKET_COMPANIONS[marketKey] : null;
-        if (companions && companions.every(k => typeof matchOdds[k] === 'number' && matchOdds[k] > 1.01)) {
+    if (matchOdds && typeof matchOdds === 'object' && marketKey) {
+        const companions = MARKET_COMPANIONS[marketKey];
+        if (companions && companions.length >= 2 && companions.every(k => typeof matchOdds[k] === 'number' && matchOdds[k] > 1.01)) {
             overround = companions.reduce((sum, k) => sum + (1 / matchOdds[k]), 0);
-        } else if (matchOdds.ms1 > 1.01 && matchOdds.msx > 1.01 && matchOdds.ms2 > 1.01) {
-            overround = (1 / matchOdds.ms1) + (1 / matchOdds.msx) + (1 / matchOdds.ms2);
-        } else if (matchOdds.alt25 > 1.01 && matchOdds.ust25 > 1.01) {
-            overround = (1 / matchOdds.alt25) + (1 / matchOdds.ust25);
         }
     }
 
@@ -1427,7 +1423,11 @@ function qualifies(match, an, minQ = 'B') {
 }
 
 function generateRationale(pk, m, an) {
-    const totG = (an.lh + an.la).toFixed(2);
+    const lhNum = (typeof an.lh === 'number' && isFinite(an.lh)) ? an.lh : 1.45;
+    const laNum = (typeof an.la === 'number' && isFinite(an.la)) ? an.la : 1.15;
+    const totG = (lhNum + laNum).toFixed(2);
+    const lhStr = lhNum.toFixed(2);
+    const laStr = laNum.toFixed(2);
     const pStr = '%' + (pk.p * 100).toFixed(0);
     const liftStr = pk.lift ? pk.lift.toFixed(1) + ' kat' : '';
 
@@ -1480,17 +1480,17 @@ function generateRationale(pk, m, an) {
     if (pk.key === 'ms1_kgv' || pk.key === 'ms2_kgv') {
         const side = pk.key === 'ms1_kgv' ? m.home : m.away;
         const other = pk.key === 'ms1_kgv' ? m.away : m.home;
-        return `${contrarianPrefix}${side} hücum üretimiyle skoru lehine çevirmeye aday (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG), ancak ${other} da gol bulabilecek istatistiğe sahip (2-1 / 3-1 senaryosu, ${pStr} olasılık, ${liftStr} sıklık çarpanı).${tailNotes}`;
+        return `${contrarianPrefix}${side} hücum üretimiyle skoru lehine çevirmeye aday (${lhStr} - ${laStr} xG), ancak ${other} da gol bulabilecek istatistiğe sahip (2-1 / 3-1 senaryosu, ${pStr} olasılık, ${liftStr} sıklık çarpanı).${tailNotes}`;
     }
     if (pk.key === 'msx_kgv') {
-        return `${contrarianPrefix}İki takımın hücum ve savunma dengesi birbirine çok yakın (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Gollü beraberlik (1-1 / 2-2) senaryosu normalin ${liftStr} üzerinde (${pStr} olasılık).${tailNotes}`;
+        return `${contrarianPrefix}İki takımın hücum ve savunma dengesi birbirine çok yakın (${lhStr} - ${laStr} xG). Gollü beraberlik (1-1 / 2-2) senaryosu normalin ${liftStr} üzerinde (${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'ms1_ust25' || pk.key === 'ms2_ust25') {
         const side = pk.key === 'ms1_ust25' ? m.home : m.away;
         return `${contrarianPrefix}${side} yüksek hücum temposuyla maçı üst barajına taşıyarak kazanmaya aday (Toplam ${totG} xG, ${pStr} olasılık, ${liftStr} sıklık çarpanı).${tailNotes}`;
     }
     if (pk.key === 'ust25_kgv') {
-        return `${contrarianPrefix}İki takım da açık futbol oynuyor (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}, toplam ${totG} xG). Hem KG Var hem 2,5 Üst birleşimi ${pStr} olasılıkla öne çıkıyor.${tailNotes}`;
+        return `${contrarianPrefix}İki takım da açık futbol oynuyor (Ev ${lhStr} - Dep ${laStr}, toplam ${totG} xG). Hem KG Var hem 2,5 Üst birleşimi ${pStr} olasılıkla öne çıkıyor.${tailNotes}`;
     }
     if (pk.key === 'iykgv') {
         return `${contrarianPrefix}Her iki takım da maça hızlı başlayan ve ilk yarılarda açık veren karakterde. İlk yarıdan karşılıklı gol (İY KG Var) olasılığı ${pStr} (normalin ${liftStr} üzerinde).${tailNotes}`;
@@ -1519,7 +1519,7 @@ function generateRationale(pk, m, an) {
         return `${contrarianPrefix}Bağımsız Dixon-Coles skor matrisinde ${sc} maç skoru yüksek oranlı hedef olarak öne çıkıyor (${pStr} olasılık, ${liftStr} çarpan).${tailNotes}`;
     }
     if (pk.key === 'ust15') {
-        return `Bağımsız xG modeli toplam ${totG} gol (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}) hesapladı (${pStr} güven, İstikrar: %${an.avgConsistency || 75}).${tailNotes}`;
+        return `Bağımsız xG modeli toplam ${totG} gol (Ev ${lhStr} - Dep ${laStr}) hesapladı (${pStr} güven, İstikrar: %${an.avgConsistency || 75}).${tailNotes}`;
     }
     if (pk.key === 'iyust05') {
         return `İlk yarı gol temposu yüksek; model devre bitmeden en az 1 gol olasılığını ${pStr} olarak hesapladı (İstikrar: %${an.avgConsistency || 75}).${tailNotes}`;
@@ -1531,22 +1531,22 @@ function generateRationale(pk, m, an) {
         return `Yüksek hücum temposu; ${totG} beklenen gol ile model ${pStr} olasılıkla 2,5 Üst öngörüyor.${tailNotes}`;
     }
     if (pk.key === 'kgv') {
-        return `Ev (${an.lh.toFixed(2)} xG) ve deplasman (${an.la.toFixed(2)} xG) karşılıklı üretime çok uygun (${pStr} güven).${tailNotes}`;
+        return `Ev (${lhStr} xG) ve deplasman (${laStr} xG) karşılıklı üretime çok uygun (${pStr} güven).${tailNotes}`;
     }
     if (pk.key === 'dc1x') {
-        return `${contrarianPrefix}${m.home} iç saha direnci ve form ivmesiyle puan çıkarmaya çok yakın (${an.lh.toFixed(2)} xG, ${pStr} olasılık).${tailNotes}`;
+        return `${contrarianPrefix}${m.home} iç saha direnci ve form ivmesiyle puan çıkarmaya çok yakın (${lhStr} xG, ${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'dcx2') {
-        return `${contrarianPrefix}${m.away} deplasman performansı ve form ivmesiyle yenilmemeye aday (${an.la.toFixed(2)} xG, ${pStr} olasılık).${tailNotes}`;
+        return `${contrarianPrefix}${m.away} deplasman performansı ve form ivmesiyle yenilmemeye aday (${laStr} xG, ${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'ms1') {
-        return `${contrarianPrefix}${m.home} iç saha gücü ve form ivmesiyle öne çıkıyor (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG, ${pStr} olasılık).${tailNotes}`;
+        return `${contrarianPrefix}${m.home} iç saha gücü ve form ivmesiyle öne çıkıyor (${lhStr} - ${laStr} xG, ${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'ms2') {
-        return `${contrarianPrefix}${m.away} deplasman karnesi ve hücum kalitesiyle öne çıkıyor (${an.la.toFixed(2)} xG, ${pStr} olasılık).${tailNotes}`;
+        return `${contrarianPrefix}${m.away} deplasman karnesi ve hücum kalitesiyle öne çıkıyor (${laStr} xG, ${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'msx') {
-        return `${contrarianPrefix}İki takımın iç/dış saha güçleri dengeli (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Beraberlik olasılığı ${pStr} (${liftStr} çarpan).${tailNotes}`;
+        return `${contrarianPrefix}İki takımın iç/dış saha güçleri dengeli (${lhStr} - ${laStr} xG). Beraberlik olasılığı ${pStr} (${liftStr} çarpan).${tailNotes}`;
     }
     if (pk.key.startsWith('iy1') || pk.key.startsWith('iy2')) {
         const team = pk.key === 'iy1' ? m.home : m.away;
@@ -1738,17 +1738,27 @@ function scoreSurpriseCandidate(pk, m, an, model) {
 // J = prod(p_i) için Delta Yöntemi: Var(ln J) = sum((1 - p_i) / (n_eff * p_i))
 // Z = 1.645 (%90 Güven Aralığı): J_low = J * exp(-Z * SE), J_high = J * exp(+Z * SE)
 // Jack Kontrol 3: n_eff sabit 20 değil, modelin gerçek doğrulanmış test örneklem büyüklüğünden (N) türetilir
-function computeJointConfidenceInterval(probs, nEff = null, z = 1.645) {
-    if (!Array.isArray(probs) || probs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null, nEff: null, isEmpirical: false };
+// ---------------- Jack Kontrol 1, 2, 3 & 4: Delta Yöntemi ile Kombine Güven Aralığı Hesaplayıcı ----------------
+// J = prod(p_i) için Delta Yöntemi: Var(ln J) = sum((1 - p_i) / (n_eff * p_i))
+// Z = 1.645 (%90 Güven Aralığı): J_low = J * exp(-Z * SE), J_high = J * exp(+Z * SE)
+// Jack Kontrol 3 & 4: n_eff sabit 20 değil, modelin gerçek doğrulanmış test örneklem büyüklüğünden (N) türetilir.
+// customTable parametresi ile test ortamında sentetik fixture verisi enjekte edilebilir.
+function computeJointConfidenceInterval(probs, nEff = null, z = 1.645, customTable = null) {
+    if (!Array.isArray(probs) || probs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null, nEff: null, isEmpirical: false, verificationReason: 'Veri yok' };
     const validProbs = probs.map(Number).filter(p => isFinite(p) && p > 0.001 && p < 0.999);
-    if (validProbs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null, nEff: null, isEmpirical: false };
+    if (validProbs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null, nEff: null, isEmpirical: false, verificationReason: 'Geçerli olasılık yok' };
 
     let effectiveN = nEff;
-    let isEmpirical = true;
-    if (typeof effectiveN !== 'number' || effectiveN <= 0) {
-        const metrics = getModelVerificationMetrics();
+    let isEmpirical = false;
+    let verificationReason = '';
+    if (typeof effectiveN === 'number' && effectiveN > 0) {
+        isEmpirical = effectiveN >= 50;
+        verificationReason = isEmpirical ? `Doğrudan belirtilen N=${effectiveN} derinliği kullanıldı.` : `N=${effectiveN} < 50 olduğu için ampirik doğrulama şartı karşılanmadı.`;
+    } else {
+        const metrics = getModelVerificationMetrics(customTable);
         effectiveN = metrics.nEff || 20;
         isEmpirical = metrics.isVerified;
+        verificationReason = metrics.reason;
     }
 
     const joint = validProbs.reduce((acc, p) => acc * p, 1);
@@ -1764,15 +1774,17 @@ function computeJointConfidenceInterval(probs, nEff = null, z = 1.645) {
         highPct: +(highProb * 100).toFixed(1),
         seLnJ: +seLnJ.toFixed(4),
         nEff: effectiveN,
-        isEmpirical
+        isEmpirical,
+        verificationReason
     };
 }
 
 // Jack Kontrol 4: Katı Model Doğrulama (En az 50 bağımsız maç, %70+ isabet, Brier Score <= 0.220, Log Loss <= 1.150)
-function getModelVerificationMetrics() {
+// customTable ile izole test fixture'ı enjekte edilebilir, yerel disk dosyasına bağımlılık ortadan kalkar.
+function getModelVerificationMetrics(customTable = null) {
     try {
-        const table = loadPredictionTestTable();
-        const records = table.walkForwardRecords || [];
+        const table = customTable || loadPredictionTestTable();
+        const records = (table && Array.isArray(table.walkForwardRecords)) ? table.walkForwardRecords : [];
         const resolved = records.filter(r => r && typeof r.won === 'boolean');
         const count = resolved.length;
 
@@ -1815,8 +1827,8 @@ function getModelVerificationMetrics() {
     }
 }
 
-function isModelPerformanceVerified() {
-    return getModelVerificationMetrics().isVerified;
+function isModelPerformanceVerified(customTable = null) {
+    return getModelVerificationMetrics(customTable).isVerified;
 }
 
 function buildCoupons(items, model, opts = {}) {
@@ -1851,7 +1863,7 @@ function buildCoupons(items, model, opts = {}) {
         const best = playable[0];
         if (best) {
             const rankScore = best.p + (BANKO_PRIMARY_KEYS.has(best.key) ? 0.05 : 0) + (it.an.quality === 'A' ? 0.04 : 0) + mbsBonus + consistencyBonus + trustBonus + 0.02;
-            const modelVerified = isModelPerformanceVerified();
+            const modelVerified = isModelPerformanceVerified(opts.customTable || null);
             let confidenceLevel;
             if (best.isValueBet) {
                 confidenceLevel = `Value Bet (+%${best.evPct} EV • Kalibre Edildi)`;
@@ -1967,7 +1979,7 @@ function buildCoupons(items, model, opts = {}) {
     }
 
     const bankoProbs = banko.map(x => x.p);
-    const bankoCI = computeJointConfidenceInterval(bankoProbs, null, 1.645);
+    const bankoCI = computeJointConfidenceInterval(bankoProbs, null, 1.645, opts.customTable || null);
     const bankoConfidence = banko.length ? Math.round((banko.reduce((s, x) => s + x.p, 0) / banko.length) * 100) : null;
     const bankoJointConfidence = bankoCI.jointPct;
     const minBankoPct = banko.length ? Math.round(Math.min(...banko.map(x => x.p)) * 100) : null;
@@ -1975,7 +1987,7 @@ function buildCoupons(items, model, opts = {}) {
     const bankoVarHigh = bankoCI.highPct;
 
     const surpProbs = surprise.map(x => x.p);
-    const surpCI = computeJointConfidenceInterval(surpProbs, null, 1.645);
+    const surpCI = computeJointConfidenceInterval(surpProbs, null, 1.645, opts.customTable || null);
     const surpAvgLift = surprise.length ? (surprise.reduce((s, x) => s + x.lift, 0) / surprise.length).toFixed(1) : null;
     const surpJointConfidence = surpCI.jointPct;
     const surpValueBetCount = surprise.filter(x => x.isValueBet).length;
@@ -1987,9 +1999,15 @@ function buildCoupons(items, model, opts = {}) {
     const systemSimulation = (surprise.length === 5) ? simulateSystem345(surprise, 20) : null;
 
     // Jack'in Kontrol 1, 3 & 4 Tespiti: Kombine olasılığı bağımsızlık varsayımına dayanır; Delta Yöntemi ile asimptotik varyans aralığı hesaplanır
-    const lastBankoOddsUpdate = banko.find(b => b.oddsUpdatedAt)?.oddsUpdatedAt || nowTimeStr;
+    const lastBankoOddsUpdate = banko.find(b => b.oddsUpdatedAt)?.oddsUpdatedAt || 'Bilinmiyor';
+    const lastSurpOddsUpdate = surprise.find(s => s.oddsUpdatedAt)?.oddsUpdatedAt || 'Bilinmiyor';
+
+    let bankoCiNote = bankoCI.isEmpirical
+        ? `Delta Yöntemi asimptotik %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir (Geçmiş ${bankoCI.nEff} bağımsız out-of-sample test maçıyla kalibre edildi; maçların korelasyonsuzluk varsayımına dayalı teorik aralıktır, kesin kazanç garantisi taşımaz).`
+        : `Delta Yöntemi teorik %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir (Yetersiz geçmiş örneklem: N < 50 olduğu için ampirik olarak henüz doğrulanmamıştır; maçların bağımsızlık varsayımına dayalı ön simülasyondur, kesin başarı garantisi taşımaz).`;
+
     const bankoInstruction = banko.length
-        ? `Bu ${banko.length} maçın tekil ortalama güveni %${bankoConfidence} (en düşük %${minBankoPct}). Maçların bağımsızlık varsayımı ile birlikte gelme olasılığı (Kombine: p1×p2×p3×p4) %${bankoJointConfidence} olup, Delta Yöntemi istatistiksel %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir (N=${bankoCI.nEff} geçmiş test maçıyla doğrulandı). Son oran kontrolü: ${lastBankoOddsUpdate}.`
+        ? `Bu ${banko.length} maçın tekil ortalama güveni %${bankoConfidence} (en düşük %${minBankoPct}). Maçların bağımsızlık varsayımı ile birlikte gelme olasılığı (Kombine: p1×p2×p3×p4) %${bankoJointConfidence} olup, ${bankoCiNote} Son oran kontrolü: ${lastBankoOddsUpdate}.`
         : 'Şu an bültende kriterlere uygun (A/B kalite, güncel gerçek oranlı) banko maç bulunamadı.';
 
     const sysTxt = systemSimulation
@@ -1998,8 +2016,12 @@ function buildCoupons(items, model, opts = {}) {
             : ` | [SİSTEM 3-4-5 ANALİZİ: Toplam 16 Kolon • Kupon Maliyeti: ${systemSimulation.totalCost} TL | En az 3 maçın tutarak kazanç sağlama ihtimali: %${systemSimulation.pAtLeast3WinPct} | ${systemSimulation.statusMessage}]`
         : '';
 
+    let surpCiNote = surpCI.isEmpirical
+        ? `[Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}, N=${surpCI.nEff} maçla kalibre edildi (bağımsızlık varsayımı)]`
+        : `[Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}, doğrulama aşamasında (N < 50)]`;
+
     const surpInstruction = surprise.length
-        ? `Piyasa favorileri elenerek yüksek oranlı, istatistiksel olarak anlamlı ters sonuçlardan seçilen ${surprise.length} maçın sıklık çarpanı ortalama ${surpAvgLift}x${surpAvgOdd ? ` (Ortalama Gerçek Nesine Oranı: ${surpAvgOdd})` : ''} seviyesindedir (${surpValueBetCount}/${surprise.length} seçimde gerçek Nesine oranı ile pozitif EV / Value Bet doğrulandı; 5'li düz kombine olasılığı %${surpJointConfidence} [Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}, N=${surpCI.nEff}] olduğu için Sistem 3-4-5 önerilir).${sysTxt} Son güncelleme: ${nowTimeStr}.`
+        ? `Piyasa favorileri elenerek yüksek oranlı, istatistiksel olarak anlamlı ters sonuçlardan seçilen ${surprise.length} maçın sıklık çarpanı ortalama ${surpAvgLift}x${surpAvgOdd ? ` (Ortalama Gerçek Nesine Oranı: ${surpAvgOdd})` : ''} seviyesindedir (${surpValueBetCount}/${surprise.length} seçimde gerçek Nesine oranı ile pozitif EV / Value Bet doğrulandı; 5'li düz kombine olasılığı %${surpJointConfidence} ${surpCiNote} olduğu için Sistem 3-4-5 önerilir).${sysTxt} Son oran kontrolü: ${lastSurpOddsUpdate}.`
         : 'Şu an bültende kriterlere uygun yaklaşan sürpriz maç bulunamadı.';
 
     return {
@@ -2025,7 +2047,7 @@ function buildCoupons(items, model, opts = {}) {
             jointVarianceBand: { low: surpCI.lowPct, high: surpCI.highPct },
             valueBetCount: surpValueBetCount,
             systemSimulation,
-            updatedAt: nowTimeStr,
+            updatedAt: lastSurpOddsUpdate,
             matches: surprise
         }
     };
