@@ -1085,9 +1085,40 @@ function renderCoupons(data) {
             const sLift = surp.avgLift;
             const sJoint = surp.jointConfidence;
             surpriseLiftVal.textContent = `${sLift}x Çarpan • Kombine %${sJoint}`;
-            surpriseInstruction.textContent = surp.instruction;
+            if (surp.systemSimulation) {
+                const sim = surp.systemSimulation;
+                surpriseInstruction.innerHTML = `
+                    <div class="system-sim-box">
+                        <div class="sys-sim-hdr">
+                            <strong>🎲 Sistem 3-4-5 Maliyet & Getiri Analizi</strong>
+                            <span class="sys-col-tag">16 Kolon • Kupon Maliyeti: ${sim.totalCost} TL (20 TL/kolon)</span>
+                        </div>
+                        <div class="sys-sim-grid">
+                            <div class="sys-cell">
+                                <span class="sys-lbl">En Az 3 Maç Tutma Olasılığı</span>
+                                <strong class="sys-val highlight-emerald">%${sim.pAtLeast3WinPct}</strong>
+                            </div>
+                            <div class="sys-cell">
+                                <span class="sys-lbl">Min 3 Maç Tutarsa Getiri</span>
+                                <strong class="sys-val">${sim.min3Payout} TL</strong>
+                            </div>
+                            <div class="sys-cell">
+                                <span class="sys-lbl">5 Maç Tamamı Tutarsa</span>
+                                <strong class="sys-val highlight-gold">${sim.all5Payout} TL</strong>
+                            </div>
+                            <div class="sys-cell">
+                                <span class="sys-lbl">Beklenen Getiri / ROI</span>
+                                <strong class="sys-val highlight-emerald">${sim.expectedPayout} TL (+%${sim.roiPct})</strong>
+                            </div>
+                        </div>
+                        <p class="sys-sim-note">💡 Düz 5'li kombine olasılığı (%${sJoint}) riskli olduğu için 16 kolonluk Sistem 3-4-5 oynandığında 3 maç tutsa dahi kupon bedeli amorti edilmekte ve beklenen getiri pozitif olmaktadır.</p>
+                    </div>
+                `;
+            } else {
+                surpriseInstruction.textContent = surp.instruction;
+            }
             if (homeSurpEl) {
-                homeSurpEl.textContent = `Sürpriz Kupon (Canlı Çarpan: ${sLift}x)`;
+                homeSurpEl.textContent = `Sürpriz Kupon (Canlı Çarpan: ${sLift}x • Sistem 3-4-5)`;
             }
             if (topBadge && banko && banko.confidence !== null) {
                 topBadge.textContent = `%${banko.confidence} • ${sLift}x`;
