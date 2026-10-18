@@ -23,18 +23,33 @@ const trToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe
 const isoToMk = (iso) => iso.split('-').reverse().join('/');
 const addDays = (iso, n) => new Date(new Date(iso + 'T12:00:00Z').getTime() + n * 86400000).toISOString().slice(0, 10);
 
-async function rawFetch(iso) {
+async function rawFetch(iso, customFetch = null) {
+    const fetchFn = customFetch || fetch;
     for (let i = 0; i < 4; i++) {
         try {
-            const r = await fetch('https://vd.mackolik.com/livedata?date=' + isoToMk(iso), { headers: HEAD });
-            if (r.ok) {
+            const r = await fetchFn('https://vd.mackolik.com/livedata?date=' + isoToMk(iso), { headers: HEAD });
+            if (r && r.ok) {
                 const t = await r.text();
-                if (!t) return [];
-                const j = JSON.parse(t);
-                return Array.isArray(j.m) ? j.m : [];
+                // Jack Kontrol 1: Boş yanıt veya salt boşluk kesinlikle null hata sonucu dönmeli, geçerli boş maç listesi sayılmamalı
+                if (!t || !t.trim()) {
+                    continue;
+                }
+                let j;
+                try {
+                    j = JSON.parse(t);
+                } catch (_) {
+                    // Geçersiz JSON veya HTML hata sayfası null hata sonucu olarak ayrılmalı
+                    continue;
+                }
+                // Beklenen şema doğrulaması: j bir nesne ve j.m bir dizi olmalıdır
+                if (j && typeof j === 'object' && Array.isArray(j.m)) {
+                    return j.m; // Maç yoksa geçerli j.m = [] döner, maç varsa satır dizisi döner
+                }
+                // Şema bozuksa veya m alanı dizi değilse hata sayılır
+                continue;
             }
         } catch (_) { /* tekrar dene */ }
-        await sleep(600 * (i + 1));
+        if (!customFetch) await sleep(600 * (i + 1));
     }
     return null;
 }
@@ -433,5 +448,5 @@ async function getRange(fromIso, toIso, concurrency = 10) {
     return out;
 }
 
-module.exports = { getDay, getRange, getNesineOddsMap, getNesineStatus, trToday, addDays };
+module.exports = { getDay, getRange, getNesineOddsMap, getNesineStatus, trToday, addDays, rawFetch, memCache };
 

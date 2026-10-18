@@ -1321,7 +1321,7 @@ function computeExpectedValue(modelProb, realOdd, marketKey = null, matchOdds = 
     const rawEv = (p * odd) - 1;
     const rawEvPct = +(rawEv * 100).toFixed(1);
 
-    // Jack Kontrol 2: Sabit 1.07 yerine dinamik pazar marjı (vig-free overround) hesaplanır:
+    // Jack Kontrol 2: Sabit 1.07 veya varsayılan 1.08 yerine gerçek pazar marjı (vig-free overround) aranır:
     // 1X2'de sum(1/ms1 + 1/msx + 1/ms2), Alt/Üst'te sum(1/alt + 1/ust), KG'de sum(1/kgv + 1/kgy)
     let overround = null;
     if (matchOdds && typeof matchOdds === 'object') {
@@ -1334,12 +1334,22 @@ function computeExpectedValue(modelProb, realOdd, marketKey = null, matchOdds = 
             overround = (1 / matchOdds.alt25) + (1 / matchOdds.ust25);
         }
     }
-    const effectiveOverround = (overround && isFinite(overround) && overround >= 1.01 && overround <= 1.45)
-        ? overround
-        : 1.08;
+
+    // Jack Kontrol 2 Kuralı: Diğer pazar oranları yoksa gerçek overround ölçülemez;
+    // Tahmini/sabit 1.08 ile sahte marjsız olasılık HESAPLANMAZ, EV hesabı doğrudan geçersiz sayılır!
+    if (!overround || !isFinite(overround) || overround < 1.01 || overround > 1.45) {
+        return {
+            ev: null,
+            evPct: null,
+            rawEvPct,
+            calibratedProb: null,
+            overround: null,
+            reason: 'Tamamlayıcı pazar oranları eksik olduğu için marjsız overround hesaplanamadı.'
+        };
+    }
 
     // Piyasa marjsız (vig-free) zımni olasılık
-    const impliedMktProb = Math.max(0.02, Math.min(0.95, (1 / odd) / effectiveOverround));
+    const impliedMktProb = Math.max(0.02, Math.min(0.95, (1 / odd) / overround));
     // %35 piyasa konsensüsüne Bayesyen çekim (Shrinkage) ile aşırı şişik sapmaları kalibre et
     const calibratedProb = 0.65 * p + 0.35 * impliedMktProb;
     const calibratedEv = (calibratedProb * odd) - 1;
@@ -1350,7 +1360,7 @@ function computeExpectedValue(modelProb, realOdd, marketKey = null, matchOdds = 
         evPct,
         rawEvPct,
         calibratedProb: +calibratedProb.toFixed(3),
-        overround: +effectiveOverround.toFixed(4)
+        overround: +overround.toFixed(4)
     };
 }
 
@@ -1724,16 +1734,25 @@ function scoreSurpriseCandidate(pk, m, an, model) {
     return { ...pk, lift, score, contrarianType, contrarianThesis, m, an };
 }
 
-// ---------------- Jack Kontrol 1 & 4: Delta Yöntemi ile Kombine Güven Aralığı Hesaplayıcı ----------------
+// ---------------- Jack Kontrol 1, 3 & 4: Delta Yöntemi ile Kombine Güven Aralığı Hesaplayıcı ----------------
 // J = prod(p_i) için Delta Yöntemi: Var(ln J) = sum((1 - p_i) / (n_eff * p_i))
 // Z = 1.645 (%90 Güven Aralığı): J_low = J * exp(-Z * SE), J_high = J * exp(+Z * SE)
-function computeJointConfidenceInterval(probs, nEff = 20, z = 1.645) {
-    if (!Array.isArray(probs) || probs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null };
+// Jack Kontrol 3: n_eff sabit 20 değil, modelin gerçek doğrulanmış test örneklem büyüklüğünden (N) türetilir
+function computeJointConfidenceInterval(probs, nEff = null, z = 1.645) {
+    if (!Array.isArray(probs) || probs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null, nEff: null, isEmpirical: false };
     const validProbs = probs.map(Number).filter(p => isFinite(p) && p > 0.001 && p < 0.999);
-    if (validProbs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null };
+    if (validProbs.length === 0) return { jointPct: null, lowPct: null, highPct: null, seLnJ: null, nEff: null, isEmpirical: false };
+
+    let effectiveN = nEff;
+    let isEmpirical = true;
+    if (typeof effectiveN !== 'number' || effectiveN <= 0) {
+        const metrics = getModelVerificationMetrics();
+        effectiveN = metrics.nEff || 20;
+        isEmpirical = metrics.isVerified;
+    }
 
     const joint = validProbs.reduce((acc, p) => acc * p, 1);
-    const varLnJ = validProbs.reduce((sum, p) => sum + ((1 - p) / (nEff * p)), 0);
+    const varLnJ = validProbs.reduce((sum, p) => sum + ((1 - p) / (effectiveN * p)), 0);
     const seLnJ = Math.sqrt(Math.max(0, varLnJ));
 
     const lowProb = Math.max(0.01, joint * Math.exp(-z * seLnJ));
@@ -1743,23 +1762,61 @@ function computeJointConfidenceInterval(probs, nEff = 20, z = 1.645) {
         jointPct: +(joint * 100).toFixed(1),
         lowPct: +(lowProb * 100).toFixed(1),
         highPct: +(highProb * 100).toFixed(1),
-        seLnJ: +seLnJ.toFixed(4)
+        seLnJ: +seLnJ.toFixed(4),
+        nEff: effectiveN,
+        isEmpirical
     };
 }
 
-// Jack Kontrol 3: Modelin geçmiş tahmin başarısı doğrulanmadan yüksek güven etiketi verilmez
-function isModelPerformanceVerified() {
+// Jack Kontrol 4: Katı Model Doğrulama (En az 50 bağımsız maç, %70+ isabet, Brier Score <= 0.220, Log Loss <= 1.150)
+function getModelVerificationMetrics() {
     try {
         const table = loadPredictionTestTable();
         const records = table.walkForwardRecords || [];
         const resolved = records.filter(r => r && typeof r.won === 'boolean');
-        if (resolved.length < 15) return false;
+        const count = resolved.length;
+
+        if (count < 50) {
+            return {
+                isVerified: false,
+                sampleCount: count,
+                hitRatePct: count > 0 ? +((resolved.filter(r => r.won).length / count) * 100).toFixed(1) : 0,
+                brierScore: null,
+                logLoss: null,
+                nEff: Math.max(10, count),
+                reason: `Yetersiz geçmiş örneklem (${count}/50 maç). Güvenilir doğrulama için en az 50 bağımsız maç gereklidir.`
+            };
+        }
+
         const hits = resolved.filter(r => r.won).length;
-        const hitRate = hits / resolved.length;
-        return hitRate >= 0.70;
+        const hitRatePct = +((hits / count) * 100).toFixed(1);
+
+        const brierList = resolved.filter(r => typeof r.brier === 'number').map(r => r.brier);
+        const avgBrier = brierList.length ? +(brierList.reduce((a, b) => a + b, 0) / brierList.length).toFixed(3) : null;
+
+        const logLossList = resolved.filter(r => typeof r.logLoss === 'number').map(r => r.logLoss);
+        const avgLogLoss = logLossList.length ? +(logLossList.reduce((a, b) => a + b, 0) / logLossList.length).toFixed(3) : null;
+
+        const isVerified = (count >= 50) && (hitRatePct >= 70.0) && (avgBrier !== null && avgBrier <= 0.220) && (avgLogLoss !== null && avgLogLoss <= 1.150);
+
+        return {
+            isVerified,
+            sampleCount: count,
+            hitRatePct,
+            brierScore: avgBrier,
+            logLoss: avgLogLoss,
+            nEff: count,
+            reason: isVerified
+                ? `Model geçmiş ${count} maçta başarıyla doğrulandı (İsabet: %${hitRatePct}, Brier: ${avgBrier}, LogLoss: ${avgLogLoss}).`
+                : `Model eşik şartlarını karşılamadı (İsabet: %${hitRatePct}/%70, Brier: ${avgBrier}/0.220, LogLoss: ${avgLogLoss}/1.150).`
+        };
     } catch (_) {
-        return false;
+        return { isVerified: false, sampleCount: 0, hitRatePct: 0, brierScore: null, logLoss: null, nEff: 20, reason: 'Test tablosu okunamadı.' };
     }
+}
+
+function isModelPerformanceVerified() {
+    return getModelVerificationMetrics().isVerified;
 }
 
 function buildCoupons(items, model, opts = {}) {
@@ -1910,7 +1967,7 @@ function buildCoupons(items, model, opts = {}) {
     }
 
     const bankoProbs = banko.map(x => x.p);
-    const bankoCI = computeJointConfidenceInterval(bankoProbs, 20, 1.645);
+    const bankoCI = computeJointConfidenceInterval(bankoProbs, null, 1.645);
     const bankoConfidence = banko.length ? Math.round((banko.reduce((s, x) => s + x.p, 0) / banko.length) * 100) : null;
     const bankoJointConfidence = bankoCI.jointPct;
     const minBankoPct = banko.length ? Math.round(Math.min(...banko.map(x => x.p)) * 100) : null;
@@ -1918,7 +1975,7 @@ function buildCoupons(items, model, opts = {}) {
     const bankoVarHigh = bankoCI.highPct;
 
     const surpProbs = surprise.map(x => x.p);
-    const surpCI = computeJointConfidenceInterval(surpProbs, 20, 1.645);
+    const surpCI = computeJointConfidenceInterval(surpProbs, null, 1.645);
     const surpAvgLift = surprise.length ? (surprise.reduce((s, x) => s + x.lift, 0) / surprise.length).toFixed(1) : null;
     const surpJointConfidence = surpCI.jointPct;
     const surpValueBetCount = surprise.filter(x => x.isValueBet).length;
@@ -1929,10 +1986,10 @@ function buildCoupons(items, model, opts = {}) {
     // Jack'in Kontrol 4 Tespiti: Sürpriz kupon için Sistem 3-4-5 maliyet ve beklenen getiri simülasyonu
     const systemSimulation = (surprise.length === 5) ? simulateSystem345(surprise, 20) : null;
 
-    // Jack'in Kontrol 1 & 4 Tespiti: Kombine olasılığı bağımsızlık varsayımına dayanır; Delta Yöntemi ile asimptotik varyans aralığı hesaplanır
+    // Jack'in Kontrol 1, 3 & 4 Tespiti: Kombine olasılığı bağımsızlık varsayımına dayanır; Delta Yöntemi ile asimptotik varyans aralığı hesaplanır
     const lastBankoOddsUpdate = banko.find(b => b.oddsUpdatedAt)?.oddsUpdatedAt || nowTimeStr;
     const bankoInstruction = banko.length
-        ? `Bu ${banko.length} maçın tekil ortalama güveni %${bankoConfidence} (en düşük %${minBankoPct}). Maçların bağımsızlık varsayımı ile birlikte gelme olasılığı (Kombine: p1×p2×p3×p4) %${bankoJointConfidence} olup, Delta Yöntemi istatistiksel %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir. Son oran kontrolü: ${lastBankoOddsUpdate}.`
+        ? `Bu ${banko.length} maçın tekil ortalama güveni %${bankoConfidence} (en düşük %${minBankoPct}). Maçların bağımsızlık varsayımı ile birlikte gelme olasılığı (Kombine: p1×p2×p3×p4) %${bankoJointConfidence} olup, Delta Yöntemi istatistiksel %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir (N=${bankoCI.nEff} geçmiş test maçıyla doğrulandı). Son oran kontrolü: ${lastBankoOddsUpdate}.`
         : 'Şu an bültende kriterlere uygun (A/B kalite, güncel gerçek oranlı) banko maç bulunamadı.';
 
     const sysTxt = systemSimulation
@@ -1942,7 +1999,7 @@ function buildCoupons(items, model, opts = {}) {
         : '';
 
     const surpInstruction = surprise.length
-        ? `Piyasa favorileri elenerek yüksek oranlı, istatistiksel olarak anlamlı ters sonuçlardan seçilen ${surprise.length} maçın sıklık çarpanı ortalama ${surpAvgLift}x${surpAvgOdd ? ` (Ortalama Gerçek Nesine Oranı: ${surpAvgOdd})` : ''} seviyesindedir (${surpValueBetCount}/${surprise.length} seçimde gerçek Nesine oranı ile pozitif EV / Value Bet doğrulandı; 5'li düz kombine olasılığı %${surpJointConfidence} [Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}] olduğu için Sistem 3-4-5 önerilir).${sysTxt} Son güncelleme: ${nowTimeStr}.`
+        ? `Piyasa favorileri elenerek yüksek oranlı, istatistiksel olarak anlamlı ters sonuçlardan seçilen ${surprise.length} maçın sıklık çarpanı ortalama ${surpAvgLift}x${surpAvgOdd ? ` (Ortalama Gerçek Nesine Oranı: ${surpAvgOdd})` : ''} seviyesindedir (${surpValueBetCount}/${surprise.length} seçimde gerçek Nesine oranı ile pozitif EV / Value Bet doğrulandı; 5'li düz kombine olasılığı %${surpJointConfidence} [Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}, N=${surpCI.nEff}] olduğu için Sistem 3-4-5 önerilir).${sysTxt} Son güncelleme: ${nowTimeStr}.`
         : 'Şu an bültende kriterlere uygun yaklaşan sürpriz maç bulunamadı.';
 
     return {
@@ -2457,7 +2514,8 @@ module.exports = {
     simulateSystem345,
     computeJointConfidenceInterval,
     MARKET_COMPANIONS,
-    isModelPerformanceVerified
+    isModelPerformanceVerified,
+    getModelVerificationMetrics
 };
 
 
