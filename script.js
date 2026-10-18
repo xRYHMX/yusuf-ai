@@ -82,6 +82,7 @@ function init() {
     bindDragAndDrop();
     bindLightbox();
     bindFootballModule();
+    bindSystemLogs();
     updateView();
 }
 
@@ -1540,6 +1541,273 @@ function createCouponMatchElement(item, isSurprise) {
     return div;
 }
 
+/* ==========================================================================
+   SİSTEM VE HATA LOG GÜNLÜĞÜ (DIAGNOSTICS & ERROR CONSOLE)
+   ========================================================================== */
+function bindSystemLogs() {
+    const systemLogsBtn = document.getElementById('systemLogsBtn');
+    const systemLogsModal = document.getElementById('systemLogsModal');
+    const closeLogsModalBtn = document.getElementById('closeLogsModalBtn');
+    const closeLogsFooterBtn = document.getElementById('closeLogsFooterBtn');
+    const refreshLogsBtn = document.getElementById('refreshLogsBtn');
+    const copyLogsBtn = document.getElementById('copyLogsBtn');
+    const clearLogsBtn = document.getElementById('clearLogsBtn');
+    const logsSearchInput = document.getElementById('logsSearchInput');
+    const logsLevelFilter = document.getElementById('logsLevelFilter');
+    const logsCategoryFilter = document.getElementById('logsCategoryFilter');
+    const systemLogsList = document.getElementById('systemLogsList');
+    const logErrorBadge = document.getElementById('logErrorBadge');
 
+    const logStatTotal = document.getElementById('logStatTotal');
+    const logStatErrors = document.getElementById('logStatErrors');
+    const logStatWarnings = document.getElementById('logStatWarnings');
+    const logStatAi = document.getElementById('logStatAi');
+    const logStatData = document.getElementById('logStatData');
+    const logsAutoStatusText = document.getElementById('logsAutoStatusText');
 
+    let cachedLogs = [];
+    let isFetchingLogs = false;
 
+    // 1. İstemci (Browser) Hatalarını Otomatik Sunucuya ve Konsola Kaydet
+    function reportClientLog(level, category, scope, message, details = null) {
+        try {
+            fetch('/api/logs/client', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ level, category, scope, message, details })
+            }).then(() => pollLogsBadge()).catch(() => {});
+        } catch (_) {}
+    }
+
+    window.addEventListener('error', (e) => {
+        reportClientLog('error', 'client', 'WindowError', e.message || 'Bilinmeyen script hatası', {
+            filename: e.filename,
+            lineno: e.lineno,
+            colno: e.colno,
+            stack: e.error ? e.error.stack : null
+        });
+    });
+
+    window.addEventListener('unhandledrejection', (e) => {
+        const msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled Promise Rejection';
+        reportClientLog('error', 'client', 'UnhandledRejection', msg, {
+            stack: e.reason && e.reason.stack ? e.reason.stack : null
+        });
+    });
+
+    // 2. Logları API'den Çek ve Render Et
+    async function fetchLogs(showSpinner = false) {
+        if (isFetchingLogs) return;
+        isFetchingLogs = true;
+        if (showSpinner && systemLogsList) {
+            systemLogsList.innerHTML = `
+                <div class="logs-loading-state">
+                    <div class="spinner"></div>
+                    <span>Sistem logları yükleniyor...</span>
+                </div>
+            `;
+        }
+
+        try {
+            const res = await fetch('/api/logs');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            cachedLogs = Array.isArray(data.logs) ? data.logs : [];
+            const stats = data.stats || {};
+
+            // İstatistikleri güncelle
+            if (logStatTotal) logStatTotal.textContent = stats.total ?? cachedLogs.length;
+            if (logStatErrors) logStatErrors.textContent = stats.errors ?? 0;
+            if (logStatWarnings) logStatWarnings.textContent = stats.warnings ?? 0;
+            if (logStatAi) logStatAi.textContent = stats.aiIssues ?? 0;
+            if (logStatData) logStatData.textContent = stats.dataIssues ?? 0;
+
+            updateErrorBadge(stats.errors || 0);
+
+            if (logsAutoStatusText) {
+                logsAutoStatusText.textContent = `Son güncelleme: ${stats.lastUpdated || new Date().toLocaleTimeString('tr-TR')} • Canlı izleme aktif`;
+            }
+
+            renderLogs();
+        } catch (err) {
+            console.error('Log çekme hatası:', err);
+            if (systemLogsList) {
+                systemLogsList.innerHTML = `
+                    <div class="logs-empty-state">
+                        <span style="color:#ef4444;font-weight:700;">⚠️ Loglar yüklenemedi</span>
+                        <span>${escapeHtml(err.message)}</span>
+                    </div>
+                `;
+            }
+        } finally {
+            isFetchingLogs = false;
+        }
+    }
+
+    // Sol menüdeki buton rozetini güncelle
+    function updateErrorBadge(errorCount) {
+        if (!logErrorBadge) return;
+        if (errorCount > 0) {
+            logErrorBadge.style.display = 'inline-flex';
+            logErrorBadge.textContent = errorCount > 99 ? '99+' : String(errorCount);
+        } else {
+            logErrorBadge.style.display = 'none';
+        }
+    }
+
+    async function pollLogsBadge() {
+        try {
+            const res = await fetch('/api/logs');
+            if (res.ok) {
+                const data = await res.json();
+                const errCount = data.stats?.errors || 0;
+                updateErrorBadge(errCount);
+            }
+        } catch (_) {}
+    }
+
+    // Log Listesini Filtreleyerek Render Et
+    function renderLogs() {
+        if (!systemLogsList) return;
+        const q = (logsSearchInput ? logsSearchInput.value : '').trim().toLowerCase();
+        const levelFilter = logsLevelFilter ? logsLevelFilter.value : 'all';
+        const catFilter = logsCategoryFilter ? logsCategoryFilter.value : 'all';
+
+        let list = cachedLogs.filter(log => {
+            if (levelFilter !== 'all' && log.level !== levelFilter) return false;
+            if (catFilter !== 'all' && log.category !== catFilter) return false;
+            if (q) {
+                const txt = `${log.message} ${log.scope} ${log.category} ${log.timeStr} ${log.details || ''}`.toLowerCase();
+                if (!txt.includes(q)) return false;
+            }
+            return true;
+        });
+
+        if (list.length === 0) {
+            systemLogsList.innerHTML = `
+                <div class="logs-empty-state">
+                    <span>Kriterlere uygun olay veya hata kaydı bulunamadı.</span>
+                    <small style="color:var(--text-muted);font-size:0.7rem;">Sistem şu an sağlıklı çalışıyor.</small>
+                </div>
+            `;
+            return;
+        }
+
+        systemLogsList.innerHTML = list.map(log => {
+            const lvlClass = `level-${log.level || 'info'}`;
+            const lvlBadgeText = (log.level || 'info').toUpperCase();
+            const catLabel = getCategoryLabel(log.category);
+            const hasDetails = Boolean(log.details && String(log.details).trim());
+
+            const detailsHtml = hasDetails ? `
+                <details class="log-details-toggle">
+                    <summary>🔍 Detayları & Stack Trace Göster</summary>
+                    <pre class="log-details-content">${escapeHtml(log.details)}</pre>
+                </details>
+            ` : '';
+
+            return `
+                <div class="log-terminal-row ${lvlClass}">
+                    <div class="log-row-header">
+                        <span class="log-time-tag">${escapeHtml(log.timeStr || '')}</span>
+                        <span class="log-badge-tag ${lvlClass}">${lvlBadgeText}</span>
+                        <span class="log-cat-tag">${escapeHtml(catLabel)}</span>
+                        <span class="log-scope-tag">[${escapeHtml(log.scope || 'App')}]</span>
+                    </div>
+                    <div class="log-row-msg">${escapeHtml(log.message || '')}</div>
+                    ${detailsHtml}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function getCategoryLabel(cat) {
+        switch (cat) {
+            case 'ai': return '🤖 AI & LLM';
+            case 'nesine': return '🟢 Nesine Oran';
+            case 'football': return '⚽ Futbol/Bülten';
+            case 'data': return '📊 Arşiv/Veri';
+            case 'server': return '🌐 Sunucu';
+            case 'client': return '💻 Tarayıcı';
+            default: return '⚙️ Sistem';
+        }
+    }
+
+    // Modal Aç / Kapa
+    function openLogsModal() {
+        if (systemLogsModal) {
+            systemLogsModal.classList.add('active');
+            fetchLogs(true);
+        }
+    }
+
+    function closeLogsModal() {
+        if (systemLogsModal) {
+            systemLogsModal.classList.remove('active');
+        }
+    }
+
+    // Event Dinleyicileri
+    if (systemLogsBtn) {
+        systemLogsBtn.addEventListener('click', openLogsModal);
+    }
+    if (closeLogsModalBtn) closeLogsModalBtn.addEventListener('click', closeLogsModal);
+    if (closeLogsFooterBtn) closeLogsFooterBtn.addEventListener('click', closeLogsModal);
+
+    if (systemLogsModal) {
+        systemLogsModal.addEventListener('click', (e) => {
+            if (e.target === systemLogsModal) closeLogsModal();
+        });
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && systemLogsModal && systemLogsModal.classList.contains('active')) {
+            closeLogsModal();
+        }
+    });
+
+    if (refreshLogsBtn) {
+        refreshLogsBtn.addEventListener('click', () => fetchLogs(true));
+    }
+
+    if (logsSearchInput) {
+        logsSearchInput.addEventListener('input', renderLogs);
+    }
+    if (logsLevelFilter) {
+        logsLevelFilter.addEventListener('change', renderLogs);
+    }
+    if (logsCategoryFilter) {
+        logsCategoryFilter.addEventListener('change', renderLogs);
+    }
+
+    if (copyLogsBtn) {
+        copyLogsBtn.addEventListener('click', () => {
+            if (!cachedLogs.length) return;
+            const textToCopy = cachedLogs.map(l => 
+                `[${l.timeStr}] [${(l.level || 'info').toUpperCase()}] [${l.category || ''}] [${l.scope || ''}] ${l.message} ${l.details ? '\n' + l.details : ''}`
+            ).join('\n---\n');
+
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                const originalHtml = copyLogsBtn.innerHTML;
+                copyLogsBtn.innerHTML = '<span>✅ Kopyalandı!</span>';
+                setTimeout(() => { copyLogsBtn.innerHTML = originalHtml; }, 1800);
+            }).catch(() => {
+                alert('Loglar panoya kopyalanamadı.');
+            });
+        });
+    }
+
+    if (clearLogsBtn) {
+        clearLogsBtn.addEventListener('click', async () => {
+            if (!confirm('Tüm sistem log günlüğü temizlensin mi?')) return;
+            try {
+                await fetch('/api/logs/clear', { method: 'POST' });
+                await fetchLogs(true);
+            } catch (_) {}
+        });
+    }
+
+    // İlk açılışta ve her 25 saniyede bir rozet kontrolü
+    pollLogsBadge();
+    setInterval(pollLogsBadge, 25000);
+}

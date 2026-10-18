@@ -217,10 +217,28 @@ async function getNesineOddsMap() {
                             map: newMap
                         };
                         refreshed = true;
+                        if (global.addSystemLog) {
+                            global.addSystemLog({
+                                level: 'info',
+                                category: 'nesine',
+                                scope: 'NesineCDN',
+                                message: `Nesine canlı bülteni güncellendi (${newMap.size} maçın oranları taze).`
+                            });
+                        }
                     }
                 }
             }
-        } catch (_) {} finally {
+        } catch (err) {
+            if (global.addSystemLog) {
+                global.addSystemLog({
+                    level: 'warn',
+                    category: 'nesine',
+                    scope: 'NesineCDN',
+                    message: 'Nesine canlı bülten bağlantı hatası: ' + err.message,
+                    details: err.stack || null
+                });
+            }
+        } finally {
             nesineInFlight = null;
         }
         // Kesin Kural (Madde 3): Oran yenilenemediğinde eski oranı ASLA kullanma; önbelleği temizle
@@ -233,6 +251,14 @@ async function getNesineOddsMap() {
                 error: 'Nesine canlı oran servisi yenilenemedi; eski oranlar devre dışı bırakıldı.',
                 map: new Map()
             };
+            if (global.addSystemLog) {
+                global.addSystemLog({
+                    level: 'warn',
+                    category: 'nesine',
+                    scope: 'NesineCDN',
+                    message: 'Nesine canlı oranlar yenilenemediği için eski oranlar temizlendi.'
+                });
+            }
         }
         return nesineCache.map;
     })();

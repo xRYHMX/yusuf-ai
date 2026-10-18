@@ -37,15 +37,49 @@ const ALLOWED_ORIGINS = new Set([
     ...(process.env.ALLOWED_ORIGIN ? [process.env.ALLOWED_ORIGIN] : [])
 ]);
 
-function logServerError(scope, err) {
+// ---------------- Kapsamlı Sistem, Hata & Olay Log Günlüğü (Diagnostics Logger) ----------------
+const systemLogs = [];
+const MAX_SYSTEM_LOGS = 400;
+
+function addSystemLog({ level = 'info', category = 'server', scope = 'Sistem', message = '', details = null }) {
+    const now = new Date();
     const entry = {
-        time: new Date().toISOString(),
+        id: 'log_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        timeIso: now.toISOString(),
+        timeStr: now.toLocaleTimeString('tr-TR'),
+        level, // 'error', 'warn', 'info', 'success'
+        category, // 'ai', 'football', 'nesine', 'data', 'server', 'client'
         scope,
-        message: err && err.message ? err.message : String(err)
+        message: String(message || ''),
+        details: details ? (typeof details === 'object' ? JSON.stringify(details, null, 2) : String(details)) : null
     };
-    serverErrorLogs.push(entry);
+    systemLogs.push(entry);
+    if (systemLogs.length > MAX_SYSTEM_LOGS) systemLogs.shift();
+    serverErrorLogs.push({ time: entry.timeIso, scope, message: entry.message });
     if (serverErrorLogs.length > 100) serverErrorLogs.shift();
-    console.error(`[${entry.time}] [${scope}]`, entry.message);
+
+    if (level === 'error') {
+        console.error(`[${entry.timeStr}] [${category.toUpperCase()}] [${scope}] ${entry.message}`);
+    } else if (level === 'warn') {
+        console.warn(`[${entry.timeStr}] [${category.toUpperCase()}] [${scope}] ${entry.message}`);
+    } else {
+        console.log(`[${entry.timeStr}] [${category.toUpperCase()}] [${scope}] ${entry.message}`);
+    }
+    return entry;
+}
+
+global.addSystemLog = addSystemLog;
+
+function logServerError(scope, err, category = 'server', level = 'error') {
+    const msg = err && err.message ? err.message : String(err);
+    const stack = err && err.stack ? err.stack : null;
+    return addSystemLog({
+        level,
+        category,
+        scope,
+        message: msg,
+        details: stack
+    });
 }
 
 function checkRateLimit(ip, bucket = 'api', maxPerMin = 120) {
@@ -123,7 +157,7 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify(data));
         } catch (err) {
-            logServerError('MatchesAPI', err);
+            logServerError('MatchesAPI', err, 'football');
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: 'Maçlar çekilirken hata oluştu: ' + err.message }));
         }
@@ -137,7 +171,7 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify(data));
         } catch (err) {
-            logServerError('CouponsAPI', err);
+            logServerError('CouponsAPI', err, 'football');
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: 'Kuponlar oluşturulurken hata oluştu: ' + err.message }));
         }
@@ -162,10 +196,59 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify(data));
         } catch (err) {
-            logServerError('MatchDetailAPI', err);
+            logServerError('MatchDetailAPI', err, 'football');
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: 'Maç detayı alınırken hata oluştu: ' + err.message }));
         }
+        return;
+    }
+
+    // ---------------- Sistem & Hata Log Günlüğü API (GET /api/logs) ----------------
+    if (pathname === '/api/logs' && req.method === 'GET') {
+        const stats = {
+            total: systemLogs.length,
+            errors: systemLogs.filter(l => l.level === 'error').length,
+            warnings: systemLogs.filter(l => l.level === 'warn').length,
+            info: systemLogs.filter(l => l.level === 'info').length,
+            aiIssues: systemLogs.filter(l => l.category === 'ai' && (l.level === 'error' || l.level === 'warn')).length,
+            dataIssues: systemLogs.filter(l => (l.category === 'football' || l.category === 'nesine' || l.category === 'data') && (l.level === 'error' || l.level === 'warn')).length,
+            lastUpdated: new Date().toLocaleTimeString('tr-TR')
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ logs: systemLogs.slice().reverse(), stats }));
+        return;
+    }
+
+    // ---------------- İstemci (Browser) Hata Raporlama API (POST /api/logs/client) ----------------
+    if (pathname === '/api/logs/client' && req.method === 'POST') {
+        let body = '';
+        req.on('data', c => { body += c; if (body.length > 50000) req.destroy(); });
+        req.on('end', () => {
+            try {
+                const data = JSON.parse(body || '{}');
+                addSystemLog({
+                    level: data.level || 'error',
+                    category: data.category || 'client',
+                    scope: data.scope || 'Browser',
+                    message: data.message || 'Bilinmeyen istemci hatası',
+                    details: data.details || null
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ ok: true }));
+            } catch (err) {
+                res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+        return;
+    }
+
+    // ---------------- Log Günlüğü Temizleme API (POST /api/logs/clear) ----------------
+    if (pathname === '/api/logs/clear' && req.method === 'POST') {
+        systemLogs.length = 0;
+        addSystemLog({ level: 'info', category: 'server', scope: 'Logs', message: 'Log günlüğü sıfırlandı.' });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true }));
         return;
     }
 
@@ -485,7 +568,7 @@ GENEL KUPON KURALI: Kullanıcı özel maçlar belirtmediyse [RESMİ İDDAA BÜLT
                         if (chatRes.status === 429 || chatRes.status === 404) {
                             modelCooldowns.set(modelToTry, Date.now() + 30 * 60 * 1000);
                         }
-                        logServerError(`${providerName}:${modelToTry}:${chatRes.status}`, errText.slice(0, 200));
+                        logServerError(`${providerName}:${modelToTry}:${chatRes.status}`, errText.slice(0, 200), 'ai', 'warn');
 
                         // Boyut limiti (413) yaşanırsa bağlamı otomatik kompakt moda küçült
                         if (!compactFallbacked && (chatRes.status === 413 || (!isGemini && chatRes.status === 429) || errText.includes('too large'))) {
@@ -502,6 +585,12 @@ GENEL KUPON KURALI: Kullanıcı özel maçlar belirtmediyse [RESMİ İDDAA BÜLT
                 // YEDEK MOTOR: Kullanıcının anahtarı yoksa, süresi dolmuşsa veya tüm modelleri limit yediyse otomatik olarak Dahili Anahtarsız Ücretsiz AI Motoruna düş!
                 if (!success) {
                     console.log('[Fallback Engine] Anahtarsız Ücretsiz AI Motoru devreye giriyor...');
+                    addSystemLog({
+                        level: 'warn',
+                        category: 'ai',
+                        scope: 'AIFallback',
+                        message: 'Ana modeller yanıt vermedi, dahili ücretsiz yedek motor devreye giriyor.'
+                    });
                     try {
                         if (!compactFallbacked) {
                             currentContextStr = await football.buildAiSportsContext(combinedSearchQuery, { compact: true, hasImage: hasImages, historyText: previousHistoryText });
@@ -550,12 +639,19 @@ GENEL KUPON KURALI: Kullanıcı özel maçlar belirtmediyse [RESMİ İDDAA BÜLT
                 }
 
                 if (!success) {
+                    addSystemLog({
+                        level: 'error',
+                        category: 'ai',
+                        scope: 'AIEngine',
+                        message: `${providerName} yanıt hatası: ` + (lastApiError ? lastApiError.slice(0, 240) : 'Kullanılabilir açık sohbet modeli bulunamadı.'),
+                        details: lastApiError || null
+                    });
                     res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
                     res.end(JSON.stringify({ error: `${providerName} yanıt hatası: ` + (lastApiError ? lastApiError.slice(0, 240) : 'Kullanılabilir açık sohbet modeli bulunamadı.') }));
                 }
 
             } catch (err) {
-                logServerError('ChatRoute', err);
+                logServerError('ChatRoute', err, 'ai', 'error');
                 res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
                 res.end(JSON.stringify({ error: err.message }));
             }

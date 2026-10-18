@@ -161,6 +161,17 @@ async function _computeAnalyzedDay(date) {
 
     const data = { date, model, matches, items, couponItems, coupons, performance };
     dayAnalysisCache.set(date, { t: Date.now(), data });
+
+    if (global.addSystemLog) {
+        const inBullCount = matches.filter(x => x.inBulletin).length;
+        global.addSystemLog({
+            level: 'info',
+            category: 'football',
+            scope: 'FixtureEngine',
+            message: `${date} fikstürü yüklendi (${matches.length} maç, ${inBullCount} İddaa bülteninde).`
+        });
+    }
+
     return data;
 }
 

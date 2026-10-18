@@ -3518,3 +3518,384 @@ body.theme-light .drop-overlay {
         gap: 5px;
     }
 }
+
+/* ==========================================================================
+   SİSTEM VE HATA LOG GÜNLÜĞÜ (DIAGNOSTICS CONSOLE) STİLLERİ
+   ========================================================================== */
+
+/* Sol Menüdeki Buton */
+.system-logs-btn {
+    position: relative;
+    border-color: rgba(56, 189, 248, 0.25);
+    background: rgba(56, 189, 248, 0.04);
+}
+
+.system-logs-btn:hover {
+    border-color: var(--accent-sky);
+    background: rgba(56, 189, 248, 0.12);
+}
+
+.system-logs-icon-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-sky);
+}
+
+.log-badge-count {
+    margin-left: auto;
+    background: #ef4444;
+    color: #ffffff;
+    font-size: 0.67rem;
+    font-weight: 800;
+    padding: 1px 6px;
+    border-radius: 999px;
+    line-height: 1.2;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+    animation: pulseDot 2s infinite ease-in-out;
+}
+
+/* Log Modalı */
+.logs-modal-box {
+    max-width: 940px;
+    width: 95vw;
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    gap: 12px;
+}
+
+.logs-title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.logs-icon-circle {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: rgba(56, 189, 248, 0.14);
+    color: var(--accent-sky);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.logs-sub-desc {
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    margin: 2px 0 0 0;
+    line-height: 1.35;
+}
+
+/* İstatistik & Durum Kartları */
+.logs-stats-bar {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.log-stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.log-stat-card .log-s-lbl {
+    font-size: 0.67rem;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.log-stat-card .log-s-val {
+    font-size: 1.05rem;
+    font-family: var(--font-mono);
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.log-stat-card.error-card .log-s-val { color: #ef4444; }
+.log-stat-card.warn-card .log-s-val { color: #f59e0b; }
+.log-stat-card.ai-card .log-s-val { color: var(--accent-sky); }
+.log-stat-card.data-card .log-s-val { color: #10b981; }
+
+/* Filtre ve Arama Araç Çubuğu */
+.logs-filter-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    padding: 6px 10px;
+}
+
+.logs-search-wrap {
+    flex: 1;
+    min-width: 170px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    padding: 5px 9px;
+}
+
+.logs-search-wrap svg {
+    color: var(--text-muted);
+}
+
+.logs-search-wrap input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-family: inherit;
+}
+
+.logs-filter-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.logs-select-filter {
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 7px;
+    padding: 5px 8px;
+    font-size: 0.75rem;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+}
+
+.logs-actions-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.btn-log-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 7px;
+    padding: 5px 9px;
+    font-size: 0.74rem;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.15s ease;
+}
+
+.btn-log-action:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+    border-color: var(--accent-sky);
+}
+
+.btn-log-action.danger:hover {
+    color: #ef4444;
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* Terminal Görünümü */
+.logs-terminal-viewport {
+    flex: 1;
+    min-height: 280px;
+    max-height: 48vh;
+    overflow-y: auto;
+    background: #06090f;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: var(--font-mono);
+}
+
+.logs-loading-state, .logs-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 100%;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    padding: 40px 0;
+}
+
+.log-terminal-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.02);
+    border-left: 3px solid transparent;
+    transition: background 0.15s ease;
+}
+
+.log-terminal-row:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.log-terminal-row.level-error {
+    border-left-color: #ef4444;
+    background: rgba(239, 68, 68, 0.06);
+}
+
+.log-terminal-row.level-warn {
+    border-left-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.06);
+}
+
+.log-terminal-row.level-info {
+    border-left-color: var(--accent-sky);
+}
+
+.log-row-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    flex-wrap: wrap;
+}
+
+.log-time-tag {
+    color: #64748b;
+    font-size: 0.69rem;
+}
+
+.log-badge-tag {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.log-badge-tag.level-error {
+    background: rgba(239, 68, 68, 0.25);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.log-badge-tag.level-warn {
+    background: rgba(245, 158, 11, 0.25);
+    color: #fde68a;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.log-badge-tag.level-info {
+    background: rgba(56, 189, 248, 0.2);
+    color: #bae6fd;
+    border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.log-cat-tag {
+    background: rgba(255, 255, 255, 0.08);
+    color: #94a3b8;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.64rem;
+}
+
+.log-scope-tag {
+    color: #cbd5e1;
+    font-weight: 600;
+    font-size: 0.7rem;
+}
+
+.log-row-msg {
+    font-size: 0.76rem;
+    color: #e2e8f0;
+    line-height: 1.4;
+    word-break: break-word;
+    white-space: pre-wrap;
+    padding-left: 2px;
+}
+
+.log-details-toggle {
+    margin-top: 3px;
+    font-size: 0.69rem;
+    color: #94a3b8;
+    cursor: pointer;
+}
+
+.log-details-toggle summary {
+    outline: none;
+    user-select: none;
+}
+
+.log-details-content {
+    margin-top: 4px;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    color: #fca5a5;
+    font-size: 0.68rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.logs-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 6px;
+    margin-top: 2px;
+}
+
+.logs-auto-status {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+    .logs-stats-bar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .logs-modal-box {
+        padding: 14px;
+        max-height: 94vh;
+    }
+    .logs-filter-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .logs-actions-group {
+        margin-left: 0;
+        justify-content: flex-end;
+    }
+    .btn-log-action {
+        flex: 1;
+        justify-content: center;
+    }
+}
+
