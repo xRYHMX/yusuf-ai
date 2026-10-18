@@ -758,17 +758,31 @@ body.theme-light .drop-overlay {
     width: 100%;
     overflow-x: auto;
     margin: 10px 0;
-    border-radius: 10px;
+    border-radius: 12px;
     border: 1px solid var(--border-color);
     background: var(--bg-card);
     scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+
+.table-responsive::-webkit-scrollbar {
+    height: 5px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.25);
+    border-radius: 999px;
 }
 
 .msg-bubble table {
     width: 100%;
-    min-width: 640px;
+    min-width: 100%;
     border-collapse: collapse;
-    font-size: 0.88rem;
+    font-size: 0.87rem;
     background: transparent;
     border: none;
     margin: 0;
@@ -776,7 +790,7 @@ body.theme-light .drop-overlay {
 }
 
 .msg-bubble th, .msg-bubble td {
-    padding: 9px 13px;
+    padding: 10px 12px;
     text-align: left;
     border-bottom: 1px solid var(--border-color);
     word-break: normal !important;
@@ -810,16 +824,117 @@ body.theme-light .drop-overlay {
 
 /* Maç / Takımlar sütunu */
 .msg-bubble td:nth-child(3) {
+    font-weight: 600;
+}
+
+/* Tercih sütunu */
+.msg-bubble td:nth-child(4) {
     white-space: nowrap !important;
     font-weight: 600;
 }
 
-/* Tercih, Model Olasılığı, Değer Katı sütunları */
-.msg-bubble td:nth-child(4),
-.msg-bubble td:nth-child(5),
-.msg-bubble td:nth-child(6) {
-    white-space: nowrap !important;
-    font-family: var(--font-mono);
+/* Modern Neon Güven & Değer Yüzde Barı (.ai-conf-meter) */
+.ai-conf-cell {
+    min-width: 128px;
+    width: 148px;
+}
+
+.ai-conf-meter {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: 100%;
+    min-width: 112px;
+}
+
+.ai-conf-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    line-height: 1;
+}
+
+.ai-conf-pct {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 0.78rem;
+    letter-spacing: 0.01em;
+    padding: 3px 7px;
+    border-radius: 6px;
+}
+
+.ai-conf-pct.high {
+    color: #34d399;
+    background: rgba(16, 185, 129, 0.14);
+    border: 1px solid rgba(16, 185, 129, 0.32);
+}
+
+.ai-conf-pct.gold {
+    color: #fbbf24;
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.ai-conf-pct.warn {
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.14);
+    border: 1px solid rgba(56, 189, 248, 0.32);
+}
+
+.ai-conf-pct.danger {
+    color: #f87171;
+    background: rgba(239, 68, 68, 0.14);
+    border: 1px solid rgba(239, 68, 68, 0.32);
+}
+
+.ai-conf-lift {
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #fbbf24;
+    background: rgba(245, 158, 11, 0.12);
+    padding: 2px 6px;
+    border-radius: 5px;
+    white-space: nowrap;
+}
+
+.ai-conf-track {
+    width: 100%;
+    height: 7px;
+    background: rgba(148, 163, 184, 0.14);
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.ai-conf-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ai-conf-fill.high {
+    background: linear-gradient(90deg, #059669 0%, #10b981 55%, #34d399 100%);
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.45);
+}
+
+.ai-conf-fill.gold {
+    background: linear-gradient(90deg, #d97706 0%, #f59e0b 55%, #fbbf24 100%);
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.45);
+}
+
+.ai-conf-fill.warn {
+    background: linear-gradient(90deg, #0284c7 0%, #0ea5e9 55%, #38bdf8 100%);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+}
+
+.ai-conf-fill.danger {
+    background: linear-gradient(90deg, #dc2626 0%, #ef4444 60%, #f87171 100%);
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
 }
 
 .msg-bubble tr:last-child td {

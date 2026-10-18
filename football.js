@@ -484,7 +484,7 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
 
     // 3. Kullanıcının bu mesajda veya aynı sohbetin önceki mesajlarında konuştuğu / görselden okunan spesifik takımlar ve maçlar
     let relevantMatches = '';
-    const historyNorm = normTr(options.historyText || '');
+    const historyNorm = normTr(opts.historyText || '');
     const stopWords = new Set(['mac', 'maci', 'maclar', 'maclari', 'kupon', 'kuponu', 'analiz', 'bugun', 'bugunku', 'yarin', 'icin', 'nasil', 'olur', 'bana', 'yap', 'ver', 'ust', 'alt', 'gol', 'ilk', 'yari', 'ikinci', 'gunun', 'banko', 'surpriz', 'yuksek', 'oranli', 'deger', 'resmi', 'iddaa', 'nesine', 'bulteninden', 'oranlardan', 'bagimsiz', 'deplasman', 'karnesi', 'son', 'formu', 'ortak', 'rakipler', 'saha', 'hava', 'sartlari', 'kilit', 'oyuncularini', 'inceleyerek', 'guvendigin', 'maclik', 'tablolu', 'grafik', 'barli', 'olarak', 'cikar', 'hazirla', 'devre', 'karakteri', 'firsati', 'firsatlari', 'sistem', 'kombine', 'oynamaliyim', 'detayli', 'kesin', 'skor', 'handikap', 'resim', 'gorsel', 'fotograf', 'ekran', 'goruntusu', 'tutar', 'gelir', 'yatirir', 'kanka', 'sana', 'bisi', 'birsey', 'demistim', 'vardi', 'onlarla', 'yapar', 'misin', 'bahsettigim', 'soyledigim', 'onceki', 'sohbette']);
     const curWords = qNorm.split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !stopWords.has(w));
     const histWords = historyNorm.split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !stopWords.has(w));
@@ -554,7 +554,7 @@ ${relevantMatches}
    a) Başlık: Kupon Adı ve Strateji (örn: 🎯 **Günün Bağımsız Banko Kuponu** • *Düz 4'lü Kombine* veya 🚀 **Günün Yüksek Değerli Sürpriz Kuponu** • *3-4-5 Sistem / Kombine*)
    b) Kompakt Grafik Tablo:
       | # | Saat | Maç | Tercih | Güven / Değer İbresi |
-      (Güven İbresi sütununda görsel ilerleme barı kullan: örn. 🟩 %84 [████████░░] veya Sürpriz kuponda ⭐ %28 • 2.4x Değer [█████░░░░░])
+      (Güven İbresi sütununda ASLA köşeli parantezli [████░░] metin barı kullanma; arayüz otomatik grafik bar çizeceği için sadece %88 veya Sürpriz kuponda %28 • 2.4x Değer yaz!)
    c) Derin Analiz Gerekçeleri (Maç başına 1-2 satırlık somut veri özeti):
       - **Ev - Deplasman:** 📊 Bağımsız xG: 2.14 - 0.88 • Ev sahibi iç sahada maç başı 2.2 gol atıyor, 🧬 Taktik DNA: ⚡ Erken Baskıcı, 3 ortak rakipte +1.4 averaj üstünlüğü var (🌤️ 16°C Açık).
    d) Tek Cümlelik Oynanış Notu.

@@ -840,11 +840,46 @@ function appendMessage(sender, text, attachments = []) {
     return wrapper;
 }
 
+function buildConfMeterHtml(rawPct, liftLabel = '', rawContext = '', isInline = false) {
+    const pct = Math.max(6, Math.min(100, rawPct));
+    const isSurpriseValue = Boolean(liftLabel) || rawContext.includes('⭐') || /değer|sürpriz/i.test(rawContext);
+    const isDanger = rawContext.includes('🟥') || (!isSurpriseValue && pct < 45);
+    const isWarn = rawContext.includes('🟨') || (!isSurpriseValue && !isDanger && pct < 68);
+    const tierClass = isSurpriseValue ? 'gold' : isDanger ? 'danger' : isWarn ? 'warn' : 'high';
+    const barFillWidth = isSurpriseValue ? Math.max(pct, Math.min(94, pct + 30)) : pct;
+    const badgeHtml = liftLabel
+        ? `<span class="ai-conf-lift">${escapeHtml(liftLabel)}</span>`
+        : '';
+
+    return `<div class="ai-conf-meter${isInline ? ' ai-conf-inline' : ''}"><div class="ai-conf-top"><span class="ai-conf-pct ${tierClass}">%${rawPct}</span>${badgeHtml}</div><div class="ai-conf-track"><div class="ai-conf-fill ${tierClass}" style="width:${barFillWidth}%"></div></div></div>`;
+}
+
 function renderMarkdown(rawText) {
     if (!rawText) return '';
-    if (!window.marked) return escapeHtml(rawText);
-    let html = marked.parse(rawText);
-    // Tablo kaymalarını ve dar sütun kırılmalarını önlemek için responsive kapsayıcı ekle
+    // Çirkin ASCII blok karakterlerini ([████████░░] vb.) tamamen temizle
+    const cleanedRaw = String(rawText)
+        .replace(/\[\s*[█▓▒░■□▪▫▬▭▮▯=#\-.\s]{2,}\s*\]?/g, '')
+        .replace(/[█▓▒░]{2,}/g, '');
+
+    if (!window.marked) return escapeHtml(cleanedRaw);
+    let html = marked.parse(cleanedRaw);
+
+    // Tablo hücrelerindeki (%88, 🟩 %87, ⭐ %28 • 2.4x Değer vb.) güven/değer yüzdelerini modern neon grafik bara dönüştür
+    html = html.replace(/<td>([\s\S]*?)<\/td>/gi, (fullMatch, inner) => {
+        const plain = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const pctMatch = plain.match(/(?:%\s*(\d{1,3})|(\d{1,3})\s*%)/);
+        if (pctMatch && plain.length <= 56) {
+            const rawPct = parseInt(pctMatch[1] || pctMatch[2], 10);
+            if (!isNaN(rawPct) && rawPct >= 1 && rawPct <= 100) {
+                const liftMatch = plain.match(/(\d+(?:[.,]\d+)?x(?:\s*Değer)?)/i);
+                const liftLabel = liftMatch ? liftMatch[1].replace(/\s+/g, ' ').trim() : '';
+                return `<td class="ai-conf-cell">${buildConfMeterHtml(rawPct, liftLabel, plain, false)}</td>`;
+            }
+        }
+        return fullMatch;
+    });
+
+    // Tablo kapsayıcısı
     if (html.includes('<table>') && !html.includes('table-responsive')) {
         html = html.replace(/<table>/gi, '<div class="table-responsive"><table>');
         html = html.replace(/<\/table>/gi, '</table></div>');
