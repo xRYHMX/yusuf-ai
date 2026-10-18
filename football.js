@@ -457,7 +457,8 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
             const bOddStr = b.hasRealOdd && b.realOdd
                 ? `, Gerçek Nesine Oranı: ${b.realOdd.toFixed(2)} (Güncelleme: ${b.oddsUpdatedAt || 'Canlı'}), EV: ${b.evPct >= 0 ? '+' : ''}%${b.evPct}${b.isValueBet ? ' [Value Bet]' : ''}`
                 : `, Nesine Oranı: Bu pazar için gerçek oran bulunamadı (EV hesaplanamadı)`;
-            bankoSummary += `${i + 1}. [${b.m.time}] ${b.m.home} - ${b.m.away} (${b.m.league.full}) | Tercih: ${b.label} (Model Olasılığı: %${Math.round(b.p * 100)}${bOddStr}, Risk: ${b.riskLevel || 'Düşük Risk'}, İstikrar: %${b.an.avgConsistency || 75})\n`;
+            const matchDateStr = b.m.date || today;
+            bankoSummary += `${i + 1}. [${matchDateStr} ${b.m.time}] ${b.m.home} - ${b.m.away} (${b.m.league.full}) | Tercih: ${b.label} (Model Olasılığı: %${Math.round(b.p * 100)}${bOddStr}, Risk: ${b.riskLevel || 'Düşük Risk'}, İstikrar: %${b.an.avgConsistency || 75})\n`;
             if (!asksOnlySurp) {
                 bankoSummary += `   Gerekçe: ${b.rationale}\n`;
                 if (!isCompact) {
@@ -477,7 +478,8 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
             const sOddStr = s.hasRealOdd && s.realOdd
                 ? `, Gerçek Nesine Oranı: ${s.realOdd.toFixed(2)} (Güncelleme: ${s.oddsUpdatedAt || 'Canlı'}), Gerçek EV: ${s.evPct >= 0 ? '+' : ''}%${s.evPct}${s.isValueBet ? ' [Value Bet]' : ''}`
                 : `, Nesine Oranı: Bu pazar için gerçek oran bulunamadı (Value Bet olarak etiketlenmez)`;
-            surpSummary += `${i + 1}. [${s.m.time}] ${s.m.home} - ${s.m.away} (${s.m.league.full}) | Tercih: ${s.label} (Model Olasılığı: %${Math.round(s.p * 100)}${sOddStr}, Çarpan: ${s.lift ? s.lift.toFixed(1) + 'x' : '-'
+            const matchDateStr = s.m.date || today;
+            surpSummary += `${i + 1}. [${matchDateStr} ${s.m.time}] ${s.m.home} - ${s.m.away} (${s.m.league.full}) | Tercih: ${s.label} (Model Olasılığı: %${Math.round(s.p * 100)}${sOddStr}, Çarpan: ${s.lift ? s.lift.toFixed(1) + 'x' : '-'
 }, Etiket: ${s.confidenceLevel})\n`;
             if (!asksOnlyBanko) {
                 surpSummary += `   Gerekçe: ${s.rationale}\n`;
@@ -540,7 +542,7 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
         ].sort((a, b) => b.p - a.p).slice(0, 4).map(x => `${x.l}:%${Math.round(x.p * 100)}`).join(' ');
         const surpMini = ` | Sürpriz:[${surpCands} İYSkor:${topHtSc} MSSkor:${topSc}]`;
 
-        upcomingPoolSummary += `${i + 1}. [${m.time}] ${m.home}-${m.away} (${m.league.full}) | xG:${an.lh.toFixed(2)}-${an.la.toFixed(2)} | MS1:%${Math.round(an.p.ms1 * 100)} X:%${Math.round(an.p.msx * 100)} MS2:%${Math.round(an.p.ms2 * 100)} 2.5Ü:%${Math.round(an.p.ust25 * 100)} KGV:%${Math.round(an.p.kgv * 100)} İY0.5Ü:%${Math.round(an.p.iyust05 * 100)}${projMini}${surpMini}${splitMini}${dnaMini}${wMini}${lMini}\n`;
+        upcomingPoolSummary += `${i + 1}. [${m.date || today} ${m.time}] ${m.home}-${m.away} (${m.league.full}) | xG:${an.lh.toFixed(2)}-${an.la.toFixed(2)} | MS1:%${Math.round(an.p.ms1 * 100)} X:%${Math.round(an.p.msx * 100)} MS2:%${Math.round(an.p.ms2 * 100)} 2.5Ü:%${Math.round(an.p.ust25 * 100)} KGV:%${Math.round(an.p.kgv * 100)} İY0.5Ü:%${Math.round(an.p.iyust05 * 100)}${projMini}${surpMini}${splitMini}${dnaMini}${wMini}${lMini}\n`;
     });
 
     // 2.5 Canlı Oynanan İddaa Maçları (Canlı Kalan Süre Motoru)
@@ -603,7 +605,7 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
             relevantMatches = '\n[KULLANICININ BU SOHBETTE SORDUĞU / BAHSETTİĞİ VEYA GÖRSELDEN OKUNAN MAÇLAR İÇİN 10 KATMANLI DERİN İNCELEME SONUÇLARI]:\n';
             topMatched.forEach(({ m, an }) => {
                 const bTag = m.inBulletin ? 'Resmi İddaa Bülteninde Var' : 'İddaa Dışı';
-                relevantMatches += `- [${m.time}] ${m.home} - ${m.away} (${m.league.full} | ${bTag}) | Durum: ${m.state === 'live' ? 'CANLI ' + m.label + ' (' + (m.score ? m.score.h + '-' + m.score.a : '') + ')' : m.state === 'post' ? 'MS ' + (m.score ? m.score.h + '-' + m.score.a : '') : 'Başlamadı'}\n`;
+                relevantMatches += `- [${m.date || today} ${m.time}] ${m.home} - ${m.away} (${m.league.full} | ${bTag}) | Durum: ${m.state === 'live' ? 'CANLI ' + m.label + ' (' + (m.score ? m.score.h + '-' + m.score.a : '') + ')' : m.state === 'post' ? 'MS ' + (m.score ? m.score.h + '-' + m.score.a : '') : 'Başlamadı'}\n`;
                 relevantMatches += `  Bağımsız xG (Dixon-Coles ρ:${an.rho}): Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)} | MS1:%${Math.round(an.p.ms1 * 100)} X:%${Math.round(an.p.msx * 100)} MS2:%${Math.round(an.p.ms2 * 100)} | 1.5Ü:%${Math.round(an.p.ust15 * 100)} 2.5Ü:%${Math.round(an.p.ust25 * 100)} KGV:%${Math.round(an.p.kgv * 100)} İY0.5Ü:%${Math.round(an.p.iyust05 * 100)}\n`;
                 relevantMatches += `  Genişletilmiş 25+ Nesine Pazarları: Ev 1.5Ü:%${Math.round((an.p.ev_ust15 || 0) * 100)} | Dep 1.5Ü:%${Math.round((an.p.dep_ust15 || 0) * 100)} | 2-3 Gol:%${Math.round((an.p.tg23 || 0) * 100)} | 4-6 Gol:%${Math.round((an.p.tg46 || 0) * 100)} | Korner 9.5Ü:%${Math.round((an.p.korner_ust95 || 0) * 100)} | İY Korner 4.5Ü:%${Math.round((an.p.iy_korner_ust45 || 0) * 100)} | Kart 3.5Ü:%${Math.round((an.p.kart_ust35 || 0) * 100)} | Asya Hnd(-1.5):%${Math.round((an.p.ah_h_15 || 0) * 100)}\n`;
                 relevantMatches += `  Yüksek Oranlı Özel Pazarlar: MS1&KG:%${Math.round((an.p.ms1_kgv || 0) * 100)} | MS2&KG:%${Math.round((an.p.ms2_kgv || 0) * 100)} | MS1&2.5Ü:%${Math.round((an.p.ms1_ust25 || 0) * 100)} | MS2&2.5Ü:%${Math.round((an.p.ms2_ust25 || 0) * 100)} | 2.5Ü&KG:%${Math.round((an.p.ust25_kgv || 0) * 100)} | İY KG Var:%${Math.round((an.p.iykgv || 0) * 100)} | 2.Yarı KG Var:%${Math.round((an.p.y2kgv || 0) * 100)} | İY 1.5 Üst:%${Math.round((an.p.iyust15 || 0) * 100)}\n`;
@@ -621,13 +623,18 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
     const perfLine = perf
         ? `[MODEL KALİBRASYON & GERÇEK SONUÇ DOĞRULAMA METRİKLERİ]: Brier Score: ${perf.brierScore} | Log Loss: ${perf.logLoss} | Doğrulanan Maç: ${perf.evaluatedMatches} | Genel İsabet Oranı: %${perf.hitRatePct} (${perf.bankoHits}/${perf.bankoTotal})`
         : '';
-    const nesineSt = day.nesineStatus || mackolik.getNesineStatus();
-    const nesineLine = nesineSt && nesineSt.isFresh && nesineSt.updatedAt
-        ? `[NESİNE CANLI ORAN DURUMU]: Güncel (${new Date(nesineSt.updatedAt).toLocaleTimeString('tr-TR')}, ${nesineSt.ageSeconds || 0} sn önce yenilendi)`
+    const nesineSt = day.nesineStatus || mk.getNesineStatus();
+    const nesineTimeDisplay = nesineSt?.updatedAt
+        ? (nesineSt.updatedAt.includes('T') ? new Date(nesineSt.updatedAt).toLocaleTimeString('tr-TR') : nesineSt.updatedAt)
+        : '';
+    const nesineLine = nesineSt && nesineSt.isFresh && nesineTimeDisplay
+        ? `[NESİNE CANLI ORAN DURUMU]: Güncel (${nesineTimeDisplay}, ${nesineSt.ageSeconds || 0} sn önce yenilendi)`
         : `[NESİNE CANLI ORAN DURUMU]: Oran yenilenemediği için eski oranlar kullanılmadı.`;
 
+    const todayTrFull = new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', weekday: 'long', timeZone: 'Europe/Istanbul' });
+
     return `
-[YUSUF AI 2.0 - %100 BAĞIMSIZ 10 KATMANLI DERİN FUTBOL ANALİZ VE 25+ PAZAR MOTORU - ${today}]
+[YUSUF AI 2.0 - %100 BAĞIMSIZ 10 KATMANLI DERİN FUTBOL ANALİZ VE 25+ PAZAR MOTORU - ${todayTrFull} (${today})]
 Bugün Resmi İddaa Bülteninde (Nesine / Maçkolik) Yer Alan Maç Sayısı: ${totalBulletinCount}
 ${nesineLine}
 ${perfLine}
@@ -640,11 +647,11 @@ ${liveSummary}
 ${relevantMatches}
 ÖNEMLİ KURALLAR (MOBİL ÖNCELİKLİ, KISA, ÖZ, GRAFİKLİ VE KENDİ DERİN ANALİZİNİ YANSITAN FORMAT):
 1. KULLANICI TELEFONDAN TAKİP ETMEKTEDİR: Açıklamaları kesinlikle UZUN TUTMA. Uzun paragraf yazmak Yasaktır; ancak her maçın tek satırlık gerekçesinde kendi incelediğin SOMUT VERİLERİ (ev/dep gol ortalaması, son 10 maç, isabetli şut, korner/kart beklentisi, ortak rakipler, H2H, taktik DNA, dinlenme günü, hava durumu, form veya gol kralı) net biçimde belirt.
-2. ÇIKTI FORMATI STANDARDI (BUNA KESİNLİKLE UYULACAK):
+2. ÇIKTI FORMATI STANDARDI (BUNA KESİNLİKLE VE EKSİKSİZ UYULACAK):
    a) Başlık: Kupon Adı, Tekil Ortalama Güven ve Kombine Birlikte Gelme Olasılığı (örn: 🎯 **Günün Bağımsız Banko Kuponu** • *Tekil Ort: %86 | 4 Maç Kombine Olasılığı: %55* veya 🚀 **Günün Yüksek Değerli Sürpriz Kuponu** • *3-4-5 Sistem*)
-   b) Kompakt Grafik Tablo:
-      | # | Saat | Maç | Tercih | Güven / Değer İbresi |
-      (Güven İbresi sütununda ASLA köşeli parantezli [████░░] metin barı kullanma; arayüz otomatik grafik bar çizeceği için sadece %88 veya Sürpriz kuponda %28 • 2.4x Değer yaz!)
+   b) Kompakt Grafik Tablo (Maçın yanında kesinlikle hem Maç Tarihi hem Başlama Saati yer alacaktır):
+      | # | Tarih & Saat | Maç | Tercih | Güven / Değer İbresi |
+      (Tarih & Saat sütununda kesinlikle maçın gerçek tarihini ve saatini birlikte belirt: örn. '18.10.2026 17:30' veya '18 Ekim 21:45'. Asla sadece 'Bugün' yazıp tarihi gizleme! Güven İbresi sütununda ASLA [████░░] metin barı kullanma; arayüz otomatik neon bar çizecektir.)
    c) Derin Analiz Gerekçeleri (Maç başına 1-2 satırlık somut veri özeti):
       - **Ev - Deplasman:** 📊 xG: 2.14 - 0.88 • 🎯 İsabetli Şut: 5.8 - 2.9 • 🚩 Korner: 10.2 • Ev sahibi iç sahada maç başı 2.2 gol atıyor, 🧬 Taktik DNA: ⚡ Erken Baskıcı, 3 ortak rakipte +1.4 averaj üstünlüğü var.
    d) Tek Cümlelik Oynanış Notu.

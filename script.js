@@ -1280,6 +1280,20 @@ function renderModelPerformance(perf) {
     `;
 }
 
+function formatMatchDateTimeDisplay(m) {
+    if (!m) return '';
+    let dStr = '';
+    if (m.date) {
+        const p = m.date.split('-');
+        dStr = (p.length === 3) ? `${p[2]}.${p[1]}.${p[0]}` : m.date;
+    }
+    const tStr = m.time || '';
+    if (tStr.includes('Yarın')) {
+        return dStr ? `📅 ${dStr} (${tStr})` : `🕒 ${tStr}`;
+    }
+    return dStr ? `📅 ${dStr} ${tStr}` : `🕒 ${tStr}`;
+}
+
 function createCouponMatchElement(item, isSurprise) {
     const m = item.m;
     const an = item.an || {};
@@ -1504,7 +1518,7 @@ function createCouponMatchElement(item, isSurprise) {
 
     div.innerHTML = `
         <div class="match-item-top">
-            <span class="match-item-time">${m.time} | ${escapeHtml(m.league.full)}</span>
+            <span class="match-item-time">${formatMatchDateTimeDisplay(m)} | 🏆 ${escapeHtml(m.league.full)}</span>
             ${m.youth ? '<span class="team-tags tag-youth">Gençlik / U</span>' : ''}
             ${m.women ? '<span class="team-tags tag-women">Kadın</span>' : ''}
         </div>

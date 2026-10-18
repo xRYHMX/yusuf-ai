@@ -818,10 +818,11 @@ body.theme-light .drop-overlay {
     text-align: center;
 }
 
-/* Saat sütunu (22:00, 21:00 asla bölünemez) */
+/* Tarih & Saat sütunu (asla bölünemez) */
 .msg-bubble td:nth-child(2),
 .msg-bubble th:nth-child(2) {
     white-space: nowrap !important;
+    font-family: var(--font-mono);
 }
 
 /* Maç / Takımlar sütunu */
@@ -1800,9 +1801,13 @@ body.theme-light .drop-overlay {
 }
 
 .match-item-rationale {
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     color: var(--text-secondary);
-    line-height: 1.4;
+    line-height: 1.42;
+    padding: 6px 9px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 6px;
+    border-left: 2px solid rgba(56, 189, 248, 0.35);
 }
 
 .match-item-actions {
@@ -2657,10 +2662,26 @@ body.theme-light .drop-overlay {
 
     .msg-bubble {
         padding: 10px 12px !important;
-        font-size: 0.86rem !important;
-        line-height: 1.52 !important;
+        font-size: 0.80rem !important;
+        line-height: 1.48 !important;
         border-radius: 14px !important;
         gap: 6px !important;
+    }
+
+    .msg-bubble h1 { font-size: 0.98rem !important; margin: 6px 0 3px !important; }
+    .msg-bubble h2 { font-size: 0.92rem !important; margin: 6px 0 3px !important; }
+    .msg-bubble h3 { font-size: 0.85rem !important; margin: 5px 0 2px !important; }
+    .msg-bubble h4 { font-size: 0.80rem !important; margin: 4px 0 2px !important; }
+
+    .msg-bubble p, .msg-bubble li {
+        font-size: 0.77rem !important;
+        line-height: 1.42 !important;
+    }
+
+    .msg-bubble ul, .msg-bubble ol {
+        padding-left: 14px !important;
+        gap: 3px !important;
+        margin: 3px 0 !important;
     }
 
     /* 7. Chat İçi Tablo (Mobilde Kesinlikle Taşma/Kesilme Yapmaz) */
@@ -2675,13 +2696,13 @@ body.theme-light .drop-overlay {
     .msg-bubble table {
         width: 100% !important;
         min-width: 100% !important;
-        font-size: 0.76rem !important;
+        font-size: 0.74rem !important;
         table-layout: auto !important;
     }
 
     .msg-bubble th, .msg-bubble td {
         padding: 6px 5px !important;
-        font-size: 0.76rem !important;
+        font-size: 0.74rem !important;
     }
 
     /* Sıra (#) sütunu dar */
@@ -2691,16 +2712,24 @@ body.theme-light .drop-overlay {
         text-align: center;
     }
 
-    /* Saat sütunu */
+    /* Tarih & Saat sütunu */
     .msg-bubble th:nth-child(2), .msg-bubble td:nth-child(2) {
-        width: 42px !important;
         white-space: nowrap !important;
+        font-family: var(--font-mono);
+        font-size: 0.70rem !important;
     }
 
     /* Tercih sütunu */
     .msg-bubble th:nth-child(4), .msg-bubble td:nth-child(4) {
         white-space: nowrap !important;
         font-weight: 600;
+    }
+
+    /* Analiz Gerekçesi Mobilde Kompakt & Okunaklı */
+    .match-item-rationale {
+        font-size: 0.71rem !important;
+        line-height: 1.36 !important;
+        padding: 5px 7px !important;
     }
 
     /* 8. Alt Giriş Çubuğu (Input Bar) */
