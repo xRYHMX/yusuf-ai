@@ -958,18 +958,51 @@ function askAiDirectly(prompt) {
 // ---------------- Kuponları Yükle & Render Et ----------------
 async function loadCoupons() {
     couponsLoading.style.display = 'flex';
+    couponsLoading.innerHTML = `
+        <div class="spinner"></div>
+        <span>Canlı bülten, gerçek Nesine oranları ve model olasılıkları yükleniyor...</span>
+    `;
     couponsContent.style.display = 'none';
+    const perfSec = document.getElementById('modelPerfSection');
+    if (perfSec) perfSec.style.display = 'none';
+
+    const topBadge = document.getElementById('couponBadge');
+    const homeBankoEl = document.getElementById('homeBankoCardTitle');
+    const homeSurpEl = document.getElementById('homeSurpriseCardTitle');
+    if (topBadge) topBadge.textContent = 'Yükleniyor...';
+    if (homeBankoEl) homeBankoEl.textContent = 'Günün Banko Kuponu (Yükleniyor...)';
+    if (homeSurpEl) homeSurpEl.textContent = 'Sürpriz Kupon (Yükleniyor...)';
+    if (bankoConfidenceVal) bankoConfidenceVal.textContent = 'Yükleniyor...';
+    if (surpriseLiftVal) surpriseLiftVal.textContent = 'Yükleniyor...';
 
     try {
         const res = await fetch('/api/football/coupons');
-        if (!res.ok) throw new Error('Kupon verisi alınamadı');
+        if (!res.ok) throw new Error(`Sunucu yanıt hatası (HTTP ${res.status})`);
         const data = await res.json();
 
         couponsLoaded = true;
         renderCoupons(data);
     } catch (err) {
         console.error('Kupon yükleme hatası:', err);
-        couponsLoading.innerHTML = `<span>Kuponlar yüklenirken hata oluştu: ${escapeHtml(err.message)}</span>`;
+        couponsLoaded = false;
+        couponsContent.style.display = 'none';
+        if (perfSec) perfSec.style.display = 'none';
+        if (topBadge) topBadge.textContent = 'Veri Hatası';
+        if (homeBankoEl) homeBankoEl.textContent = 'Günün Banko Kuponu (Canlı Veri Alınamadı)';
+        if (homeSurpEl) homeSurpEl.textContent = 'Sürpriz Kupon (Canlı Veri Alınamadı)';
+        if (bankoConfidenceVal) bankoConfidenceVal.textContent = 'Veri Alınamadı';
+        if (surpriseLiftVal) surpriseLiftVal.textContent = 'Veri Alınamadı';
+
+        couponsLoading.style.display = 'flex';
+        couponsLoading.innerHTML = `
+            <div style="text-align:center;max-width:460px;display:flex;flex-direction:column;align-items:center;gap:10px;">
+                <span style="color:#ef4444;font-weight:700;font-size:0.95rem;">⚠️ Canlı Kupon ve Oran Verisi Alınamadı</span>
+                <span style="color:var(--text-secondary);font-size:0.82rem;">API bağlantısı kurulamadığı için eski veya sabit veriler gösterilmemektedir (${escapeHtml(err.message)}).</span>
+                <button type="button" id="retryCouponsBtn" class="btn-refresh" style="margin-top:4px;">Tekrar Dene</button>
+            </div>
+        `;
+        const retryBtn = document.getElementById('retryCouponsBtn');
+        if (retryBtn) retryBtn.addEventListener('click', loadCoupons);
     }
 }
 
@@ -977,28 +1010,33 @@ function renderCoupons(data) {
     couponsLoading.style.display = 'none';
     couponsContent.style.display = 'grid';
 
+    const homeBankoEl = document.getElementById('homeBankoCardTitle');
+    const homeSurpEl = document.getElementById('homeSurpriseCardTitle');
+    const topBadge = document.getElementById('couponBadge');
+
     // 1. BANKO KUPONU
     const banko = data.banko;
     if (banko) {
         bankoTitle.textContent = banko.title || 'Günün Banko Kuponu';
         bankoStrategy.textContent = banko.strategy || 'Canlı Model Hesaplaması • Birleşik Olasılık Analizi';
-        const bSingle = banko.confidence || 0;
-        const bJoint = banko.jointConfidence || Math.round(Math.pow(bSingle / 100, 4) * 100);
-        bankoConfidenceVal.textContent = `Tekil %${bSingle} • Kombine %${bJoint}`;
-        bankoInstruction.textContent = banko.instruction || `Canlı hesaplama: Tekil ort. güven %${bSingle}, 4 maçın birlikte gelme kombine olasılığı %${bJoint}.`;
-
-        const homeBankoEl = document.getElementById('homeBankoCardTitle');
-        if (homeBankoEl && bSingle > 0) {
-            homeBankoEl.textContent = `Günün Banko Kuponu (Canlı: %${bSingle} • Kombine %${bJoint})`;
-        }
-
-        bankoMatchesList.innerHTML = '';
-        if (banko.matches && banko.matches.length) {
+        const hasBankoMatches = Array.isArray(banko.matches) && banko.matches.length > 0 && banko.confidence !== null;
+        if (hasBankoMatches) {
+            const bSingle = banko.confidence;
+            const bJoint = banko.jointConfidence;
+            bankoConfidenceVal.textContent = `Tekil %${bSingle} • Kombine %${bJoint}`;
+            bankoInstruction.textContent = banko.instruction;
+            if (homeBankoEl) {
+                homeBankoEl.textContent = `Günün Banko Kuponu (Canlı: %${bSingle} • Kombine %${bJoint})`;
+            }
+            bankoMatchesList.innerHTML = '';
             banko.matches.forEach(item => {
                 const el = createCouponMatchElement(item, false);
                 bankoMatchesList.appendChild(el);
             });
         } else {
+            bankoConfidenceVal.textContent = 'Henüz yeterli veri yok';
+            bankoInstruction.textContent = banko.instruction || 'Şu an bültende kriterlere uygun yaklaşan banko maç bulunamadı.';
+            if (homeBankoEl) homeBankoEl.textContent = 'Günün Banko Kuponu (Aktif Maç Yok)';
             bankoMatchesList.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;padding:8px;">Bugün için güven kriterlerini karşılayan yaklaşan banko maç bulunamadı.</div>';
         }
     }
@@ -1007,63 +1045,88 @@ function renderCoupons(data) {
     const surp = data.surprise;
     if (surp) {
         surpriseTitle.textContent = surp.title || 'Sürpriz Kupon';
-        surpriseStrategy.textContent = surp.strategy || '25+ Nesine Pazarı • Gerçek Oran & Value Bet (EV) Analizi';
-        const sLift = surp.avgLift || '1.0';
-        const sJoint = surp.jointConfidence || 1;
-        surpriseLiftVal.textContent = `${sLift}x • Kombine %${sJoint}`;
-        surpriseInstruction.textContent = surp.instruction || 'Canlı Nesine oranları ve beklenen değer (EV) baz alınarak Sistem 3-4-5 önerilir.';
-
-        const homeSurpEl = document.getElementById('homeSurpriseCardTitle');
-        if (homeSurpEl) {
-            homeSurpEl.textContent = `Sürpriz Kupon (Canlı Değer: ${sLift}x)`;
-        }
-
-        const topBadge = document.getElementById('couponBadge');
-        if (topBadge && banko && banko.confidence) {
-            topBadge.textContent = `%${banko.confidence} • ${sLift}x`;
-        }
-
-        surpriseMatchesList.innerHTML = '';
-        if (surp.matches && surp.matches.length) {
+        surpriseStrategy.textContent = surp.strategy || '25+ Nesine Pazarı • Gerçek Oran & Value Bet (EV) Kontrolü';
+        const hasSurpMatches = Array.isArray(surp.matches) && surp.matches.length > 0 && surp.avgLift !== null;
+        if (hasSurpMatches) {
+            const sLift = surp.avgLift;
+            const sJoint = surp.jointConfidence;
+            surpriseLiftVal.textContent = `${sLift}x Çarpan • Kombine %${sJoint}`;
+            surpriseInstruction.textContent = surp.instruction;
+            if (homeSurpEl) {
+                homeSurpEl.textContent = `Sürpriz Kupon (Canlı Çarpan: ${sLift}x)`;
+            }
+            if (topBadge && banko && banko.confidence !== null) {
+                topBadge.textContent = `%${banko.confidence} • ${sLift}x`;
+            } else if (topBadge) {
+                topBadge.textContent = `${sLift}x Canlı`;
+            }
+            surpriseMatchesList.innerHTML = '';
             surp.matches.forEach(item => {
                 const el = createCouponMatchElement(item, true);
                 surpriseMatchesList.appendChild(el);
             });
         } else {
+            surpriseLiftVal.textContent = 'Henüz yeterli veri yok';
+            surpriseInstruction.textContent = surp.instruction || 'Şu an bültende kriterlere uygun yaklaşan sürpriz maç bulunamadı.';
+            if (homeSurpEl) homeSurpEl.textContent = 'Sürpriz Kupon (Aktif Maç Yok)';
+            if (topBadge) {
+                topBadge.textContent = (banko && banko.confidence !== null) ? `%${banko.confidence} Canlı` : 'Veri Bekleniyor';
+            }
             surpriseMatchesList.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;padding:8px;">Bugün için yüksek değer kriterlerini karşılayan sürpriz maç bulunamadı.</div>';
         }
     }
 
-    // 3. MODEL DOĞRULAMA & KALİBRASYON RAPORU (Brier Score, Log Loss, Pazar/Lig Başarısı, Sonuçlanan Tahminler)
+    // 3. MODEL DOĞRULAMA & KALİBRASYON RAPORU (Kronolojik Out-of-Sample Walk-Forward Test & Maç Öncesi Kayıt Tablosu)
     renderModelPerformance(data.performance);
 }
 
 function renderModelPerformance(perf) {
     const container = document.getElementById('modelPerfSection');
     if (!container) return;
-    if (!perf) {
-        container.style.display = 'none';
-        return;
-    }
     container.style.display = 'block';
 
-    const sampleCount = perf.evaluatedMatches || perf.sampleSize || 140;
+    const sampleCount = (perf && typeof perf.evaluatedMatches === 'number') ? perf.evaluatedMatches : 0;
+    const hasData = Boolean(perf && perf.hasSufficientData && sampleCount > 0 && perf.hitRatePct !== null && perf.brierScore !== null && perf.logLoss !== null);
 
-    const mktPills = (perf.marketsReport || []).map(mk =>
-        `<div class="perf-mini-pill"><span>${escapeHtml(mk.label || mk.market)}</span><strong>%${mk.ratePct ?? mk.accuracyPct}</strong><small>(${mk.hits}/${mk.total} isabet)</small></div>`
-    ).join('');
+    if (!hasData) {
+        container.innerHTML = `
+            <div class="perf-report-card">
+                <div class="perf-report-header">
+                    <div>
+                        <h3>📊 Model Kalibrasyon, Brier Score & Kronolojik Out-of-Sample Doğrulama Raporu</h3>
+                        <p>Model performansı yalnızca maçtan önceki verilerle (Out-of-Sample) kronolojik olarak ölçülür. Varsayılan veya tahmini başarı oranı gösterilmez.</p>
+                    </div>
+                    <span class="perf-updated-tag">Veri Bekleniyor</span>
+                </div>
+                <div class="perf-verified-box" style="text-align:center;padding:18px;">
+                    <strong style="color:var(--text-primary);font-size:0.9rem;">Henüz yeterli veri yok</strong>
+                    <span style="color:var(--text-secondary);font-size:0.8rem;">Kronolojik Out-of-Sample test ve maç öncesi kayıt doğrulaması için yeterli sayıda tamamlanmış bülten maçı biriktiğinde gerçek sonuçlar burada listelenecektir.</span>
+                </div>
+            </div>
+        `;
+        return;
+    }
 
-    const lgPills = (perf.leaguesReport || []).slice(0, 6).map(lg =>
-        `<div class="perf-mini-pill"><span>${escapeHtml(lg.league)}</span><strong>%${lg.ratePct ?? lg.accuracyPct}</strong><small>(${lg.hits}/${lg.total} isabet)</small></div>`
-    ).join('');
+    const mktPills = (perf.marketsReport && perf.marketsReport.length)
+        ? perf.marketsReport.map(mk =>
+            `<div class="perf-mini-pill"><span>${escapeHtml(mk.label || mk.market)}</span><strong>%${mk.ratePct ?? mk.accuracyPct}</strong><small>(${mk.hits}/${mk.total} isabet)</small></div>`
+        ).join('')
+        : '<span style="color:var(--text-muted);font-size:0.78rem;">Henüz yeterli veri yok</span>';
+
+    const lgPills = (perf.leaguesReport && perf.leaguesReport.length)
+        ? perf.leaguesReport.slice(0, 6).map(lg =>
+            `<div class="perf-mini-pill"><span>${escapeHtml(lg.league)}</span><strong>%${lg.ratePct ?? lg.accuracyPct}</strong><small>(${lg.hits}/${lg.total} isabet)</small></div>`
+        ).join('')
+        : '<span style="color:var(--text-muted);font-size:0.78rem;">Henüz yeterli veri yok</span>';
 
     const verifiedRows = (perf.verifiedMatches || []).slice(0, 8).map(v => {
         const badgeClass = v.won ? 'perf-status-won' : 'perf-status-lost';
         const badgeIcon = v.won ? '✅ Kazandı' : '❌ Kaybetti';
+        const methodTag = v.testMethod ? `<span style="color:var(--accent-sky);font-weight:600;">[${escapeHtml(v.testMethod)}]</span>` : '';
         return `
             <div class="perf-verified-row">
                 <div class="perf-v-top">
-                    <span class="perf-v-league">${escapeHtml(v.date || '')} • ${escapeHtml(v.league)}</span>
+                    <span class="perf-v-league">${escapeHtml(v.date || '')} ${escapeHtml(v.time || '')} • ${escapeHtml(v.league)} ${methodTag}</span>
                     <span class="perf-v-badge ${badgeClass}">${badgeIcon}</span>
                 </div>
                 <div class="perf-v-teams">${escapeHtml(v.match)}</div>
@@ -1075,54 +1138,76 @@ function renderModelPerformance(perf) {
         `;
     }).join('');
 
+    const pendingRows = (perf.pendingPreMatch || []).slice(0, 6).map(p => {
+        const oddTxt = p.realOdd ? `Nesine Oranı: ${p.realOdd.toFixed(2)}` : 'Oran bulunamadı';
+        return `
+            <div class="perf-verified-row">
+                <div class="perf-v-top">
+                    <span class="perf-v-league">${escapeHtml(p.date || '')} ${escapeHtml(p.time || '')} • ${escapeHtml(p.league)}</span>
+                    <span class="perf-v-badge" style="background:rgba(56,189,248,0.14);color:var(--accent-sky);border:1px solid rgba(56,189,248,0.35);">⏳ Maç Öncesi Kaydedildi</span>
+                </div>
+                <div class="perf-v-teams">${escapeHtml(p.match)}</div>
+                <div class="perf-v-bottom">
+                    <span class="perf-v-score">🕒 Kayıt: <strong>${escapeHtml(p.recordedBeforeKickoffAt || '-')}</strong></span>
+                    <span class="perf-v-pick">🎯 ${escapeHtml(p.pick)} <strong>(%${p.probPct})</strong> • ${escapeHtml(oddTxt)}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+
     container.innerHTML = `
         <div class="perf-report-card">
             <div class="perf-report-header">
                 <div>
-                    <h3>📊 Model Kalibrasyon, Brier Score & Geçmiş Tahmin Doğrulama Raporu</h3>
-                    <p>Modelin ürettiği olasılıkların tamamlanan gerçek maç sonuçlarıyla matematiksel örtüşme ve başarı analizi (${sampleCount} doğrulanan maç)</p>
+                    <h3>📊 Kronolojik Out-of-Sample (Walk-Forward) Model Performans & Doğrulama Raporu</h3>
+                    <p>Her maç yalnızca kendisinden önceki tarihsel verilerle eğitilen modelle kronolojik sırayla test edilmiştir (Eğitim verisi testte tekrar kullanılmaz • ${sampleCount} doğrulanan maç)</p>
                 </div>
-                <span class="perf-updated-tag">Canlı Kalibrasyon Aktif</span>
+                <span class="perf-updated-tag">Out-of-Sample Doğrulama</span>
             </div>
 
             <div class="perf-metrics-grid">
                 <div class="perf-metric-box">
-                    <span class="perf-m-label">Genel Tahmin İsabeti</span>
+                    <span class="perf-m-label">Out-of-Sample İsabet Oranı</span>
                     <span class="perf-m-val highlight-emerald">%${perf.hitRatePct}</span>
-                    <span class="perf-m-sub">${perf.bankoHits || 0}/${perf.bankoTotal || 0} yüksek güvenli seçim tuttu</span>
+                    <span class="perf-m-sub">${perf.bankoHits}/${perf.bankoTotal} maç öncesi tahmin tuttu</span>
                 </div>
                 <div class="perf-metric-box">
                     <span class="perf-m-label">Brier Kalibrasyon Skoru</span>
                     <span class="perf-m-val">${perf.brierScore}</span>
-                    <span class="perf-m-sub">0.20 altı = Yüksek olasılık kalibrasyonu</span>
+                    <span class="perf-m-sub">Yalnızca maç öncesi verilerle hesaplandı</span>
                 </div>
                 <div class="perf-metric-box">
                     <span class="perf-m-label">Log Loss (Entropi Kaybı)</span>
                     <span class="perf-m-val">${perf.logLoss}</span>
-                    <span class="perf-m-sub">Dixon-Coles + fitLambda hibrit kalibrasyon</span>
+                    <span class="perf-m-sub">Kronolojik Walk-Forward test kaybı</span>
                 </div>
                 <div class="perf-metric-box">
-                    <span class="perf-m-label">Doğrulanan Maç Havuzu</span>
+                    <span class="perf-m-label">Kronolojik Test Havuzu</span>
                     <span class="perf-m-val">${sampleCount} Maç</span>
-                    <span class="perf-m-sub">Lig bazlı dinamik ev avantajı aktif</span>
+                    <span class="perf-m-sub">Sıfır veri sızıntısı (Out-of-Sample)</span>
                 </div>
             </div>
 
             <div class="perf-splits-row">
                 <div class="perf-split-col">
-                    <h4>🎯 Bahis Pazarı Bazında Başarı Oranı</h4>
+                    <h4>🎯 Bahis Pazarı Bazında Başarı Oranı (Out-of-Sample)</h4>
                     <div class="perf-pills-wrap">${mktPills}</div>
                 </div>
                 <div class="perf-split-col">
-                    <h4>🏆 Lig Bazında Başarı Oranı</h4>
+                    <h4>🏆 Lig Bazında Başarı Oranı (Out-of-Sample)</h4>
                     <div class="perf-pills-wrap">${lgPills}</div>
                 </div>
             </div>
 
-            ${verifiedRows ? `
             <div class="perf-verified-box">
-                <h4>📋 Otomatik Kontrol Edilen Son Tahminler (Kazanan / Kaybeden Raporu)</h4>
-                <div class="perf-verified-list">${verifiedRows}</div>
+                <h4>📋 Kronolojik Out-of-Sample Test Sonuçları (Her Maç Yalnızca Önceki Verilerle Test Edildi)</h4>
+                ${verifiedRows ? `<div class="perf-verified-list">${verifiedRows}</div>` : '<span style="color:var(--text-muted);font-size:0.8rem;">Henüz yeterli veri yok</span>'}
+            </div>
+
+            ${pendingRows ? `
+            <div class="perf-verified-box">
+                <h4>🔒 Maç Başlamadan Kaydedilen Bekleyen Tahminler Tablosu (Maç Bittiğinde Otomatik Karşılaştırılır)</h4>
+                <div class="perf-verified-list">${pendingRows}</div>
             </div>
             ` : ''}
         </div>
@@ -1137,11 +1222,50 @@ function createCouponMatchElement(item, isSurprise) {
     div.className = 'coupon-match-item';
 
     const probPct = Math.round(item.p * 100);
-    const oddTag = item.realOdd ? `<span class="match-pick-conf">Nesine Oranı: ${item.realOdd.toFixed(2)}</span>` : '';
-    const liftTag = item.lift ? `<span class="match-pick-conf lift-tag">${item.lift.toFixed(1)}x Değer</span>` : '';
-    const evTag = (item.evPct !== null && item.evPct !== undefined)
-        ? `<span class="match-pick-conf lift-tag">EV: ${item.evPct >= 0 ? '+' : ''}%${item.evPct}</span>`
-        : '';
+    const hasRealOdd = Boolean(item.hasRealOdd && typeof item.realOdd === 'number' && item.realOdd > 1.01);
+    const isValueBet = Boolean(hasRealOdd && item.isValueBet && typeof item.evPct === 'number' && item.evPct > 0);
+
+    // Üst rozetler: Gerçek oran gelmeyen tahminler asla Value Bet olarak etiketlenmez
+    const oddBadge = hasRealOdd
+        ? `<span class="match-pick-conf">Gerçek Nesine Oranı: ${item.realOdd.toFixed(2)}</span>`
+        : `<span class="match-pick-conf" style="color:var(--text-muted);">Nesine Oranı Bulunamadı</span>`;
+    const valueBadge = isValueBet
+        ? `<span class="match-pick-conf lift-tag">⭐ Value Bet (EV: +%${item.evPct})</span>`
+        : (hasRealOdd && item.evPct !== null && item.evPct !== undefined)
+            ? `<span class="match-pick-conf" style="color:var(--text-secondary);">EV: ${item.evPct >= 0 ? '+' : ''}%${item.evPct}</span>`
+            : `<span class="match-pick-conf" style="color:var(--text-muted);">EV Hesaplanamadı (Oran Yok)</span>`;
+
+    // Her tahminde 4 ayrı bilgiyi açıkça gösteren şeffaflık tablosu
+    const oddDisplayVal = hasRealOdd
+        ? item.realOdd.toFixed(2)
+        : 'Oran bulunamadı (Bu pazar bültende kapalı)';
+    const oddTimeDisplayVal = hasRealOdd && item.oddsUpdatedAt
+        ? item.oddsUpdatedAt
+        : 'Oran verisi yok';
+    const evDisplayVal = (hasRealOdd && item.evPct !== null && item.evPct !== undefined)
+        ? `${item.evPct >= 0 ? '+' : ''}%${item.evPct}${isValueBet ? ' (Value Bet)' : ' (Negatif EV)'}`
+        : 'Gerçek oran bulunamadığı için hesaplanamadı';
+
+    const transparencyGridHtml = `
+        <div class="match-ev-transparency-grid">
+            <div class="ev-t-cell">
+                <span class="ev-t-label">Model Olasılığı</span>
+                <strong class="ev-t-val highlight-emerald">%${probPct}</strong>
+            </div>
+            <div class="ev-t-cell">
+                <span class="ev-t-label">Gerçek Nesine Oranı</span>
+                <strong class="ev-t-val">${escapeHtml(oddDisplayVal)}</strong>
+            </div>
+            <div class="ev-t-cell">
+                <span class="ev-t-label">Oran Güncelleme Zamanı</span>
+                <strong class="ev-t-val">${escapeHtml(oddTimeDisplayVal)}</strong>
+            </div>
+            <div class="ev-t-cell">
+                <span class="ev-t-label">Beklenen Değer (EV)</span>
+                <strong class="ev-t-val ${isValueBet ? 'highlight-gold' : ''}">${escapeHtml(evDisplayVal)}</strong>
+            </div>
+        </div>
+    `;
 
     // 10 katmanlı derin analiz rozetleri (xG, İsabetli Şut, Korner, Kart, Son 5/10 Form, Taktik DNA, Risk Seviyesi, Hava Durumu, Gol Kralı)
     const chips = [];
@@ -1161,6 +1285,9 @@ function createCouponMatchElement(item, isSurprise) {
         const a10 = an.facts?.away?.last10Pts !== undefined ? ` (10M:${an.facts.away.last10Pts}p)` : '';
         chips.push(`<span class="intel-chip">🔥 Form: ${escapeHtml(an.facts?.home?.formStr || '-')}${h10} / ${escapeHtml(an.facts?.away?.formStr || '-')}${a10}</span>`);
     }
+    if (item.confidenceLevel) {
+        chips.push(`<span class="intel-chip">🏷️ ${escapeHtml(item.confidenceLevel)}</span>`);
+    }
     if (item.riskLevel) {
         chips.push(`<span class="intel-chip">⚖️ ${escapeHtml(item.riskLevel)}</span>`);
     }
@@ -1178,11 +1305,8 @@ function createCouponMatchElement(item, isSurprise) {
     if (topLeader) {
         chips.push(`<span class="intel-chip">⭐ ${escapeHtml(topLeader)}</span>`);
     }
-    if (item.updatedAt) {
-        chips.push(`<span class="intel-chip">🕒 Güncelleme: ${escapeHtml(item.updatedAt)}</span>`);
-    }
     const chipsHtml = chips.length
-        ? `<div class="match-intel-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 4px 0;">${chips.join('')}</div>`
+        ? `<div class="match-intel-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin:4px 0;">${chips.join('')}</div>`
         : '';
 
     div.innerHTML = `
@@ -1197,12 +1321,12 @@ function createCouponMatchElement(item, isSurprise) {
         <div class="match-item-pick-row">
             <span class="match-pick-badge ${isSurprise ? 'gold-badge' : ''}">${escapeHtml(item.label)}</span>
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                <span class="match-pick-conf">%${probPct} Güven</span>
-                ${oddTag}
-                ${liftTag}
-                ${evTag}
+                <span class="match-pick-conf">%${probPct} Model Olasılığı</span>
+                ${oddBadge}
+                ${valueBadge}
             </div>
         </div>
+        ${transparencyGridHtml}
         ${chipsHtml}
         <div class="match-item-rationale">${escapeHtml(item.rationale)}</div>
         <div class="match-item-actions">
@@ -1217,6 +1341,7 @@ function createCouponMatchElement(item, isSurprise) {
 
     return div;
 }
+
 
 
 

@@ -203,7 +203,8 @@ async function getNesineOddsMap() {
                         }
                     }
                     if (newMap.size > 0) {
-                        nesineCache = { t: Date.now(), map: newMap };
+                        const timeStr = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
+                        nesineCache = { t: Date.now(), updatedAt: timeStr, map: newMap };
                     }
                 }
             }
@@ -267,7 +268,9 @@ function parseRow(r, idx = 999) {
         women,
         reserve,
         inBulletin,
-        odds
+        odds,
+        oddsUpdatedAt: null,
+        nesineMarketsCount: 0
     };
 }
 
@@ -295,12 +298,17 @@ async function getDay(iso) {
         iso >= today ? getNesineOddsMap() : Promise.resolve(new Map())
     ]);
     if (rows === null) return mem ? mem.matches : [];
+    const fetchTimeStr = nesineCache.updatedAt || new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
     const matches = rows.map((r, i) => {
         const m = parseRow(r, i);
-        if (m && m.iddaaCode && nesineMap && nesineMap.has(m.iddaaCode)) {
+        if (!m) return null;
+        if (m.iddaaCode && nesineMap && nesineMap.has(m.iddaaCode)) {
             m.odds = { ...m.odds, ...nesineMap.get(m.iddaaCode) };
-            m.nesineMarketsCount = Object.keys(m.odds).length;
+            m.oddsUpdatedAt = fetchTimeStr;
+        } else if (m.inBulletin) {
+            m.oddsUpdatedAt = fetchTimeStr;
         }
+        m.nesineMarketsCount = Object.entries(m.odds || {}).filter(([k, v]) => !['h', 'd', 'a'].includes(k) && typeof v === 'number' && v > 1.01).length;
         return m;
     }).filter(Boolean);
     memCache.set(iso, { t: Date.now(), matches });

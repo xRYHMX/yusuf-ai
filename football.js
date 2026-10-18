@@ -382,7 +382,9 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
     // Kullanıcı sadece kısa selamlaşma yazdıysa (ve fotoğraf eklemediyse) gereksiz token harcama
     const isPureGreeting = !hasImage && qNorm.length <= 22 && /^(merhaba|selam|slm|sa|as|naber|nasilsin|hey|hi|hello|knk|kanka|tesekkurler|eyvallah|iyi gunler|iyi aksamlar)[?!.\s]*$/.test(qNorm);
     if (isPureGreeting) {
-        return `[YUSUF AI DURUMU]: Bugün resmi İddaa bülteninde ${day.matches.filter(x => x.inBulletin).length} maç analiz edildi. Günün Banko Kuponu (%${day.coupons.banko?.confidence || 85} güven) ve Sürpriz Kuponu (${day.coupons.surprise?.avgLift || '2.0'}x değer) hazır. Kullanıcıya kısa, samimi yanıt ver ve isterse Günün Banko Kuponunu, Sürpriz Kuponu, istediği bir maçın derin analizini çıkarabileceğini veya kupon/istatistik ekran görüntüsü atıp inceletebileceğini söyle.`;
+        const bConfTxt = day.coupons.banko?.confidence ? `%${day.coupons.banko.confidence} tekil güven` : 'canlı hesaplama';
+        const sLiftTxt = day.coupons.surprise?.avgLift ? `${day.coupons.surprise.avgLift}x çarpan` : 'canlı hesaplama';
+        return `[YUSUF AI DURUMU]: Bugün resmi İddaa bülteninde ${day.matches.filter(x => x.inBulletin).length} maç analiz edildi. Günün Banko Kuponu (${bConfTxt}) ve Sürpriz Kuponu (${sLiftTxt}) hazır. Kullanıcıya kısa, samimi yanıt ver ve isterse Günün Banko Kuponunu, Sürpriz Kuponu, istediği bir maçın derin analizini çıkarabileceğini veya kupon/istatistik ekran görüntüsü atıp inceletebileceğini söyle.`;
     }
 
     // Kullanıcı "yarın" diye sorarsa veya bugünün maçları azaldıysa yarını da havuza kat
@@ -402,11 +404,13 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
     const asksOnlySurp = qNorm.includes('surpriz') && !qNorm.includes('banko');
 
     // 1. Kuponlar özeti
-    let bankoSummary = `Günün %100 Bağımsız Model Banko Kuponu (Tekil Ortalama Güven: %${day.coupons.banko?.confidence || 86} | 4 Maç Birlikte Gelme Kombine Olasılığı: %${day.coupons.banko?.jointConfidence || 55}):\n`;
+    let bankoSummary = `Günün %100 Bağımsız Model Banko Kuponu (Tekil Ortalama Güven: ${day.coupons.banko?.confidence ? '%' + day.coupons.banko.confidence : 'Yok'} | 4 Maç Birlikte Gelme Kombine Olasılığı: ${day.coupons.banko?.jointConfidence ? '%' + day.coupons.banko.jointConfidence : 'Yok'}):\n`;
     if (day.coupons.banko && day.coupons.banko.matches.length) {
         day.coupons.banko.matches.forEach((b, i) => {
-            const bOddStr = b.realOdd ? `, Nesine Oranı: ${b.realOdd.toFixed(2)}, EV: ${b.evPct >= 0 ? '+' : ''}%${b.evPct}` : '';
-            bankoSummary += `${i + 1}. [${b.m.time}] ${b.m.home} - ${b.m.away} (${b.m.league.full}) | Tercih: ${b.label} (Model Güveni: %${Math.round(b.p * 100)}${bOddStr}, Risk: ${b.riskLevel || 'Düşük Risk'}, İstikrar: %${b.an.avgConsistency || 75})\n`;
+            const bOddStr = b.hasRealOdd && b.realOdd
+                ? `, Gerçek Nesine Oranı: ${b.realOdd.toFixed(2)} (Güncelleme: ${b.oddsUpdatedAt || 'Canlı'}), EV: ${b.evPct >= 0 ? '+' : ''}%${b.evPct}${b.isValueBet ? ' [Value Bet]' : ''}`
+                : `, Nesine Oranı: Bu pazar için gerçek oran bulunamadı (EV hesaplanamadı)`;
+            bankoSummary += `${i + 1}. [${b.m.time}] ${b.m.home} - ${b.m.away} (${b.m.league.full}) | Tercih: ${b.label} (Model Olasılığı: %${Math.round(b.p * 100)}${bOddStr}, Risk: ${b.riskLevel || 'Düşük Risk'}, İstikrar: %${b.an.avgConsistency || 75})\n`;
             if (!asksOnlySurp) {
                 bankoSummary += `   Gerekçe: ${b.rationale}\n`;
                 if (!isCompact) {
@@ -420,12 +424,14 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
         bankoSummary += 'Şu an yaklaşan uygun banko maç bulunamadı.\n';
     }
 
-    let surpSummary = `Günün %100 Bağımsız Sürpriz Kuponu (Ortalama Değer Katı: ${day.coupons.surprise?.avgLift || '2.0'}x | 5 Maç Kombine Olasılığı: %${day.coupons.surprise?.jointConfidence || 2}):\n`;
+    let surpSummary = `Günün %100 Bağımsız Sürpriz Kuponu (Ortalama Sıklık Çarpanı: ${day.coupons.surprise?.avgLift ? day.coupons.surprise.avgLift + 'x' : 'Yok'} | 5 Maç Kombine Olasılığı: ${day.coupons.surprise?.jointConfidence ? '%' + day.coupons.surprise.jointConfidence : 'Yok'}):\n`;
     if (day.coupons.surprise && day.coupons.surprise.matches.length) {
         day.coupons.surprise.matches.forEach((s, i) => {
-            const sOddStr = s.realOdd ? `, Nesine Oranı: ${s.realOdd.toFixed(2)}` : '';
-            const evStr = s.evPct !== null && s.evPct !== undefined ? `, Gerçek EV: ${s.evPct >= 0 ? '+' : ''}%${s.evPct}` : '';
-            surpSummary += `${i + 1}. [${s.m.time}] ${s.m.home} - ${s.m.away} (${s.m.league.full}) | Tercih: ${s.label} (Model Olasılığı: %${Math.round(s.p * 100)}${sOddStr}, Değer Katı: ${s.lift ? s.lift.toFixed(1) + 'x' : '1.5x'}${evStr}, Risk: ${s.riskLevel || 'Yüksek Değer / Sürpriz'})\n`;
+            const sOddStr = s.hasRealOdd && s.realOdd
+                ? `, Gerçek Nesine Oranı: ${s.realOdd.toFixed(2)} (Güncelleme: ${s.oddsUpdatedAt || 'Canlı'}), Gerçek EV: ${s.evPct >= 0 ? '+' : ''}%${s.evPct}${s.isValueBet ? ' [Value Bet]' : ''}`
+                : `, Nesine Oranı: Bu pazar için gerçek oran bulunamadı (Value Bet olarak etiketlenmez)`;
+            surpSummary += `${i + 1}. [${s.m.time}] ${s.m.home} - ${s.m.away} (${s.m.league.full}) | Tercih: ${s.label} (Model Olasılığı: %${Math.round(s.p * 100)}${sOddStr}, Çarpan: ${s.lift ? s.lift.toFixed(1) + 'x' : '-'
+}, Etiket: ${s.confidenceLevel})\n`;
             if (!asksOnlyBanko) {
                 surpSummary += `   Gerekçe: ${s.rationale}\n`;
                 if (!isCompact) {

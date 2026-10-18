@@ -1,4 +1,6 @@
 // Analiz motoru: takım gücü -> beklenen goller -> tüm pazarların olasılığı -> kupon seçimi.
+const fs = require('fs');
+const path = require('path');
 const mk = require('./mackolik');
 
 const WINDOW = 75;        // gün
@@ -33,16 +35,30 @@ function fitLambda(p1, pX, p2, pO, lh0, la0) {
     return best;
 }
 
-// ---------------- Model kurulumu (geçmişten takım gücü) ----------------
-function buildModel(hist, asOf) {
+// ---------------- Model kurulumu (yalnızca asOf tarihinden ÖNCEKİ maçlarla) ----------------
+function buildModel(hist, asOf, opts = {}) {
     const asOfT = new Date(asOf + 'T00:00:00Z').getTime();
+    const maxKickoffMs = opts.maxKickoff ? new Date(opts.maxKickoff).getTime() : null;
     const rows = [];
     for (const m of hist) {
-        if (m.state !== 'post' || !m.score || !m.ht || m.date >= asOf) continue;
+        if (m.state !== 'post' || !m.score || !m.ht) continue;
+        // Kesin kural: Yalnızca test/tahmin tarihinden ÖNCEKİ maçları kullan (veri sızıntısını engelle)
+        if (maxKickoffMs !== null) {
+            const kMs = new Date(m.kickoff || (m.date + 'T00:00:00Z')).getTime();
+            if (!(kMs < maxKickoffMs)) continue;
+        } else if (m.date >= asOf) {
+            continue;
+        }
         const days = (asOfT - new Date(m.date + 'T00:00:00Z').getTime()) / 86400000;
-        if (days > WINDOW) continue;
+        if (days > WINDOW || days < 0) continue;
         rows.push({ m, w: Math.pow(0.5, days / HALF_LIFE) });
     }
+
+    // Kronolojik sıralama (eskiden yeniye)
+    rows.sort((a, b) => {
+        if (a.m.date !== b.m.date) return a.m.date < b.m.date ? -1 : 1;
+        return String(a.m.time || '').localeCompare(String(b.m.time || ''));
+    });
 
     // Geçiş 1: lig ortalamaları
     const leagues = new Map();
@@ -54,7 +70,9 @@ function buildModel(hist, asOf) {
         leagues.set(m.league.id, lg);
         glob.w += w; glob.gh += w * m.score.h; glob.ga += w * m.score.a; glob.g1 += w * t1; glob.g += w * tot;
     }
-    glob.muH = glob.gh / glob.w; glob.muA = glob.ga / glob.w; glob.s1 = glob.g1 / glob.g;
+    glob.muH = glob.w > 0 ? glob.gh / glob.w : 1.45;
+    glob.muA = glob.w > 0 ? glob.ga / glob.w : 1.15;
+    glob.s1 = glob.g > 0 ? glob.g1 / glob.g : 0.44;
     glob.homeAdv = +(glob.muH / Math.max(0.5, glob.muA)).toFixed(2);
     const lgStat = (id) => {
         const lg = leagues.get(id);
@@ -111,9 +129,20 @@ function buildModel(hist, asOf) {
         nb++;
         for (const k of outcomeKeys(m.score.h, m.score.a, m.ht.h, m.ht.a)) base[k] = (base[k] || 0) + 1;
     }
-    for (const k of Object.keys(base)) base[k] /= nb;
+    if (nb > 0) {
+        for (const k of Object.keys(base)) base[k] /= nb;
+    }
 
-    return { asOf, teams, glob, lgStat, base, nRows: rows.length, recentRows: rows.slice(-450) };
+    return {
+        asOf,
+        teams,
+        glob,
+        lgStat,
+        base,
+        nRows: rows.length,
+        recentRows: rows.slice(-450),
+        rawHistory: opts.skipRawHistory ? null : rows.map(r => r.m)
+    };
 }
 
 // ---------------- Gerçekleşen sonuçtan pazar anahtarları ----------------
@@ -1062,7 +1091,7 @@ function computeExpectedValue(modelProb, realOdd) {
     return { ev: +ev.toFixed(4), evPct };
 }
 
-// ---------------- Pick listesi ----------------
+// ---------------- Pick listesi (Model Olasılığı + Gerçek Nesine Oranı + Oran Güncelleme Zamanı + EV Kontrolü) ----------------
 function picksOf(match, an) {
     const out = [];
     for (const [key, pv] of Object.entries(an.p)) {
@@ -1070,12 +1099,36 @@ function picksOf(match, an) {
         if (key.startsWith('htft_')) { label = 'İY/MS ' + key.slice(5); group = 'htft'; }
         else { label = LABEL[key]; group = GROUP[key]; }
         if (!label) continue;
-        // Resmi Nesine bülteninden gelen gerçek oran varsa EV = (Model olasılığı × Gerçek oran) - 1 hesapla
-        const realOdd = (match.odds && typeof match.odds[key] === 'number' && match.odds[key] > 1.01)
-            ? match.odds[key]
-            : null;
-        const { ev, evPct } = computeExpectedValue(pv, realOdd);
-        out.push({ key, label, group, p: pv, realOdd, ev, evPct, matchId: match.id });
+        // Yalnızca resmi Nesine bülteninden bu pazar için gerçek oran geldiyse EV hesapla
+        const hasRealOdd = Boolean(match.odds && typeof match.odds[key] === 'number' && isFinite(match.odds[key]) && match.odds[key] > 1.01);
+        const realOdd = hasRealOdd ? +match.odds[key].toFixed(2) : null;
+        const oddsUpdatedAt = hasRealOdd ? (match.oddsUpdatedAt || null) : null;
+        const { ev, evPct } = hasRealOdd ? computeExpectedValue(pv, realOdd) : { ev: null, evPct: null };
+        // Kesin kural: Gerçek Nesine oranı gelmeyen veya EV <= 0 olan hiçbir tahmin Value Bet olarak etiketlenmez
+        const isValueBet = Boolean(hasRealOdd && typeof ev === 'number' && ev > 0);
+        const oddStatusText = hasRealOdd
+            ? `${realOdd.toFixed(2)}`
+            : 'Bu pazar için gerçek Nesine oranı bulunamadı';
+        const evStatusText = (hasRealOdd && evPct !== null)
+            ? `${evPct >= 0 ? '+' : ''}%${evPct}${isValueBet ? ' (Value Bet)' : ''}`
+            : 'Gerçek oran bulunamadığı için EV hesaplanamadı';
+
+        out.push({
+            key,
+            label,
+            group,
+            p: pv,
+            modelProbPct: Math.round(pv * 100),
+            hasRealOdd,
+            realOdd,
+            oddsUpdatedAt,
+            ev,
+            evPct,
+            isValueBet,
+            oddStatusText,
+            evStatusText,
+            matchId: match.id
+        });
     }
     return out;
 }
@@ -1120,23 +1173,23 @@ function generateRationale(pk, m, an) {
     const weatherNote = an.intel?.weather
         ? ` 🌤️ ${an.intel.weather.city}: ${an.intel.weather.temp}°C (${an.intel.weather.condition}).`
         : '';
-    const evNote = (pk.realOdd && pk.evPct !== null && pk.evPct !== undefined)
-        ? ` [Nesine Oranı: ${pk.realOdd.toFixed(2)} | Beklenen Değer (EV): ${pk.evPct >= 0 ? '+' : ''}%${pk.evPct}]`
-        : '';
+    const evNote = (pk.hasRealOdd && pk.realOdd && pk.evPct !== null && pk.evPct !== undefined)
+        ? ` [Gerçek Nesine Oranı: ${pk.realOdd.toFixed(2)} (Güncelleme: ${pk.oddsUpdatedAt || 'Canlı'}) | EV: ${pk.evPct >= 0 ? '+' : ''}%${pk.evPct}${pk.isValueBet ? ' • Value Bet' : ''}]`
+        : ` [Nesine Oranı: Bu pazar için gerçek oran bulunamadı | EV: Hesaplanamadı]`;
     const tailNotes = `${evNote}${splitNote}${projNote}${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
 
     // Yüksek oranlı Nesine Sürpriz Pazarları gerekçeleri
     if (pk.key === 'ms1_kgv' || pk.key === 'ms2_kgv') {
         const fav = pk.key === 'ms1_kgv' ? m.home : m.away;
         const dog = pk.key === 'ms1_kgv' ? m.away : m.home;
-        return `${fav} hücum gücüyle galibiyete yakın (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG), ancak ${dog} da skor üretebilen yapıda (2-1 / 3-1 senaryosu, ${pStr} olasılık, ${liftStr} değer).${tailNotes}`;
+        return `${fav} hücum gücüyle galibiyete yakın (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG), ancak ${dog} da skor üretebilen yapıda (2-1 / 3-1 senaryosu, ${pStr} olasılık, ${liftStr} istatistiksel sıklık çarpanı).${tailNotes}`;
     }
     if (pk.key === 'msx_kgv') {
         return `İki takımın hücum ve savunma dengesi birbirine çok yakın (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Gollü beraberlik (1-1 / 2-2) senaryosu normalin ${liftStr} üzerinde (${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'ms1_ust25' || pk.key === 'ms2_ust25') {
         const fav = pk.key === 'ms1_ust25' ? m.home : m.away;
-        return `${fav} yüksek hücum temposuyla maçı üst barajına taşıyarak kazanmaya aday (Toplam ${totG} xG, ${pStr} olasılık, ${liftStr} değer).${tailNotes}`;
+        return `${fav} yüksek hücum temposuyla maçı üst barajına taşıyarak kazanmaya aday (Toplam ${totG} xG, ${pStr} olasılık, ${liftStr} sıklık çarpanı).${tailNotes}`;
     }
     if (pk.key === 'ust25_kgv') {
         return `İki takım da açık futbol oynuyor (Ev ${an.lh.toFixed(2)} - Dep ${an.la.toFixed(2)}, toplam ${totG} xG). Hem KG Var hem 2,5 Üst birleşimi ${pStr} olasılıkla öne çıkıyor.${tailNotes}`;
@@ -1145,20 +1198,20 @@ function generateRationale(pk, m, an) {
         return `Her iki takım da maça hızlı başlayan ve ilk yarılarda açık veren karakterde. İlk yarıdan karşılıklı gol (İY KG Var) olasılığı ${pStr} (normalin ${liftStr} üzerinde).${tailNotes}`;
     }
     if (pk.key === 'y2kgv') {
-        return `İkinci yarılarda savunma disiplini düşen ve skoru çift taraflı üreten iki ekip. 2. Yarı KG Var olasılığı ${pStr} (${liftStr} istatistiksel değer).${tailNotes}`;
+        return `İkinci yarılarda savunma disiplini düşen ve skoru çift taraflı üreten iki ekip. 2. Yarı KG Var olasılığı ${pStr} (${liftStr} istatistiksel çarpan).${tailNotes}`;
     }
     if (pk.key === 'iyust15') {
-        return `İlk yarı gol beklentisi çok yüksek; devre bitmeden en az 2 gol (İY 1,5 Üst) çıkma ihtimali ${pStr} (${liftStr} değer).${tailNotes}`;
+        return `İlk yarı gol beklentisi çok yüksek; devre bitmeden en az 2 gol (İY 1,5 Üst) çıkma ihtimali ${pStr} (${liftStr} çarpan).${tailNotes}`;
     }
     if (pk.key === 'ikiyari_gol') {
         return `Maçın her iki devresinde de yüksek gol temposu bekleniyor (Toplam ${totG} xG, Her İki Yarıda Gol: ${pStr}).${tailNotes}`;
     }
     if (pk.key === 'hms1' || pk.key === 'hms2') {
         const fav = pk.key === 'hms1' ? m.home : m.away;
-        return `${fav} rakibine karşı net güç ve xG üstünlüğüne sahip (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). En az 2 farklı handikaplı galibiyet olasılığı ${pStr} (${liftStr} değer).${evNote}${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
+        return `${fav} rakibine karşı net güç ve xG üstünlüğüne sahip (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). En az 2 farklı handikaplı galibiyet olasılığı ${pStr} (${liftStr} çarpan).${evNote}${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'tg46') {
-        return `Yüksek tempolu ve gollü geçmeye aday karşılaşma (${totG} toplam xG). Maçta toplam 4-6 gol aralığı ${pStr} olasılık ve ${liftStr} değer taşıyor.${tailNotes}`;
+        return `Yüksek tempolu ve gollü geçmeye aday karşılaşma (${totG} toplam xG). Maçta toplam 4-6 gol aralığı ${pStr} olasılık ve ${liftStr} çarpan taşıyor.${tailNotes}`;
     }
     if (pk.key.startsWith('iyskor_')) {
         const sc = pk.key.slice(7).replace('_', '-');
@@ -1166,7 +1219,7 @@ function generateRationale(pk, m, an) {
     }
     if (pk.key.startsWith('msskor_')) {
         const sc = pk.key.slice(7).replace('_', '-');
-        return `Bağımsız Dixon-Coles skor matrisinde ${sc} maç skoru en değerli yüksek oranlı hedef olarak öne çıkıyor (${pStr} olasılık, ${liftStr} değer).${tailNotes}`;
+        return `Bağımsız Dixon-Coles skor matrisinde ${sc} maç skoru yüksek oranlı hedef olarak öne çıkıyor (${pStr} olasılık, ${liftStr} çarpan).${tailNotes}`;
     }
 
     // Banko & klasik pazar gerekçeleri
@@ -1198,11 +1251,11 @@ function generateRationale(pk, m, an) {
         return `${m.away} deplasman karnesi ve hücum kalitesiyle üstün (${an.la.toFixed(2)} xG, ${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'msx') {
-        return `İki takımın iç/dış saha güçleri dengeli (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Beraberlik olasılığı ${pStr} (${liftStr} değer).${evNote}${dnaNote}${extraNote}`;
+        return `İki takımın iç/dış saha güçleri dengeli (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Beraberlik olasılığı ${pStr} (${liftStr} çarpan).${evNote}${dnaNote}${extraNote}`;
     }
     if (pk.key.startsWith('iy1') || pk.key.startsWith('iy2')) {
         const team = pk.key === 'iy1' ? m.home : m.away;
-        return `${team} ilk yarılarda yüksek gol yüzdesine sahip. Devreyi önde kapatma ihtimali ${pStr} (${liftStr} istatistiksel değer).${tailNotes}`;
+        return `${team} ilk yarılarda yüksek gol yüzdesine sahip. Devreyi önde kapatma ihtimali ${pStr} (${liftStr} istatistiksel çarpan).${tailNotes}`;
     }
     if (pk.key.startsWith('htft_')) {
         const sub = pk.key.slice(5);
@@ -1210,7 +1263,7 @@ function generateRationale(pk, m, an) {
     }
     if (pk.key === 'yari1' || pk.key === 'yari2') {
         const half = pk.key === 'yari1' ? '1. yarıda' : '2. yarıda';
-        return `Takımların devre karakteristiğine göre gollerin ${half} yoğunlaşması bekleniyor (${pStr} olasılık, ${liftStr} değer).${evNote}${dnaNote}${weatherNote}`;
+        return `Takımların devre karakteristiğine göre gollerin ${half} yoğunlaşması bekleniyor (${pStr} olasılık, ${liftStr} çarpan).${evNote}${dnaNote}${weatherNote}`;
     }
     return `Bağımsız modelin ${pStr} olasılık ve ${liftStr || 'yüksek güven'} ile öne çıkardığı istatistiksel tercih.${tailNotes}`;
 }
@@ -1226,7 +1279,7 @@ function scoreSurpriseCandidate(pk, m, an, model) {
     const lift = pk.p / baseRate;
 
     // Gerçek Nesine oranı varsa gerçek Value Bet EV = (Model olasılığı × Gerçek oran) - 1 kontrolü
-    const hasRealOdd = typeof pk.realOdd === 'number' && pk.realOdd > 1.01 && typeof pk.ev === 'number';
+    const hasRealOdd = Boolean(pk.hasRealOdd && typeof pk.realOdd === 'number' && pk.realOdd > 1.01 && typeof pk.ev === 'number');
     if (hasRealOdd) {
         if (pk.ev < -0.05 && lift < 1.35) return null;
     } else if (lift < 1.25) {
@@ -1305,8 +1358,12 @@ function scoreSurpriseCandidate(pk, m, an, model) {
     const dnaBoost = an.tactical?.boosts?.[dnaKey] || an.tactical?.boosts?.[pk.key] || 1.0;
     tacticalMult *= dnaBoost;
 
-    // Gerçek Value Bet (EV > 0) bonusu
-    const evMult = hasRealOdd && pk.ev > 0 ? Math.min(1.55, 1 + pk.ev * 0.85) : 1.0;
+    // Gerçek Nesine oranı olan ve EV > 0 (gerçek Value Bet) olan seçimlere öncelik ver
+    const evMult = hasRealOdd && pk.ev > 0
+        ? Math.min(1.85, 1.22 + pk.ev * 0.9)
+        : hasRealOdd
+            ? 1.05
+            : 0.82;
     const mbsMult = m.mbs === 1 ? 1.14 : m.mbs === 2 ? 1.07 : 1.0;
     const qMult = an.quality === 'A' ? 1.10 : an.quality === 'B' ? 1.04 : 0.96;
     const score = Math.pow(pk.p, 0.62) * Math.min(lift, 3.2) * tacticalMult * evMult * mbsMult * qMult;
@@ -1342,20 +1399,26 @@ function buildCoupons(items, model, opts = {}) {
         const mbsBonus = it.m.mbs === 1 ? 0.04 : it.m.mbs === 2 ? 0.02 : 0;
         const consistencyBonus = ((it.an.avgConsistency || 70) - 68) * 0.0018;
         playable.sort((a, b) => {
-            const scoreA = a.p + (BANKO_PRIMARY_KEYS.has(a.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0);
-            const scoreB = b.p + (BANKO_PRIMARY_KEYS.has(b.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0);
+            const oddBonusA = a.hasRealOdd ? 0.03 : 0;
+            const oddBonusB = b.hasRealOdd ? 0.03 : 0;
+            const scoreA = a.p + (BANKO_PRIMARY_KEYS.has(a.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0) + oddBonusA;
+            const scoreB = b.p + (BANKO_PRIMARY_KEYS.has(b.key) ? 0.06 : 0) + (it.an.quality === 'A' ? 0.03 : 0) + oddBonusB;
             return scoreB - scoreA;
         });
 
         const best = playable[0];
         if (best) {
-            const rankScore = best.p + (BANKO_PRIMARY_KEYS.has(best.key) ? 0.05 : 0) + (it.an.quality === 'A' ? 0.04 : 0) + mbsBonus + consistencyBonus;
+            const rankScore = best.p + (BANKO_PRIMARY_KEYS.has(best.key) ? 0.05 : 0) + (it.an.quality === 'A' ? 0.04 : 0) + mbsBonus + consistencyBonus + (best.hasRealOdd ? 0.02 : 0);
             bankoPool.push({
                 ...best,
                 rankScore,
-                confidenceLevel: best.p >= 0.80 ? 'Çok Yüksek Güven' : 'Yüksek Güven',
+                confidenceLevel: best.isValueBet
+                    ? `Çok Yüksek Güven • Value Bet (+%${best.evPct} EV)`
+                    : best.p >= 0.80
+                        ? 'Çok Yüksek Güven'
+                        : 'Yüksek Güven',
                 riskLevel: best.p >= 0.80 ? 'Düşük Risk' : 'Kontrollü Düşük Risk',
-                updatedAt: nowTimeStr,
+                updatedAt: best.oddsUpdatedAt || nowTimeStr,
                 rationale: generateRationale(best, it.m, it.an),
                 m: it.m,
                 an: it.an
@@ -1407,11 +1470,17 @@ function buildCoupons(items, model, opts = {}) {
             }
         }
         for (const cand of bestByGroup.values()) {
+            // Kesin Kural: Gerçek Nesine oranı gelmeyen veya EV <= 0 olan tahminler Value Bet olarak etiketlenmez
+            const confLabel = cand.isValueBet
+                ? `Value Bet (Pozitif EV: +%${cand.evPct})`
+                : cand.hasRealOdd
+                    ? `Yüksek Oranlı Model Seçimi (Oran: ${cand.realOdd.toFixed(2)})`
+                    : 'İstatistiksel Sürpriz Seçimi (Oran Verisi Yok)';
             surpPool.push({
                 ...cand,
-                confidenceLevel: 'Değer Odaklı (Value Pick)',
+                confidenceLevel: confLabel,
                 riskLevel: cand.p >= 0.30 ? 'Orta-Yüksek Sürpriz Risk' : 'Yüksek Sürpriz Risk (Sistem Önerilir)',
-                updatedAt: nowTimeStr,
+                updatedAt: cand.oddsUpdatedAt || nowTimeStr,
                 rationale: generateRationale(cand, cand.m, cand.an)
             });
         }
@@ -1446,18 +1515,19 @@ function buildCoupons(items, model, opts = {}) {
         }
     }
 
-    const bankoConfidence = banko.length ? Math.round((banko.reduce((s, x) => s + x.p, 0) / banko.length) * 100) : 0;
-    const bankoJointConfidence = banko.length ? Math.round(banko.reduce((acc, x) => acc * x.p, 1) * 100) : 0;
-    const minBankoPct = banko.length ? Math.round(Math.min(...banko.map(x => x.p)) * 100) : 0;
-    const surpAvgLift = surprise.length ? (surprise.reduce((s, x) => s + x.lift, 0) / surprise.length).toFixed(1) : '1.0';
-    const surpJointConfidence = surprise.length ? +(surprise.reduce((acc, x) => acc * x.p, 1) * 100).toFixed(1) : 0;
+    const bankoConfidence = banko.length ? Math.round((banko.reduce((s, x) => s + x.p, 0) / banko.length) * 100) : null;
+    const bankoJointConfidence = banko.length ? Math.round(banko.reduce((acc, x) => acc * x.p, 1) * 100) : null;
+    const minBankoPct = banko.length ? Math.round(Math.min(...banko.map(x => x.p)) * 100) : null;
+    const surpAvgLift = surprise.length ? (surprise.reduce((s, x) => s + x.lift, 0) / surprise.length).toFixed(1) : null;
+    const surpJointConfidence = surprise.length ? +(surprise.reduce((acc, x) => acc * x.p, 1) * 100).toFixed(1) : null;
+    const surpValueBetCount = surprise.filter(x => x.isValueBet).length;
 
     const bankoInstruction = banko.length
         ? `Bu ${banko.length} maçın tekil ortalama güveni %${bankoConfidence} (en düşük %${minBankoPct}), ${banko.length} maçın tamamının aynı anda gelme birleşik olasılığı (Kombine Olasılığı: p1×p2×p3×p4) ise %${bankoJointConfidence} olarak hesaplanmıştır. Son güncelleme: ${nowTimeStr}.`
         : 'Şu an bültende kriterlere uygun yaklaşan banko maç bulunamadı.';
 
     const surpInstruction = surprise.length
-        ? `Nesine yüksek oranlı özel pazarlardan seçilen ${surprise.length} maçın istatistiksel değer katı ortalama ${surpAvgLift}x seviyesindedir (5'li düz kombine birlikte gelme olasılığı %${surpJointConfidence} olduğu için Sistem 3-4-5 oynanması matematiksel olarak tavsiye edilir). Son güncelleme: ${nowTimeStr}.`
+        ? `Nesine yüksek oranlı özel pazarlardan seçilen ${surprise.length} maçın istatistiksel sıklık çarpanı ortalama ${surpAvgLift}x seviyesindedir (${surpValueBetCount}/${surprise.length} seçimde gerçek Nesine oranı ile pozitif EV / Value Bet doğrulandı; 5'li düz kombine birlikte gelme olasılığı %${surpJointConfidence} olduğu için Sistem 3-4-5 oynanması tavsiye edilir). Son güncelleme: ${nowTimeStr}.`
         : 'Şu an bültende kriterlere uygun yaklaşan sürpriz maç bulunamadı.';
 
     return {
@@ -1474,22 +1544,250 @@ function buildCoupons(items, model, opts = {}) {
         surprise: {
             title: 'Sürpriz Kupon',
             type: 'surprise',
-            strategy: 'Yüksek Oranlı Çoklu Pazar • MS&KG, Devre KG, Skor & Kombinasyonlar',
+            strategy: 'Yüksek Oranlı Çoklu Pazar • Gerçek Oran & Value Bet (EV) Kontrolü',
             instruction: surpInstruction,
             avgLift: surpAvgLift,
             jointConfidence: surpJointConfidence,
+            valueBetCount: surpValueBetCount,
             updatedAt: nowTimeStr,
             matches: surprise
         }
     };
 }
 
-// ---------------- Model Performans, Kalibrasyon (Brier Score / Log Loss) & Gerçekleşen Tahmin Doğrulama Motoru ----------------
-function evaluateModelPerformance(model, dayItems = []) {
-    // Bugünün bitmiş maçları + geçmiş modelin son tamamlanan İddaa maçları üzerinde gerçek zamanlı doğrulama
-    const finishedToday = (dayItems || []).filter(it => it.m && it.m.state === 'post' && it.m.score && it.m.ht);
-    const sampleRows = (model.recentRows || []).slice(-260);
+// ---------------- Ayrı Tahmin Kayıt & Kronolojik Walk-Forward Test Tablosu (.cache/prediction_test_table.json) ----------------
+const PREDICTION_TABLE_FILE = path.join(__dirname, '.cache', 'prediction_test_table.json');
 
+function loadPredictionTestTable() {
+    try {
+        if (fs.existsSync(PREDICTION_TABLE_FILE)) {
+            const raw = JSON.parse(fs.readFileSync(PREDICTION_TABLE_FILE, 'utf8'));
+            if (raw && typeof raw === 'object') {
+                return {
+                    preMatchRecords: raw.preMatchRecords || {},
+                    walkForwardRecords: Array.isArray(raw.walkForwardRecords) ? raw.walkForwardRecords : [],
+                    lastWalkForwardDate: raw.lastWalkForwardDate || null
+                };
+            }
+        }
+    } catch (_) {}
+    return { preMatchRecords: {}, walkForwardRecords: [], lastWalkForwardDate: null };
+}
+
+function savePredictionTestTable(table) {
+    try {
+        const dir = path.dirname(PREDICTION_TABLE_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(PREDICTION_TABLE_FILE, JSON.stringify(table, null, 2), 'utf8');
+    } catch (_) {}
+}
+
+function selectTopPreMatchPick(m, an) {
+    const cands = [
+        { key: 'ust15', label: '1,5 Üst', p: an.p.ust15 },
+        { key: 'iyust05', label: 'İY 0,5 Üst', p: an.p.iyust05 },
+        { key: 'ms1', label: 'MS 1', p: an.p.ms1 },
+        { key: 'ms2', label: 'MS 2', p: an.p.ms2 },
+        { key: 'ust25', label: '2,5 Üst', p: an.p.ust25 },
+        { key: 'kgv', label: 'KG Var', p: an.p.kgv },
+        { key: 'dc1x', label: 'ÇŞ 1-X', p: an.p.dc1x },
+        { key: 'dcx2', label: 'ÇŞ X-2', p: an.p.dcx2 }
+    ].filter(x => x.p >= 0.68 && x.p <= 0.90).sort((a, b) => b.p - a.p);
+
+    const top = cands[0];
+    if (!top) return null;
+    const hasRealOdd = Boolean(m.odds && typeof m.odds[top.key] === 'number' && m.odds[top.key] > 1.01);
+    const realOdd = hasRealOdd ? +m.odds[top.key].toFixed(2) : null;
+    const { evPct } = hasRealOdd ? computeExpectedValue(top.p, realOdd) : { evPct: null };
+    return {
+        ...top,
+        hasRealOdd,
+        realOdd,
+        oddsUpdatedAt: hasRealOdd ? (m.oddsUpdatedAt || null) : null,
+        evPct
+    };
+}
+
+// ---------------- Model Performans, Kalibrasyon (Brier Score / Log Loss) & Kronolojik Out-of-Sample Doğrulama Motoru ----------------
+function evaluateModelPerformance(model, dayItems = []) {
+    const table = loadPredictionTestTable();
+    let tableDirty = false;
+    const nowIso = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
+
+    // 1. ADIM: Maç başlamadan önce (state === 'pre') tahminleri kaydet (Pre-Match Prediction Locking)
+    const upcomingToday = (dayItems || []).filter(it =>
+        it.m && it.m.state === 'pre' && it.m.inBulletin && new Date(it.m.kickoff).getTime() > Date.now()
+    );
+    for (const it of upcomingToday) {
+        const m = it.m;
+        const mKey = String(m.id);
+        if (!table.preMatchRecords[mKey]) {
+            const topPick = selectTopPreMatchPick(m, it.an);
+            if (topPick) {
+                table.preMatchRecords[mKey] = {
+                    matchId: m.id,
+                    date: m.date,
+                    time: m.time,
+                    kickoff: m.kickoff,
+                    league: m.league?.full || 'Diğer',
+                    match: `${m.home} - ${m.away}`,
+                    pickKey: topPick.key,
+                    pick: topPick.label,
+                    probPct: Math.round(topPick.p * 100),
+                    p1: +(it.an.p.ms1 || 0.33).toFixed(4),
+                    pX: +(it.an.p.msx || 0.33).toFixed(4),
+                    p2: +(it.an.p.ms2 || 0.33).toFixed(4),
+                    realOdd: topPick.realOdd,
+                    oddsUpdatedAt: topPick.oddsUpdatedAt,
+                    evPct: topPick.evPct,
+                    recordedBeforeKickoffAt: `${m.date} ${nowIso}`,
+                    testMethod: 'Maç Öncesi Kayıt (Pre-Match)',
+                    status: 'Beklemede',
+                    won: null,
+                    score: null,
+                    verifiedAt: null
+                };
+                tableDirty = true;
+            }
+        }
+    }
+
+    // 2. ADIM: Maç başlamadan kaydedilen tahminlerin maç bittiğinde (state === 'post') sonuçlarını otomatik karşılaştır
+    const finishedMap = new Map();
+    if (Array.isArray(model.rawHistory)) {
+        for (const m of model.rawHistory) {
+            if (m && m.state === 'post' && m.score && m.ht) finishedMap.set(String(m.id), m);
+        }
+    }
+    for (const it of (dayItems || [])) {
+        if (it.m && it.m.state === 'post' && it.m.score && it.m.ht) {
+            finishedMap.set(String(it.m.id), it.m);
+        }
+    }
+
+    for (const [mKey, rec] of Object.entries(table.preMatchRecords)) {
+        if (rec.won === null && finishedMap.has(mKey)) {
+            const fm = finishedMap.get(mKey);
+            const actualKeys = new Set(outcomeKeys(fm.score.h, fm.score.a, fm.ht.h, fm.ht.a));
+            const won = actualKeys.has(rec.pickKey);
+            rec.won = won;
+            rec.status = won ? 'Kazandı' : 'Kaybetti';
+            rec.score = `${fm.score.h}-${fm.score.a} (İY ${fm.ht.h}-${fm.ht.a})`;
+            rec.verifiedAt = `${fm.date} ${nowIso}`;
+            tableDirty = true;
+        }
+    }
+
+    // 3. ADIM: Geçmiş maçları KRONOLOJİK SIRAYLA ve YALNIZCA MAÇTAN ÖNCEKİ VERİLERLE (Out-of-Sample Walk-Forward) test et
+    // Modelin öğrendiği maçlar kendi testinde ASLA kullanılmaz: testDate günündeki her maç yalnızca (m.date < testDate) verisiyle kurulan priorModel ile tahmin edilir.
+    const rawHistory = Array.isArray(model.rawHistory) ? model.rawHistory : [];
+    const distinctDates = [...new Set(rawHistory.filter(m => m.inBulletin).map(m => m.date))].sort();
+    const testDates = distinctDates.slice(-6); // Son 6 bülten günü kronolojik sırayla
+
+    let walkForwardRecords = [];
+    if (testDates.length > 0) {
+        const latestTestDate = testDates[testDates.length - 1];
+        if (table.lastWalkForwardDate === latestTestDate && table.walkForwardRecords.length >= 10) {
+            walkForwardRecords = table.walkForwardRecords;
+        } else {
+            const newWf = [];
+            for (const testDate of testDates) {
+                // Yalnızca testDate tarihinden ÖNCEKİ maçlarla (m.date < testDate) kurulan noktasal model (Sıfır veri sızıntısı)
+                const priorModel = buildModel(rawHistory, testDate, { skipRawHistory: true });
+                if (priorModel.nRows < 40) continue;
+
+                const dayMatches = rawHistory
+                    .filter(m => m.date === testDate && m.inBulletin && m.state === 'post' && m.score && m.ht)
+                    .sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+
+                for (const m of dayMatches) {
+                    const an = analyze(priorModel, m, { facts: false });
+                    const actualKeys = new Set(outcomeKeys(m.score.h, m.score.a, m.ht.h, m.ht.a));
+                    const topPick = selectTopPreMatchPick(m, an);
+
+                    const act1 = m.score.h > m.score.a ? 1 : 0;
+                    const actX = m.score.h === m.score.a ? 1 : 0;
+                    const act2 = m.score.h < m.score.a ? 1 : 0;
+                    const p1 = Math.max(0.02, Math.min(0.96, an.p.ms1 || 0.33));
+                    const pX = Math.max(0.02, Math.min(0.96, an.p.msx || 0.33));
+                    const p2 = Math.max(0.02, Math.min(0.96, an.p.ms2 || 0.33));
+                    const brier = ((p1 - act1) ** 2 + (pX - actX) ** 2 + (p2 - act2) ** 2) / 3;
+                    const pActual = act1 ? p1 : actX ? pX : p2;
+                    const logLoss = -Math.log(pActual);
+
+                    newWf.push({
+                        matchId: m.id,
+                        date: m.date,
+                        time: m.time,
+                        league: m.league?.full || 'Diğer',
+                        match: `${m.home} - ${m.away}`,
+                        score: `${m.score.h}-${m.score.a} (İY ${m.ht.h}-${m.ht.a})`,
+                        brier,
+                        logLoss,
+                        pickKey: topPick ? topPick.key : null,
+                        pick: topPick ? topPick.label : null,
+                        probPct: topPick ? Math.round(topPick.p * 100) : null,
+                        realOdd: topPick ? topPick.realOdd : null,
+                        evPct: topPick ? topPick.evPct : null,
+                        won: topPick ? actualKeys.has(topPick.key) : null,
+                        status: topPick ? (actualKeys.has(topPick.key) ? 'Kazandı' : 'Kaybetti') : null,
+                        testMethod: `Kronolojik Out-of-Sample (< ${testDate} verisi)`
+                    });
+                }
+            }
+
+            // Bugünün tamamlanan maçlarını da bugünün maç öncesi modeliyle (asOf = today, yani sadece dün ve öncesiyle eğitilmiş modelle) ekle
+            const finishedToday = (dayItems || [])
+                .filter(it => it.m && it.m.state === 'post' && it.m.inBulletin && it.m.score && it.m.ht)
+                .sort((a, b) => String(a.m.time || '').localeCompare(String(b.m.time || '')));
+            for (const it of finishedToday) {
+                const m = it.m;
+                const an = it.an || analyze(model, m, { facts: false });
+                const actualKeys = new Set(outcomeKeys(m.score.h, m.score.a, m.ht.h, m.ht.a));
+                const topPick = selectTopPreMatchPick(m, an);
+
+                const act1 = m.score.h > m.score.a ? 1 : 0;
+                const actX = m.score.h === m.score.a ? 1 : 0;
+                const act2 = m.score.h < m.score.a ? 1 : 0;
+                const p1 = Math.max(0.02, Math.min(0.96, an.p.ms1 || 0.33));
+                const pX = Math.max(0.02, Math.min(0.96, an.p.msx || 0.33));
+                const p2 = Math.max(0.02, Math.min(0.96, an.p.ms2 || 0.33));
+                const brier = ((p1 - act1) ** 2 + (pX - actX) ** 2 + (p2 - act2) ** 2) / 3;
+                const pActual = act1 ? p1 : actX ? pX : p2;
+                const logLoss = -Math.log(pActual);
+
+                newWf.push({
+                    matchId: m.id,
+                    date: m.date,
+                    time: m.time,
+                    league: m.league?.full || 'Diğer',
+                    match: `${m.home} - ${m.away}`,
+                    score: `${m.score.h}-${m.score.a} (İY ${m.ht.h}-${m.ht.a})`,
+                    brier,
+                    logLoss,
+                    pickKey: topPick ? topPick.key : null,
+                    pick: topPick ? topPick.label : null,
+                    probPct: topPick ? Math.round(topPick.p * 100) : null,
+                    realOdd: topPick ? topPick.realOdd : null,
+                    evPct: topPick ? topPick.evPct : null,
+                    won: topPick ? actualKeys.has(topPick.key) : null,
+                    status: topPick ? (actualKeys.has(topPick.key) ? 'Kazandı' : 'Kaybetti') : null,
+                    testMethod: `Maç Öncesi Model (< ${m.date} verisi)`
+                });
+            }
+
+            walkForwardRecords = newWf;
+            table.walkForwardRecords = newWf.slice(-200);
+            table.lastWalkForwardDate = latestTestDate;
+            tableDirty = true;
+        }
+    }
+
+    if (tableDirty) {
+        savePredictionTestTable(table);
+    }
+
+    // 4. ADIM: Metrikleri yalnızca Out-of-Sample Walk-Forward ve Maç Öncesi Kayıt verilerinden hesapla
     let brierSum = 0, logLossSum = 0, count = 0;
     let bankoHits = 0, bankoTotal = 0;
     const marketStats = {
@@ -1501,105 +1799,85 @@ function evaluateModelPerformance(model, dayItems = []) {
         dc: { label: 'Çifte Şans', hits: 0, total: 0 }
     };
     const leagueMap = new Map();
-    const verifiedMatches = [];
 
-    const evalList = [
-        ...finishedToday.map(it => ({ m: it.m, an: it.an, isToday: true })),
-        ...sampleRows.filter(r => r.m.inBulletin).slice(-140).map(r => ({ m: r.m, an: null, isToday: false }))
-    ];
-
-    for (const entry of evalList) {
-        const m = entry.m;
-        if (!m.score || !m.ht) continue;
-        const an = entry.an || analyze(model, m, { facts: false });
-        const actualKeys = new Set(outcomeKeys(m.score.h, m.score.a, m.ht.h, m.ht.a));
-
-        // 1X2 Brier Score & Log Loss
-        const act1 = m.score.h > m.score.a ? 1 : 0;
-        const actX = m.score.h === m.score.a ? 1 : 0;
-        const act2 = m.score.h < m.score.a ? 1 : 0;
-        const p1 = Math.max(0.02, Math.min(0.96, an.p.ms1 || 0.33));
-        const pX = Math.max(0.02, Math.min(0.96, an.p.msx || 0.33));
-        const p2 = Math.max(0.02, Math.min(0.96, an.p.ms2 || 0.33));
-
-        brierSum += ((p1 - act1) ** 2 + (pX - actX) ** 2 + (p2 - act2) ** 2) / 3;
-        const pActual = act1 ? p1 : actX ? pX : p2;
-        logLossSum += -Math.log(pActual);
-        count++;
-
-        // En güçlü banko adayı seçimi ve gerçekleşme kontrolü
-        const cands = [
-            { key: 'ust15', label: '1,5 Üst', p: an.p.ust15 },
-            { key: 'iyust05', label: 'İY 0,5 Üst', p: an.p.iyust05 },
-            { key: 'ms1', label: 'MS 1', p: an.p.ms1 },
-            { key: 'ms2', label: 'MS 2', p: an.p.ms2 },
-            { key: 'ust25', label: '2,5 Üst', p: an.p.ust25 },
-            { key: 'kgv', label: 'KG Var', p: an.p.kgv },
-            { key: 'dc1x', label: 'ÇŞ 1-X', p: an.p.dc1x },
-            { key: 'dcx2', label: 'ÇŞ X-2', p: an.p.dcx2 }
-        ].filter(x => x.p >= 0.68 && x.p <= 0.90).sort((a, b) => b.p - a.p);
-
-        const topPick = cands[0];
-        if (topPick) {
-            const won = actualKeys.has(topPick.key);
+    for (const rec of walkForwardRecords) {
+        if (typeof rec.brier === 'number' && typeof rec.logLoss === 'number') {
+            brierSum += rec.brier;
+            logLossSum += rec.logLoss;
+            count++;
+        }
+        if (rec.pickKey && typeof rec.won === 'boolean') {
             bankoTotal++;
-            if (won) bankoHits++;
+            if (rec.won) bankoHits++;
 
-            const mktKey = (topPick.key === 'ms1' || topPick.key === 'ms2') ? 'ms_fav'
-                : (topPick.key === 'dc1x' || topPick.key === 'dcx2') ? 'dc'
-                : topPick.key;
+            const mktKey = (rec.pickKey === 'ms1' || rec.pickKey === 'ms2') ? 'ms_fav'
+                : (rec.pickKey === 'dc1x' || rec.pickKey === 'dcx2') ? 'dc'
+                : rec.pickKey;
             if (marketStats[mktKey]) {
                 marketStats[mktKey].total++;
-                if (won) marketStats[mktKey].hits++;
+                if (rec.won) marketStats[mktKey].hits++;
             }
 
-            const lgName = m.league?.full || 'Diğer';
+            const lgName = rec.league || 'Diğer';
             const lgObj = leagueMap.get(lgName) || { league: lgName, hits: 0, total: 0 };
             lgObj.total++;
-            if (won) lgObj.hits++;
+            if (rec.won) lgObj.hits++;
             leagueMap.set(lgName, lgObj);
-
-            if (verifiedMatches.length < 12) {
-                verifiedMatches.push({
-                    date: m.date,
-                    time: m.time,
-                    league: lgName,
-                    match: `${m.home} - ${m.away}`,
-                    score: `${m.score.h}-${m.score.a} (İY ${m.ht.h}-${m.ht.a})`,
-                    pick: topPick.label,
-                    probPct: Math.round(topPick.p * 100),
-                    status: won ? 'Kazandı' : 'Kaybetti',
-                    won
-                });
-            }
         }
     }
 
-    const brierScore = count ? +(brierSum / count).toFixed(3) : 0.192;
-    const logLoss = count ? +(logLossSum / count).toFixed(3) : 0.565;
-    const hitRatePct = bankoTotal ? Math.round((bankoHits / bankoTotal) * 100) : 78;
+    // KESİN KURAL (Madde 6): Veri yoksa asla 0.192, 0.565, %78 gibi varsayılan değerler döndürme!
+    const hasSufficientData = count >= 5 && bankoTotal >= 5;
+    const brierScore = hasSufficientData ? +(brierSum / count).toFixed(3) : null;
+    const logLoss = hasSufficientData ? +(logLossSum / count).toFixed(3) : null;
+    const hitRatePct = hasSufficientData ? Math.round((bankoHits / bankoTotal) * 100) : null;
 
-    const marketsReport = Object.values(marketStats)
-        .filter(x => x.total >= 3)
-        .map(x => ({
-            label: x.label,
-            hits: x.hits,
-            total: x.total,
-            ratePct: Math.round((x.hits / x.total) * 100)
-        }));
+    const marketsReport = hasSufficientData
+        ? Object.values(marketStats)
+            .filter(x => x.total >= 3)
+            .map(x => ({
+                label: x.label,
+                hits: x.hits,
+                total: x.total,
+                ratePct: Math.round((x.hits / x.total) * 100)
+            }))
+        : [];
 
-    const leaguesReport = [...leagueMap.values()]
-        .filter(x => x.total >= 3)
-        .sort((a, b) => (b.hits / b.total) - (a.hits / a.total))
-        .slice(0, 6)
-        .map(x => ({
-            league: x.league,
-            hits: x.hits,
-            total: x.total,
-            ratePct: Math.round((x.hits / x.total) * 100)
-        }));
+    const leaguesReport = hasSufficientData
+        ? [...leagueMap.values()]
+            .filter(x => x.total >= 3)
+            .sort((a, b) => (b.hits / b.total) - (a.hits / a.total))
+            .slice(0, 6)
+            .map(x => ({
+                league: x.league,
+                hits: x.hits,
+                total: x.total,
+                ratePct: Math.round((x.hits / x.total) * 100)
+            }))
+        : [];
+
+    // Sonuçlanan maçlar (Önce maç başlamadan kaydedilip sonuçlananlar, ardından kronolojik walk-forward test kayıtları)
+    const verifiedPreMatch = Object.values(table.preMatchRecords)
+        .filter(r => r.won !== null)
+        .sort((a, b) => String(b.date + b.time).localeCompare(String(a.date + a.time)));
+
+    const pendingPreMatch = Object.values(table.preMatchRecords)
+        .filter(r => r.won === null)
+        .sort((a, b) => String(a.date + a.time).localeCompare(String(b.date + b.time)))
+        .slice(0, 8);
+
+    const verifiedWalkForward = walkForwardRecords
+        .filter(r => r.pick && typeof r.won === 'boolean')
+        .slice(-12)
+        .reverse();
+
+    const verifiedMatches = [...verifiedPreMatch, ...verifiedWalkForward].slice(0, 10);
 
     return {
+        hasSufficientData,
+        statusMessage: hasSufficientData
+            ? 'Kronolojik Out-of-Sample Walk-Forward Test (Her maç yalnızca kendisinden önceki verilerle test edilmiştir)'
+            : 'Henüz yeterli veri yok',
         evaluatedMatches: count,
         brierScore,
         logLoss,
@@ -1608,7 +1886,8 @@ function evaluateModelPerformance(model, dayItems = []) {
         bankoTotal,
         marketsReport,
         leaguesReport,
-        verifiedMatches
+        verifiedMatches,
+        pendingPreMatch
     };
 }
 
@@ -1626,6 +1905,7 @@ module.exports = {
     isMainstreamMatch,
     evaluateModelPerformance
 };
+
 
 
 
