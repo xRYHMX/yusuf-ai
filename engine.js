@@ -1048,6 +1048,20 @@ function analyze(model, m, opts = {}) {
     };
 }
 
+// ---------------- Gerçek Value Bet (Beklenen Değer - EV) Hesaplaması ----------------
+// Formül: EV = (Model olasılığı × Gerçek Nesine oranı) - 1
+// Örnek: %55 olasılık (0.55) ve 2.10 gerçek oran -> EV = (0.55 * 2.10) - 1 = +0.155 (+%15.5)
+function computeExpectedValue(modelProb, realOdd) {
+    const p = Number(modelProb);
+    const odd = Number(realOdd);
+    if (!isFinite(p) || !isFinite(odd) || p <= 0 || odd <= 1.0) {
+        return { ev: null, evPct: null };
+    }
+    const ev = (p * odd) - 1;
+    const evPct = +(ev * 100).toFixed(1);
+    return { ev: +ev.toFixed(4), evPct };
+}
+
 // ---------------- Pick listesi ----------------
 function picksOf(match, an) {
     const out = [];
@@ -1056,12 +1070,12 @@ function picksOf(match, an) {
         if (key.startsWith('htft_')) { label = 'İY/MS ' + key.slice(5); group = 'htft'; }
         else { label = LABEL[key]; group = GROUP[key]; }
         if (!label) continue;
-        // Eğer resmi bültende bu pazarın gerçek oranı varsa gerçek Value Bet EV hesapla (asla sahte oran uydurma!)
-        const realOdd = (match.odds && typeof match.odds[key] === 'number' && match.odds[key] > 1)
+        // Resmi Nesine bülteninden gelen gerçek oran varsa EV = (Model olasılığı × Gerçek oran) - 1 hesapla
+        const realOdd = (match.odds && typeof match.odds[key] === 'number' && match.odds[key] > 1.01)
             ? match.odds[key]
             : null;
-        const evPct = realOdd ? Math.round((pv * realOdd - 1) * 100) : null;
-        out.push({ key, label, group, p: pv, realOdd, evPct, matchId: match.id });
+        const { ev, evPct } = computeExpectedValue(pv, realOdd);
+        out.push({ key, label, group, p: pv, realOdd, ev, evPct, matchId: match.id });
     }
     return out;
 }
@@ -1106,7 +1120,10 @@ function generateRationale(pk, m, an) {
     const weatherNote = an.intel?.weather
         ? ` 🌤️ ${an.intel.weather.city}: ${an.intel.weather.temp}°C (${an.intel.weather.condition}).`
         : '';
-    const tailNotes = `${splitNote}${projNote}${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
+    const evNote = (pk.realOdd && pk.evPct !== null && pk.evPct !== undefined)
+        ? ` [Nesine Oranı: ${pk.realOdd.toFixed(2)} | Beklenen Değer (EV): ${pk.evPct >= 0 ? '+' : ''}%${pk.evPct}]`
+        : '';
+    const tailNotes = `${evNote}${splitNote}${projNote}${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
 
     // Yüksek oranlı Nesine Sürpriz Pazarları gerekçeleri
     if (pk.key === 'ms1_kgv' || pk.key === 'ms2_kgv') {
@@ -1138,7 +1155,7 @@ function generateRationale(pk, m, an) {
     }
     if (pk.key === 'hms1' || pk.key === 'hms2') {
         const fav = pk.key === 'hms1' ? m.home : m.away;
-        return `${fav} rakibine karşı net güç ve xG üstünlüğüne sahip (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). En az 2 farklı handikaplı galibiyet olasılığı ${pStr} (${liftStr} değer).${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
+        return `${fav} rakibine karşı net güç ve xG üstünlüğüne sahip (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). En az 2 farklı handikaplı galibiyet olasılığı ${pStr} (${liftStr} değer).${evNote}${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'tg46') {
         return `Yüksek tempolu ve gollü geçmeye aday karşılaşma (${totG} toplam xG). Maçta toplam 4-6 gol aralığı ${pStr} olasılık ve ${liftStr} değer taşıyor.${tailNotes}`;
@@ -1169,10 +1186,10 @@ function generateRationale(pk, m, an) {
         return `Ev (${an.lh.toFixed(2)} xG) ve deplasman (${an.la.toFixed(2)} xG) karşılıklı üretime çok uygun (${pStr} güven).${tailNotes}`;
     }
     if (pk.key === 'dc1x') {
-        return `${m.home} iç saha formunda çok dirençli (${an.lh.toFixed(2)} xG). Yenilmeme ihtimali ${pStr}.${dnaNote}${extraNote}${weatherNote}`;
+        return `${m.home} iç saha formunda çok dirençli (${an.lh.toFixed(2)} xG). Yenilmeme ihtimali ${pStr}.${evNote}${dnaNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'dcx2') {
-        return `${m.away} dış saha performansıyla üstün (${an.la.toFixed(2)} xG). Puan alma olasılığı ${pStr}.${dnaNote}${extraNote}${weatherNote}`;
+        return `${m.away} dış saha performansıyla üstün (${an.la.toFixed(2)} xG). Puan alma olasılığı ${pStr}.${evNote}${dnaNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'ms1') {
         return `${m.home} iç saha gücü ve form ivmesiyle önde (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG, ${pStr} olasılık).${tailNotes}`;
@@ -1181,7 +1198,7 @@ function generateRationale(pk, m, an) {
         return `${m.away} deplasman karnesi ve hücum kalitesiyle üstün (${an.la.toFixed(2)} xG, ${pStr} olasılık).${tailNotes}`;
     }
     if (pk.key === 'msx') {
-        return `İki takımın iç/dış saha güçleri dengeli (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Beraberlik olasılığı ${pStr} (${liftStr} değer).${dnaNote}${extraNote}`;
+        return `İki takımın iç/dış saha güçleri dengeli (${an.lh.toFixed(2)} - ${an.la.toFixed(2)} xG). Beraberlik olasılığı ${pStr} (${liftStr} değer).${evNote}${dnaNote}${extraNote}`;
     }
     if (pk.key.startsWith('iy1') || pk.key.startsWith('iy2')) {
         const team = pk.key === 'iy1' ? m.home : m.away;
@@ -1189,11 +1206,11 @@ function generateRationale(pk, m, an) {
     }
     if (pk.key.startsWith('htft_')) {
         const sub = pk.key.slice(5);
-        return `Bağımsız devre modelinde yüksek değerli İY/MS (${sub}) senaryosu: ${pStr} olasılık (normal dağılımın ${liftStr} üzerinde).${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
+        return `Bağımsız devre modelinde yüksek değerli İY/MS (${sub}) senaryosu: ${pStr} olasılık (normal dağılımın ${liftStr} üzerinde).${evNote}${dnaNote}${fatigueNote}${extraNote}${weatherNote}`;
     }
     if (pk.key === 'yari1' || pk.key === 'yari2') {
         const half = pk.key === 'yari1' ? '1. yarıda' : '2. yarıda';
-        return `Takımların devre karakteristiğine göre gollerin ${half} yoğunlaşması bekleniyor (${pStr} olasılık, ${liftStr} değer).${dnaNote}${weatherNote}`;
+        return `Takımların devre karakteristiğine göre gollerin ${half} yoğunlaşması bekleniyor (${pStr} olasılık, ${liftStr} değer).${evNote}${dnaNote}${weatherNote}`;
     }
     return `Bağımsız modelin ${pStr} olasılık ve ${liftStr || 'yüksek güven'} ile öne çıkardığı istatistiksel tercih.${tailNotes}`;
 }
@@ -1202,12 +1219,19 @@ function isMainstreamMatch(m) {
     return (m.mbs <= 2 || (m.order !== undefined && m.order < 55)) && !m.youth && !m.women && !m.reserve;
 }
 
-// Yüksek oranlı Nesine Sürpriz pazarlarının taktiksel uygunluk ve değer puanlaması
+// Yüksek oranlı Nesine Sürpriz pazarlarının gerçek Value Bet (EV = p * odd - 1) ve taktiksel uygunluk puanlaması
 function scoreSurpriseCandidate(pk, m, an, model) {
     if (!SURPRISE_GROUPS.includes(pk.group)) return null;
     const baseRate = model.base[pk.key] || 0.05;
     const lift = pk.p / baseRate;
-    if (lift < 1.25) return null;
+
+    // Gerçek Nesine oranı varsa gerçek Value Bet EV = (Model olasılığı × Gerçek oran) - 1 kontrolü
+    const hasRealOdd = typeof pk.realOdd === 'number' && pk.realOdd > 1.01 && typeof pk.ev === 'number';
+    if (hasRealOdd) {
+        if (pk.ev < -0.05 && lift < 1.35) return null;
+    } else if (lift < 1.25) {
+        return null;
+    }
 
     const tot = an.lh + an.la;
     const diff = an.lh - an.la;
@@ -1281,9 +1305,11 @@ function scoreSurpriseCandidate(pk, m, an, model) {
     const dnaBoost = an.tactical?.boosts?.[dnaKey] || an.tactical?.boosts?.[pk.key] || 1.0;
     tacticalMult *= dnaBoost;
 
+    // Gerçek Value Bet (EV > 0) bonusu
+    const evMult = hasRealOdd && pk.ev > 0 ? Math.min(1.55, 1 + pk.ev * 0.85) : 1.0;
     const mbsMult = m.mbs === 1 ? 1.14 : m.mbs === 2 ? 1.07 : 1.0;
     const qMult = an.quality === 'A' ? 1.10 : an.quality === 'B' ? 1.04 : 0.96;
-    const score = Math.pow(pk.p, 0.62) * Math.min(lift, 3.2) * tacticalMult * mbsMult * qMult;
+    const score = Math.pow(pk.p, 0.62) * Math.min(lift, 3.2) * tacticalMult * evMult * mbsMult * qMult;
     return { ...pk, lift, score, m, an };
 }
 
@@ -1590,6 +1616,7 @@ module.exports = {
     buildModel,
     analyze,
     picksOf,
+    computeExpectedValue,
     buildCoupons,
     outcomeKeys,
     teamFacts,

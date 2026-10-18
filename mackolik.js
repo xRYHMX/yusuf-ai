@@ -41,6 +41,181 @@ async function rawFetch(iso) {
 
 const num = (v) => { const n = parseFloat(v); return isFinite(n) && n >= 1.01 ? n : null; };
 
+// Resmi Nesine Bülteni (cdnbulten.nesine.com) 25+ Bahis Pazarı Gerçek Oran Katmanı
+let nesineCache = { t: 0, map: new Map() };
+let nesineInFlight = null;
+
+function parseNesineMarkets(maList) {
+    const out = {};
+    if (!Array.isArray(maList)) return out;
+
+    const getO = (oca, n) => {
+        if (!Array.isArray(oca)) return null;
+        const found = oca.find(x => x.N === n);
+        return found ? num(found.O) : null;
+    };
+
+    const setIf = (k, val) => {
+        if (val !== null && val > 1.01) out[k] = val;
+    };
+
+    for (const mk of maList) {
+        const mtid = mk.MTID;
+        const sov = Number(mk.SOV || 0);
+        const oca = mk.OCA;
+        if (!Array.isArray(oca)) continue;
+
+        if (mtid === 1) {
+            setIf('ms1', getO(oca, 1)); setIf('h', getO(oca, 1));
+            setIf('msx', getO(oca, 2)); setIf('d', getO(oca, 2));
+            setIf('ms2', getO(oca, 3)); setIf('a', getO(oca, 3));
+        } else if (mtid === 3) {
+            setIf('dc1x', getO(oca, 1));
+            setIf('dc12', getO(oca, 2));
+            setIf('dcx2', getO(oca, 3));
+        } else if (mtid === 7) {
+            setIf('iy1', getO(oca, 1));
+            setIf('iyx', getO(oca, 2));
+            setIf('iy2', getO(oca, 3));
+        } else if (mtid === 5) {
+            const htftMap = { 1: '1/1', 2: '1/X', 3: '1/2', 4: 'X/1', 5: 'X/X', 6: 'X/2', 7: '2/1', 8: '2/X', 9: '2/2' };
+            for (const [nStr, code] of Object.entries(htftMap)) {
+                setIf('htft_' + code, getO(oca, Number(nStr)));
+            }
+        } else if (mtid === 11 && sov === 1.5) {
+            setIf('alt15', getO(oca, 1));
+            setIf('ust15', getO(oca, 2));
+        } else if (mtid === 12 && sov === 2.5) {
+            setIf('alt25', getO(oca, 1));
+            setIf('ust25', getO(oca, 2));
+        } else if (mtid === 13 && sov === 3.5) {
+            setIf('alt35', getO(oca, 1));
+            setIf('ust35', getO(oca, 2));
+        } else if (mtid === 212 && sov === 0.5) {
+            setIf('iyalt05', getO(oca, 1));
+            setIf('iyust05', getO(oca, 2));
+        } else if (mtid === 14 && sov === 1.5) {
+            setIf('iyalt15', getO(oca, 1));
+            setIf('iyust15', getO(oca, 2));
+        } else if (mtid === 209 && sov === 0.5) {
+            setIf('y2ust05', getO(oca, 2));
+        } else if (mtid === 256 && sov === 0.5) {
+            setIf('y2ust15', getO(oca, 1));
+        } else if (mtid === 38) {
+            setIf('kgv', getO(oca, 1));
+            setIf('kgy', getO(oca, 2));
+        } else if (mtid === 452) {
+            setIf('iykgv', getO(oca, 1));
+        } else if (mtid === 590) {
+            setIf('y2kgv', getO(oca, 1));
+        } else if (mtid === 528) {
+            setIf('ikiyari_gol', getO(oca, 1));
+        } else if (mtid === 455 && sov === 0.5) {
+            setIf('ev_ust05', getO(oca, 2));
+        } else if (mtid === 20 && sov === 1.5) {
+            setIf('ev_ust15', getO(oca, 2));
+        } else if (mtid === 328 && sov === 2.5) {
+            setIf('ev_ust25', getO(oca, 2));
+        } else if (mtid === 457 && sov === 0.5) {
+            setIf('dep_ust05', getO(oca, 2));
+        } else if (mtid === 29 && sov === 1.5) {
+            setIf('dep_ust15', getO(oca, 2));
+        } else if (mtid === 326 && sov === 2.5) {
+            setIf('dep_ust25', getO(oca, 2));
+        } else if (mtid === 268) {
+            if (sov === -1) setIf('hms1', getO(oca, 1));
+            else if (sov === 1) setIf('hms2', getO(oca, 3));
+        } else if (mtid === 798) {
+            if (sov === -1.5) setIf('ah_h_15', getO(oca, 1));
+            else if (sov === 1.5) setIf('ah_a_15', getO(oca, 2));
+        } else if (mtid === 414) {
+            setIf('ms1_kgv', getO(oca, 1));
+            setIf('msx_kgv', getO(oca, 3));
+            setIf('ms2_kgv', getO(oca, 5));
+        } else if (mtid === 343 && sov === 2.5) {
+            setIf('ms1_ust25', getO(oca, 2));
+            setIf('ms2_ust25', getO(oca, 6));
+        } else if (mtid === 446 && sov === 2.5) {
+            setIf('ust25_kgv', getO(oca, 2));
+        } else if (mtid === 43) {
+            setIf('tg01', getO(oca, 1));
+            setIf('tg23', getO(oca, 2));
+            setIf('tg46', getO(oca, 3));
+            setIf('tg7p', getO(oca, 4));
+        } else if (mtid === 9) {
+            setIf('yari1', getO(oca, 1));
+            setIf('yari2', getO(oca, 3));
+        } else if (mtid === 216) {
+            if (sov === 8.5) setIf('korner_ust85', getO(oca, 2));
+            else if (sov === 9.5) setIf('korner_ust95', getO(oca, 2));
+            else if (sov === 10.5) setIf('korner_ust105', getO(oca, 2));
+        } else if (mtid === 218 && sov === 4.5) {
+            setIf('iy_korner_ust45', getO(oca, 2));
+        } else if (mtid === 601 && (sov === 3.5 || sov === 4.5)) {
+            if (sov === 3.5) setIf('kart_ust35', getO(oca, 2));
+            else setIf('kart_ust45', getO(oca, 2));
+        } else if (mtid === 602 && (sov === 3.5 || sov === 4.5)) {
+            if (sov === 3.5) setIf('kart_ust35', getO(oca, 2));
+            else setIf('kart_ust45', getO(oca, 2));
+        } else if (mtid === 777) {
+            for (const item of oca) {
+                if (item.ON && item.ON.includes(':')) {
+                    const scKey = 'msskor_' + item.ON.trim().replace(':', '_');
+                    setIf(scKey, num(item.O));
+                }
+            }
+        } else if (mtid === 779) {
+            for (const item of oca) {
+                if (item.ON && item.ON.includes(':')) {
+                    const scKey = 'iyskor_' + item.ON.trim().replace(':', '_');
+                    setIf(scKey, num(item.O));
+                }
+            }
+        }
+    }
+    return out;
+}
+
+async function getNesineOddsMap() {
+    const now = Date.now();
+    if (nesineCache.map.size > 0 && now - nesineCache.t < 2 * 60e3) {
+        return nesineCache.map;
+    }
+    if (nesineInFlight) return nesineInFlight;
+
+    nesineInFlight = (async () => {
+        try {
+            const res = await fetch('https://cdnbulten.nesine.com/api/bulten/getprebultenfull', {
+                headers: { 'User-Agent': HEAD['User-Agent'], 'Accept': 'application/json' },
+                signal: AbortSignal.timeout(8000)
+            });
+            if (res.ok) {
+                const json = await res.json();
+                const ea = json?.sg?.EA;
+                if (Array.isArray(ea)) {
+                    const newMap = new Map();
+                    for (const ev of ea) {
+                        if (ev.C && Array.isArray(ev.MA) && ev.MA.length > 0) {
+                            const parsedOdds = parseNesineMarkets(ev.MA);
+                            if (Object.keys(parsedOdds).length > 0) {
+                                newMap.set(Number(ev.C), parsedOdds);
+                            }
+                        }
+                    }
+                    if (newMap.size > 0) {
+                        nesineCache = { t: Date.now(), map: newMap };
+                    }
+                }
+            }
+        } catch (_) {} finally {
+            nesineInFlight = null;
+        }
+        return nesineCache.map;
+    })();
+
+    return nesineInFlight;
+}
+
 function parseRow(r, idx = 999) {
     const lg = r[36];
     if (!lg || lg[11] !== 1) return null;               // yalnızca futbol
@@ -61,7 +236,12 @@ function parseRow(r, idx = 999) {
     let minute = null;
     if (state === 'live') minute = code === 2 ? 'İY' : /^\d+$/.test(txt) ? txt + "'" : txt;
 
-    const odds = { h: num(r[18]), d: num(r[19]), a: num(r[20]), alt25: num(r[21]), ust25: num(r[22]) };
+    const hOdd = num(r[18]), dOdd = num(r[19]), aOdd = num(r[20]);
+    const odds = {
+        h: hOdd, d: dOdd, a: aOdd,
+        ms1: hOdd, msx: dOdd, ms2: aOdd,
+        alt25: num(r[21]), ust25: num(r[22])
+    };
     const iddaaCode = Number(r[14]) > 0 ? Number(r[14]) : null;
     const mbs = parseInt(r[34], 10) || 3;
     const inBulletin = Boolean(iddaaCode && odds.h && odds.d && odds.a);
@@ -110,9 +290,19 @@ async function getDay(iso) {
         } catch (_) {}
     }
 
-    const rows = await rawFetch(iso);
+    const [rows, nesineMap] = await Promise.all([
+        rawFetch(iso),
+        iso >= today ? getNesineOddsMap() : Promise.resolve(new Map())
+    ]);
     if (rows === null) return mem ? mem.matches : [];
-    const matches = rows.map((r, i) => parseRow(r, i)).filter(Boolean);
+    const matches = rows.map((r, i) => {
+        const m = parseRow(r, i);
+        if (m && m.iddaaCode && nesineMap && nesineMap.has(m.iddaaCode)) {
+            m.odds = { ...m.odds, ...nesineMap.get(m.iddaaCode) };
+            m.nesineMarketsCount = Object.keys(m.odds).length;
+        }
+        return m;
+    }).filter(Boolean);
     memCache.set(iso, { t: Date.now(), matches });
     if (iso < addDays(today, -3)) {
         try { fs.writeFileSync(file, JSON.stringify(matches)); } catch (_) {}
@@ -135,4 +325,4 @@ async function getRange(fromIso, toIso, concurrency = 10) {
     return out;
 }
 
-module.exports = { getDay, getRange, trToday, addDays };
+module.exports = { getDay, getRange, getNesineOddsMap, trToday, addDays };

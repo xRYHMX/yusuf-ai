@@ -10,6 +10,33 @@ const modelCooldowns = new Map(); // 429/404 dönen modelleri hafızada tutar, h
 const rateLimitMap = new Map(); // IP bazlı hız sınırlandırma (Rate Limiting)
 const serverErrorLogs = []; // Sunucu hata kayıtları tamponu
 
+// Yerel geliştirme ortamında .env dosyası varsa ortam değişkenlerine yükle (GitHub'a .env asla yüklenmez)
+(function loadLocalEnv() {
+    try {
+        const envPath = path.join(__dirname, '.env');
+        if (fs.existsSync(envPath)) {
+            const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith('#')) continue;
+                const eqIdx = trimmed.indexOf('=');
+                if (eqIdx > 0) {
+                    const k = trimmed.slice(0, eqIdx).trim();
+                    const v = trimmed.slice(eqIdx + 1).trim();
+                    if (k && !process.env[k]) process.env[k] = v;
+                }
+            }
+        }
+    } catch (_) {}
+})();
+
+const ALLOWED_ORIGINS = new Set([
+    'https://yusuf-ai-opb0.onrender.com',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    ...(process.env.ALLOWED_ORIGIN ? [process.env.ALLOWED_ORIGIN] : [])
+]);
+
 function logServerError(scope, err) {
     const entry = {
         time: new Date().toISOString(),
@@ -48,13 +75,20 @@ setInterval(() => {
 }, 150 * 1000);
 
 const server = http.createServer(async (req, res) => {
-    const origin = req.headers.origin || '*';
-    res.setHeader('Access-Control-Allow-Origin', origin);
+    const reqOrigin = req.headers.origin;
+    if (reqOrigin && ALLOWED_ORIGINS.has(reqOrigin)) {
+        res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+        res.setHeader('Vary', 'Origin');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self';"
+    );
 
     if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -156,11 +190,8 @@ const server = http.createServer(async (req, res) => {
             if (abortedLarge) return;
             try {
                 const { messages } = JSON.parse(body);
-                const _vB = [50,202,96,100,17,163,28,107,69,209,47,104,9,215,119,109,3,250,123,23,0,162,15,16,55,218,28,127,1,239,125,17,67,233,123,115,7,162,7,127,10,207,3,119,41,174,127,78,41,196,99,99,20];
-                const _vM = [0x73, 0x9B, 0x4E, 0x25];
-                const _vaultKey = Buffer.from(_vB.map((b, i) => b ^ _vM[i & 3])).toString('utf8');
-                // Her zaman önce Render ortam değişkenindeki GEMINI_API_KEY'i kullan, yoksa yerel yedek anahtarı kullan
-                const activeKey = (process.env.GEMINI_API_KEY || _vaultKey).trim();
+                // API anahtarı yalnızca sunucu ortam değişkeninden (Render Environment Variables veya yerel .env) okunur; kaynak kodda anahtar tutulmaz
+                const activeKey = (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || '').trim();
 
                 const isGemini = activeKey.startsWith('AIza') || activeKey.startsWith('AQ.');
                 const isOpenRouter = activeKey.startsWith('sk-or-');

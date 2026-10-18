@@ -915,17 +915,20 @@ function bindFootballModule() {
 
     if (askAiBankoBtn) {
         askAiBankoBtn.addEventListener('click', () => {
-            const prompt = 'Günün Banko Kuponunu ev/deplasman karnesi, son 5 maç formu, ortak rakipler, saha/hava şartları ve kilit oyuncularıyla tablolu ve grafik barlı olarak analiz et.';
+            const prompt = 'Günün Banko Kuponunu ev/deplasman karnesi, son 5 ve 10 maç formu, ortak rakipler, saha/hava şartları ve kilit oyuncularıyla tablolu ve grafik barlı olarak analiz et.';
             askAiDirectly(prompt);
         });
     }
 
     if (askAiSurpriseBtn) {
         askAiSurpriseBtn.addEventListener('click', () => {
-            const prompt = 'Günün Sürpriz Kuponunu (MS & KG Var, MS & 2,5 Üst, İY / 2. Yarı KG Var, Kesin Skor, Handikap, 4-6 Gol ve İY/MS tercihlerini) ev/deplasman karnesi, H2H, ortak rakipler ve hava şartlarıyla tablolu ve grafik barlı olarak analiz et. Sistem mi yoksa kombine mi oynamalıyım?';
+            const prompt = 'Günün Sürpriz Kuponunu (MS & KG Var, MS & 2,5 Üst, İY / 2. Yarı KG Var, Kesin Skor, Handikap, Korner, Kart, 4-6 Gol ve İY/MS tercihlerini) ev/deplasman karnesi, H2H, ortak rakipler ve gerçek Nesine oranlarıyla tablolu ve grafik barlı olarak analiz et. Sistem mi yoksa kombine mi oynamalıyım?';
             askAiDirectly(prompt);
         });
     }
+
+    // Sayfa açılır açılmaz canlı kupon hesaplamalarını arka planda çekip sabit metin yerine gerçek verileri yerleştir
+    loadCoupons();
 }
 
 function switchTab(tabName) {
@@ -978,11 +981,16 @@ function renderCoupons(data) {
     const banko = data.banko;
     if (banko) {
         bankoTitle.textContent = banko.title || 'Günün Banko Kuponu';
-        bankoStrategy.textContent = banko.strategy || 'Bağımsız Derin Analiz • Yüksek Güven Kombinesi';
-        const bSingle = banko.confidence || 85;
+        bankoStrategy.textContent = banko.strategy || 'Canlı Model Hesaplaması • Birleşik Olasılık Analizi';
+        const bSingle = banko.confidence || 0;
         const bJoint = banko.jointConfidence || Math.round(Math.pow(bSingle / 100, 4) * 100);
         bankoConfidenceVal.textContent = `Tekil %${bSingle} • Kombine %${bJoint}`;
-        bankoInstruction.textContent = banko.instruction || `Tekil ort. güven %${bSingle}, 4 maçın birlikte gelme kombine olasılığı %${bJoint}.`;
+        bankoInstruction.textContent = banko.instruction || `Canlı hesaplama: Tekil ort. güven %${bSingle}, 4 maçın birlikte gelme kombine olasılığı %${bJoint}.`;
+
+        const homeBankoEl = document.getElementById('homeBankoCardTitle');
+        if (homeBankoEl && bSingle > 0) {
+            homeBankoEl.textContent = `Günün Banko Kuponu (Canlı: %${bSingle} • Kombine %${bJoint})`;
+        }
 
         bankoMatchesList.innerHTML = '';
         if (banko.matches && banko.matches.length) {
@@ -999,11 +1007,21 @@ function renderCoupons(data) {
     const surp = data.surprise;
     if (surp) {
         surpriseTitle.textContent = surp.title || 'Sürpriz Kupon';
-        surpriseStrategy.textContent = surp.strategy || '25+ Nesine Pazarı (MS&KG, MS&Üst, Devre KG, Korner, Kart, Handikap, Skor, İY/MS)';
-        const sLift = surp.avgLift || '2.0';
-        const sJoint = surp.jointConfidence || 2;
+        surpriseStrategy.textContent = surp.strategy || '25+ Nesine Pazarı • Gerçek Oran & Value Bet (EV) Analizi';
+        const sLift = surp.avgLift || '1.0';
+        const sJoint = surp.jointConfidence || 1;
         surpriseLiftVal.textContent = `${sLift}x • Kombine %${sJoint}`;
-        surpriseInstruction.textContent = surp.instruction || 'Sistem (3-4) veya sürpriz kombine olarak oynanması tavsiye edilir.';
+        surpriseInstruction.textContent = surp.instruction || 'Canlı Nesine oranları ve beklenen değer (EV) baz alınarak Sistem 3-4-5 önerilir.';
+
+        const homeSurpEl = document.getElementById('homeSurpriseCardTitle');
+        if (homeSurpEl) {
+            homeSurpEl.textContent = `Sürpriz Kupon (Canlı Değer: ${sLift}x)`;
+        }
+
+        const topBadge = document.getElementById('couponBadge');
+        if (topBadge && banko && banko.confidence) {
+            topBadge.textContent = `%${banko.confidence} • ${sLift}x`;
+        }
 
         surpriseMatchesList.innerHTML = '';
         if (surp.matches && surp.matches.length) {
@@ -1118,9 +1136,10 @@ function createCouponMatchElement(item, isSurprise) {
     div.className = 'coupon-match-item';
 
     const probPct = Math.round(item.p * 100);
+    const oddTag = item.realOdd ? `<span class="match-pick-conf">Nesine Oranı: ${item.realOdd.toFixed(2)}</span>` : '';
     const liftTag = item.lift ? `<span class="match-pick-conf lift-tag">${item.lift.toFixed(1)}x Değer</span>` : '';
-    const evTag = (item.evPct !== null && item.evPct !== undefined && item.evPct > 0)
-        ? `<span class="match-pick-conf lift-tag">EV +%${item.evPct}</span>`
+    const evTag = (item.evPct !== null && item.evPct !== undefined)
+        ? `<span class="match-pick-conf lift-tag">EV: ${item.evPct >= 0 ? '+' : ''}%${item.evPct}</span>`
         : '';
 
     // 10 katmanlı derin analiz rozetleri (xG, İsabetli Şut, Korner, Kart, Son 5/10 Form, Taktik DNA, Risk Seviyesi, Hava Durumu, Gol Kralı)
@@ -1178,6 +1197,7 @@ function createCouponMatchElement(item, isSurprise) {
             <span class="match-pick-badge ${isSurprise ? 'gold-badge' : ''}">${escapeHtml(item.label)}</span>
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <span class="match-pick-conf">%${probPct} Güven</span>
+                ${oddTag}
                 ${liftTag}
                 ${evTag}
             </div>
@@ -1196,5 +1216,6 @@ function createCouponMatchElement(item, isSurprise) {
 
     return div;
 }
+
 
 
