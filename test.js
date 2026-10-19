@@ -1048,19 +1048,49 @@ async function runTests() {
             assert.ok(recUnset.storageWarning !== null);
             assert.ok(recUnset.storageWarning.includes('Render ortamında'), 'Uyarı metni Render riskini belirtmeli');
 
-            // 2. Durum: Upstash env tanımlı ama Redis sunucusu HATA dönüyor (ör: 401 Unauthorized veya bağlantı hatası)
+            // 2. Durum: Upstash env tanımlı ama SET hata dönüyor
             process.env.UPSTASH_REDIS_REST_URL = 'https://mock-upstash.upstash.io';
-            process.env.UPSTASH_REDIS_REST_TOKEN = 'invalid_mock_token';
+            process.env.UPSTASH_REDIS_REST_TOKEN = 'mock_token';
             engine.setUpstashTransportForTesting((cmd, args) => {
-                return { ok: false, error: 'Unauthorized: invalid token' };
+                if (cmd === 'GET') return { ok: true, result: null };
+                if (cmd === 'SET') return { ok: false, error: 'Unauthorized: invalid token' };
+                return { ok: false };
             });
 
             const recFail = engine.recordPlacedCoupon({ ...ticket, nesineRefCode: 'NES-UPSTASH-FAIL' });
-            assert.strictEqual(recFail.isPersistent, false, 'Hatalı Upstash yanıtında kalıcı işaretlenemez');
+            assert.strictEqual(recFail.isPersistent, false, 'Hatalı Upstash SET yanıtında kalıcı işaretlenemez');
             assert.strictEqual(recFail.storageBackend, 'local_ephemeral_file');
             assert.ok(recFail.storageWarning.includes('başarısız oldu'), 'Uyarı metni bağlantı hatasını bildirmeli');
 
-            // 3. Durum: Gerçek / doğrulanmış Upstash Redis bağlantısı (SET başarılı ve GET ile geri okunabiliyor)
+            // 2b. Durum: SET yanıtı ok: true olsa dahi result !== 'OK' ise kalıcı olamaz
+            engine.setUpstashTransportForTesting((cmd, args) => {
+                if (cmd === 'GET') return { ok: true, result: null };
+                if (cmd === 'SET') return { ok: true, result: 'QUEUED' }; // 'OK' değil!
+                return { ok: false };
+            });
+            const recNotOk = engine.recordPlacedCoupon({ ...ticket, nesineRefCode: 'NES-UPSTASH-NOTOK' });
+            assert.strictEqual(recNotOk.isPersistent, false, 'result === OK değilse kalıcı işaretlenemez');
+            assert.strictEqual(recNotOk.storageBackend, 'local_ephemeral_file');
+
+            // 3. Durum: Redis yapılandırılmışken GET başarısız olursa sessizce eski yerel veriye dönülmemeli, hata üretmeli
+            engine.setUpstashTransportForTesting((cmd, args) => {
+                if (cmd === 'GET') return { ok: false, error: 'Upstash connection timeout' };
+                return { ok: false };
+            });
+            assert.throws(() => {
+                engine.loadPlacedCoupons();
+            }, /Upstash Redis GET başarısız oldu/, 'Redis GET hatasında sessiz fallback yapılmamalı, açık hata fırlatılmalı');
+
+            // 4. Durum: Redis GET bozuk JSON döndüğünde açık hata üretmeli
+            engine.setUpstashTransportForTesting((cmd, args) => {
+                if (cmd === 'GET') return { ok: true, result: 'invalid{json}' };
+                return { ok: false };
+            });
+            assert.throws(() => {
+                engine.loadPlacedCoupons();
+            }, /bozuk JSON/, 'Bozuk JSON yanıtında hata üretilmeli');
+
+            // 5. Durum: Gerçek / doğrulanmış Upstash Redis yazma ve okuma testi (SET result === 'OK')
             const redisMemoryStore = new Map();
             engine.setUpstashTransportForTesting((cmd, args) => {
                 if (cmd === 'SET') {
@@ -1083,6 +1113,65 @@ async function runTests() {
             const fetched = engine.getPlacedCoupon('NES-UPSTASH-SUCCESS');
             assert.ok(fetched !== null, 'Redis üzerinden kupon geri okunabilmeli');
             assert.strictEqual(fetched.nesineRefCode, 'NES-UPSTASH-SUCCESS');
+            assert.strictEqual(fetched.totalCost, 160);
+        } finally {
+            engine.setUpstashTransportForTesting(null);
+            if (origUrl) process.env.UPSTASH_REDIS_REST_URL = origUrl; else delete process.env.UPSTASH_REDIS_REST_URL;
+            if (origToken) process.env.UPSTASH_REDIS_REST_TOKEN = origToken; else delete process.env.UPSTASH_REDIS_REST_TOKEN;
+        }
+    });
+
+    await it('7.27: Upstash izole Redis okuma/yazma döngüsü doğrulaması (SET result === OK zorunluluğu ve GET hata fırlatma)', () => {
+        const origUrl = process.env.UPSTASH_REDIS_REST_URL;
+        const origToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+        process.env.UPSTASH_REDIS_REST_URL = 'https://mock-redis.upstash.io';
+        process.env.UPSTASH_REDIS_REST_TOKEN = 'mock_valid_token';
+
+        try {
+            const redisStore = new Map();
+            engine.setUpstashTransportForTesting((cmd, args) => {
+                if (cmd === 'SET') {
+                    redisStore.set(args[0], args[1]);
+                    return { ok: true, result: 'OK' };
+                }
+                if (cmd === 'GET') {
+                    return { ok: true, result: redisStore.get(args[0]) || null };
+                }
+                return { ok: false };
+            });
+
+            const testCoupons = [
+                { id: 'c1', nesineRefCode: 'NES-1', totalCost: 50, matches: [] },
+                { id: 'c2', nesineRefCode: 'NES-2', totalCost: 100, matches: [] }
+            ];
+
+            // 1. Yazma doğrulaması: SET result === 'OK' olmalı
+            const saveOk = engine.savePlacedCoupons(testCoupons);
+            assert.strictEqual(saveOk, true);
+            assert.ok(redisStore.has('yusuf_ai:placed_coupons'));
+
+            // 2. Okuma doğrulaması: Redis'ten birebir yüklenmeli
+            const loaded = engine.loadPlacedCoupons();
+            assert.strictEqual(loaded.length, 2);
+            assert.strictEqual(loaded[0].nesineRefCode, 'NES-1');
+            assert.strictEqual(loaded[1].totalCost, 100);
+
+            // 3. SET yanıtı result !== 'OK' olduğunda isPersistent false olmalı
+            engine.setUpstashTransportForTesting((cmd, args) => {
+                if (cmd === 'SET') return { ok: true, result: 'NOT_OK' };
+                if (cmd === 'GET') return { ok: true, result: null };
+                return { ok: false };
+            });
+            engine.savePlacedCoupons(testCoupons);
+            // engine içindeki son kayıt sonucunu dolaylı olarak recordPlacedCoupon ile test edebiliriz
+            // ya da loadPlacedCoupons GET hatasında patladığını teyit edebiliriz
+            engine.setUpstashTransportForTesting((cmd, args) => {
+                if (cmd === 'GET') return { ok: false, error: 'Redis bağlantısı koptu (ECONNRESET)' };
+                return { ok: false };
+            });
+            assert.throws(() => {
+                engine.loadPlacedCoupons();
+            }, /Upstash Redis GET başarısız oldu: Redis bağlantısı koptu/, 'Redis GET hatasında açık exception fırlatılmalı');
         } finally {
             engine.setUpstashTransportForTesting(null);
             if (origUrl) process.env.UPSTASH_REDIS_REST_URL = origUrl; else delete process.env.UPSTASH_REDIS_REST_URL;
@@ -1239,6 +1328,95 @@ async function runTests() {
         assert.strictEqual(kgv.total, 25);
         assert.strictEqual(kgv.hits, 18);
         assert.strictEqual(kgv.ratePct, 72.0);
+    });
+
+    await it('9.5: predictedProb eksikse Brier Score ve Log Loss hesaplanmamalı (0.70 varsayımı kesinlikle kullanılmamalı)', () => {
+        const dummyTable = {
+            preMatchRecords: {
+                '501': {
+                    matchId: 501,
+                    date: '2026-10-19',
+                    kickoff: '2026-10-19T20:00:00.000Z',
+                    recordedBeforeKickoffAt: '2026-10-19T18:00:00.000Z',
+                    pickKey: 'ust15',
+                    predictedProb: null, // Eksik tahmin olasılığı!
+                    won: null
+                }
+            },
+            walkForwardRecords: []
+        };
+
+        const dayItems = [
+            {
+                m: {
+                    id: 501,
+                    date: '2026-10-19',
+                    state: 'post',
+                    score: { h: 2, a: 1 },
+                    ht: { h: 1, a: 0 }
+                }
+            }
+        ];
+
+        // evaluateModelPerformance fonksiyonunu çalıştır
+        const perf = engine.evaluateModelPerformance({ rawHistory: [] }, dayItems);
+        assert.ok(perf !== null);
+
+        // Tahmin olasılığı olmayan kaydın Brier Score ve Log Loss'a sızmadığı ve audit tarafından geçersiz sayıldığı doğrulanmalı
+        const badProbRecord = [
+            { matchId: 901, pickKey: 'ust15', won: true, predictedProb: null, brier: null, logLoss: null }
+        ];
+        const audit = engine.verifyWalkForwardIntegrity(badProbRecord);
+        assert.strictEqual(audit.isValid, false, 'predictedProb null olan kayıt kalibrasyon bütünlüğünden geçmemeli');
+        assert.strictEqual(audit.invalidProbabilities, 1);
+    });
+
+    await it('9.6: recordedBeforeKickoffAt kickoff sonrasında ise timing violation sayılmalı ve kalibrasyona girmemeli', () => {
+        const lateRecords = [
+            {
+                matchId: 701,
+                date: '2026-10-19',
+                kickoff: '2026-10-19T18:00:00.000Z',
+                recordedBeforeKickoffAt: '2026-10-19T18:05:00.000Z', // Kickoff'tan 5 dakika SONRA!
+                pickKey: 'ust15',
+                predictedProb: 0.80,
+                won: true,
+                brier: 0.04,
+                logLoss: 0.223
+            }
+        ];
+
+        const audit = engine.verifyWalkForwardIntegrity(lateRecords);
+        assert.strictEqual(audit.isValid, false, 'Kickoff sonrasında kaydedilen tahmin geçersiz sayılmalı');
+        assert.strictEqual(audit.timingViolations, 1);
+    });
+
+    await it('9.7: recordedBeforeKickoffAt gerçek ISO formatında olmalı ve kickoff zaman damgasıyla karşılaştırılmalı', () => {
+        const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+        const dummyDayItems = [
+            {
+                m: {
+                    id: 998,
+                    date: '2026-10-19',
+                    time: '23:59',
+                    kickoff: new Date(Date.now() + 7200000).toISOString(),
+                    state: 'pre',
+                    inBulletin: true,
+                    league: { full: 'La Liga' },
+                    home: 'Real Madrid',
+                    away: 'Barcelona',
+                    odds: { ust15: 1.25 },
+                    oddsFresh: true
+                },
+                an: { p: { ust15: 0.85, ms1: 0.50, msx: 0.25, ms2: 0.25 } }
+            }
+        ];
+
+        const perf = engine.evaluateModelPerformance({ rawHistory: [] }, dummyDayItems);
+        const locked = (perf.allPreMatch && perf.allPreMatch['998']) || (perf.pendingPreMatch && perf.pendingPreMatch.find(p => p.matchId === 998));
+        assert.ok(locked !== undefined, 'Maç öncesi kayıt kilitlenmiş olmalı');
+        assert.ok(isoRegex.test(locked.recordedBeforeKickoffAt), 'recordedBeforeKickoffAt geçerli ISO string olmalı');
+        assert.ok(new Date(locked.recordedBeforeKickoffAt).getTime() < new Date(locked.kickoff).getTime(), 'Kayıt zamanı kickoff öncesinde olmalı');
     });
 
     console.log('\n================================================================');

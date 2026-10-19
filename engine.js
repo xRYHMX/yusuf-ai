@@ -2531,12 +2531,20 @@ function loadPlacedCoupons() {
     const hasUpstashEnv = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
     if (hasUpstashEnv) {
         const redisRes = executeUpstashCommandSync('GET', [UPSTASH_COUPONS_KEY]);
-        if (redisRes && redisRes.ok && redisRes.result) {
-            try {
-                const parsed = typeof redisRes.result === 'string' ? JSON.parse(redisRes.result) : redisRes.result;
-                if (Array.isArray(parsed)) return parsed;
-                if (parsed && Array.isArray(parsed.coupons)) return parsed.coupons;
-            } catch (_) {}
+        if (!redisRes || !redisRes.ok) {
+            const errDetail = redisRes && redisRes.error ? redisRes.error : 'Redis yanıt vermedi veya bağlantı başarısız';
+            throw new Error(`Upstash Redis GET başarısız oldu: ${errDetail}`);
+        }
+        if (redisRes.result === null || redisRes.result === undefined) {
+            return [];
+        }
+        try {
+            const parsed = typeof redisRes.result === 'string' ? JSON.parse(redisRes.result) : redisRes.result;
+            if (Array.isArray(parsed)) return parsed;
+            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.coupons)) return parsed.coupons;
+            return [];
+        } catch (err) {
+            throw new Error(`Upstash Redis verisi bozuk JSON: ${err.message}`);
         }
     }
 
@@ -2569,10 +2577,10 @@ function savePlacedCoupons(coupons) {
 
     if (hasUpstashEnv) {
         const redisRes = executeUpstashCommandSync('SET', [UPSTASH_COUPONS_KEY, JSON.stringify(coupons)]);
-        if (redisRes && redisRes.ok) {
+        if (redisRes && redisRes.ok && redisRes.result === 'OK') {
             redisSuccess = true;
         } else {
-            redisError = redisRes ? redisRes.error : 'Redis yanıt vermedi';
+            redisError = redisRes ? (redisRes.error || (redisRes.result ? `Beklenmeyen Redis SET sonucu: ${redisRes.result}` : 'Redis yanıt vermedi')) : 'Redis yanıt vermedi';
         }
     }
 
@@ -3058,7 +3066,7 @@ function selectTopPreMatchPick(m, an) {
 function evaluateModelPerformance(model, dayItems = []) {
     const table = loadPredictionTestTable();
     let tableDirty = false;
-    const nowIso = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
+    const nowIso = new Date().toISOString();
 
     // 1. ADIM: Maç başlamadan önce (state === 'pre') tahminleri kaydet (Pre-Match Prediction Locking)
     const upcomingToday = (dayItems || []).filter(it =>
@@ -3069,12 +3077,16 @@ function evaluateModelPerformance(model, dayItems = []) {
         const mKey = String(m.id);
         if (!table.preMatchRecords[mKey]) {
             const topPick = selectTopPreMatchPick(m, it.an);
-            if (topPick) {
+            if (topPick && typeof topPick.p === 'number' && Number.isFinite(topPick.p) && topPick.p > 0 && topPick.p < 1) {
+                const kickoffIso = m.kickoff
+                    ? (m.kickoff.includes('T') ? m.kickoff : new Date(m.kickoff).toISOString())
+                    : (m.date && m.time ? `${m.date}T${m.time}:00.000Z` : null);
+
                 table.preMatchRecords[mKey] = {
                     matchId: m.id,
                     date: m.date,
                     time: m.time,
-                    kickoff: m.kickoff,
+                    kickoff: kickoffIso || m.kickoff,
                     league: m.league?.full || 'Diğer',
                     match: `${m.home} - ${m.away}`,
                     pickKey: topPick.key,
@@ -3087,7 +3099,7 @@ function evaluateModelPerformance(model, dayItems = []) {
                     realOdd: topPick.realOdd,
                     oddsUpdatedAt: topPick.oddsUpdatedAt,
                     evPct: topPick.evPct,
-                    recordedBeforeKickoffAt: `${m.date} ${nowIso}`,
+                    recordedBeforeKickoffAt: nowIso,
                     testMethod: 'Maç Öncesi Kayıt (Pre-Match)',
                     status: 'Beklemede',
                     won: null,
@@ -3120,16 +3132,36 @@ function evaluateModelPerformance(model, dayItems = []) {
             rec.won = won;
             rec.status = won ? 'Kazandı' : 'Kaybetti';
             rec.score = `${fm.score.h}-${fm.score.a} (İY ${fm.ht.h}-${fm.ht.a})`;
-            rec.verifiedAt = `${fm.date} ${nowIso}`;
+            rec.verifiedAt = new Date().toISOString();
 
-            // Gerçek tahmin olasılığı üzerinden Brier Score ve Log Loss hesapla
-            const p = typeof rec.predictedProb === 'number' ? rec.predictedProb : (rec.probPct ? rec.probPct / 100 : 0.70);
-            const y = won ? 1 : 0;
-            const brier = +((p - y) ** 2).toFixed(4);
-            const pClamped = Math.max(0.01, Math.min(0.99, won ? p : (1 - p)));
-            const logLoss = +(-Math.log(pClamped)).toFixed(4);
-            rec.brier = brier;
-            rec.logLoss = logLoss;
+            // Gerçek maç öncesi tahmin olasılığı ve başlama saati (kickoff) karşılaştırması
+            // predictedProb eksikse veya başlama sonrası kaydedilmişse kalibrasyon yapılmaz (sıfır 0.70 varsayımı)
+            const hasValidProb = typeof rec.predictedProb === 'number' &&
+                Number.isFinite(rec.predictedProb) &&
+                rec.predictedProb > 0 &&
+                rec.predictedProb < 1;
+
+            const recTime = rec.recordedBeforeKickoffAt ? new Date(rec.recordedBeforeKickoffAt).getTime() : NaN;
+            const kickTime = rec.kickoff ? new Date(rec.kickoff).getTime() : NaN;
+            const isTimingValid = (!isNaN(recTime) && !isNaN(kickTime)) ? recTime <= kickTime : false;
+
+            if (hasValidProb && isTimingValid) {
+                const p = rec.predictedProb;
+                const y = won ? 1 : 0;
+                const brier = +((p - y) ** 2).toFixed(4);
+                const pClamped = Math.max(0.01, Math.min(0.99, won ? p : (1 - p)));
+                const logLoss = +(-Math.log(pClamped)).toFixed(4);
+                rec.brier = brier;
+                rec.logLoss = logLoss;
+            } else {
+                rec.brier = null;
+                rec.logLoss = null;
+                if (!hasValidProb) {
+                    rec.calibrationReason = 'Eksik veya geçersiz maç öncesi tahmin olasılığı (Brier ve Log Loss hesaplanmadı)';
+                } else if (!isTimingValid) {
+                    rec.calibrationReason = 'Tahmin başlama saatinden sonra kaydedildiği veya zaman damgası geçersiz olduğu için kalibrasyona dahil edilmedi';
+                }
+            }
             tableDirty = true;
         }
     }
@@ -3283,7 +3315,17 @@ function evaluateModelPerformance(model, dayItems = []) {
     const leagueMap = new Map();
 
     for (const rec of walkForwardRecords) {
-        if (typeof rec.brier === 'number' && typeof rec.logLoss === 'number') {
+        // Gerçek maç öncesi tahmin olasılığı ve zamanlama kontrolü (0.70 varsayımı tamamen kaldırıldı)
+        const hasValidProb = typeof rec.predictedProb === 'number' &&
+            Number.isFinite(rec.predictedProb) &&
+            rec.predictedProb > 0 &&
+            rec.predictedProb < 1;
+
+        const recTime = rec.recordedBeforeKickoffAt ? new Date(rec.recordedBeforeKickoffAt).getTime() : NaN;
+        const kickTime = rec.kickoff ? new Date(rec.kickoff).getTime() : NaN;
+        const isTimingValid = (!isNaN(recTime) && !isNaN(kickTime)) ? recTime <= kickTime : true;
+
+        if (hasValidProb && isTimingValid && typeof rec.brier === 'number' && typeof rec.logLoss === 'number') {
             brierSum += rec.brier;
             logLossSum += rec.logLoss;
             count++;
@@ -3299,10 +3341,12 @@ function evaluateModelPerformance(model, dayItems = []) {
                 const mst = marketStats[mktKey];
                 mst.total++;
                 if (rec.won) mst.hits++;
-                if (typeof rec.brier === 'number') mst.brierSum += rec.brier;
-                if (typeof rec.logLoss === 'number') mst.logLossSum += rec.logLoss;
-                const p = typeof rec.predictedProb === 'number' ? rec.predictedProb : (rec.probPct ? rec.probPct / 100 : 0.70);
-                mst.probSum += p;
+                if (hasValidProb && isTimingValid && typeof rec.brier === 'number' && typeof rec.logLoss === 'number') {
+                    mst.brierSum += rec.brier;
+                    mst.logLossSum += rec.logLoss;
+                    mst.probSum += rec.predictedProb;
+                    mst.calibratedCount = (mst.calibratedCount || 0) + 1;
+                }
             }
 
             const lgName = rec.league || 'Diğer';
@@ -3329,9 +3373,9 @@ function evaluateModelPerformance(model, dayItems = []) {
                 hits: x.hits,
                 total: x.total,
                 ratePct: Math.round((x.hits / x.total) * 100),
-                brierScore: +(x.brierSum / x.total).toFixed(3),
-                logLoss: +(x.logLossSum / x.total).toFixed(3),
-                avgProbPct: Math.round((x.probSum / x.total) * 100)
+                brierScore: x.calibratedCount ? +(x.brierSum / x.calibratedCount).toFixed(3) : null,
+                logLoss: x.calibratedCount ? +(x.logLossSum / x.calibratedCount).toFixed(3) : null,
+                avgProbPct: x.calibratedCount ? Math.round((x.probSum / x.calibratedCount) * 100) : null
             }))
         : [];
 
@@ -3380,7 +3424,8 @@ function evaluateModelPerformance(model, dayItems = []) {
         marketsReport,
         leaguesReport,
         verifiedMatches,
-        pendingPreMatch
+        pendingPreMatch,
+        allPreMatch: table.preMatchRecords
     };
 }
 
@@ -3396,16 +3441,16 @@ function verifyWalkForwardIntegrity(records = []) {
         if (rec.modelAsOfDate && rec.date && rec.modelAsOfDate > rec.date) {
             leaksDetected++;
         }
-        // 2. Pre-match zamanlama kontrolü: recordedBeforeKickoffAt kickoff'tan sonra olamaz
+        // 2. Pre-match zamanlama kontrolü: recordedBeforeKickoffAt gerçek ISO formatında olmalı ve kickoff'tan sonra olamaz
         if (rec.recordedBeforeKickoffAt && rec.kickoff) {
             const recTime = new Date(rec.recordedBeforeKickoffAt).getTime();
             const kickTime = new Date(rec.kickoff).getTime();
-            if (!isNaN(recTime) && !isNaN(kickTime) && recTime > kickTime) {
+            if (isNaN(recTime) || isNaN(kickTime) || recTime > kickTime) {
                 timingViolations++;
             }
         }
-        // 3. Olasılık sınır kontrolü [0.01, 0.99]
-        const p = typeof rec.predictedProb === 'number' ? rec.predictedProb : (rec.probPct ? rec.probPct / 100 : null);
+        // 3. Olasılık kontrolü: predictedProb gerçek sayı ve (0, 1) aralığında olmalı (0.70 veya varsayım kabul edilmez)
+        const p = typeof rec.predictedProb === 'number' && Number.isFinite(rec.predictedProb) ? rec.predictedProb : null;
         if (p === null || p <= 0 || p >= 1) {
             invalidProbabilities++;
         }
