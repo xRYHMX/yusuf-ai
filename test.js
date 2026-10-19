@@ -473,11 +473,11 @@ async function runTests() {
         // Dörtlü kolonlar: C(4, 4) = 1 adet dörtlü kolon kazanır!
         // Toplam kazanan kolon: 4 + 1 = 5 kolon.
         const completedResults = [
-            { matchId: 101, won: true, settledOdd: 3.20 },
-            { matchId: 102, won: true, settledOdd: 3.40 },
-            { matchId: 103, won: true, settledOdd: 3.10 },
+            { matchId: 101, score: { h: 1, a: 1 }, settledOdd: 3.20 },
+            { matchId: 102, score: { h: 0, a: 2 }, settledOdd: 3.40 },
+            { matchId: 103, score: { h: 2, a: 2 }, settledOdd: 3.10 },
             { matchId: 104, won: false, void: true }, // Nesine İptal/Erteleme: Oran 1.00
-            { matchId: 105, won: false, settledOdd: 2.30 } // Kaybetti
+            { matchId: 105, score: { h: 2, a: 0 }, settledOdd: 2.30 } // Kaybetti
         ];
 
         const settlement = engine.settleSystem345(sys, completedResults, { costPerColumn: 50, totalCost: 800 });
@@ -568,11 +568,11 @@ async function runTests() {
         const sys = engine.buildSystem345(sample5Matches);
         // 104 numaralı maç resmi olarak iptal edildi (cancelled: true)
         const resultsWithCancelled = [
-            { matchId: 101, won: true, settledOdd: 3.20 },
-            { matchId: 102, won: true, settledOdd: 3.40 },
-            { matchId: 103, won: true, settledOdd: 3.10 },
+            { matchId: 101, score: { h: 1, a: 1 }, settledOdd: 3.20 },
+            { matchId: 102, score: { h: 0, a: 2 }, settledOdd: 3.40 },
+            { matchId: 103, score: { h: 2, a: 2 }, settledOdd: 3.10 },
             { matchId: 104, won: false, cancelled: true }, // Kesinleşmiş iptal: Oran 1.00
-            { matchId: 105, won: false, settledOdd: 2.30 }
+            { matchId: 105, score: { h: 2, a: 0 }, settledOdd: 2.30 }
         ];
 
         const settlement = engine.settleSystem345(sys, resultsWithCancelled, { costPerColumn: 50, totalCost: 800 });
@@ -654,11 +654,11 @@ async function runTests() {
         
         // Kullanıcı kuponu onayladığında oranlar değişmiş: 101 -> 3.50, 102 -> 3.60, 103 -> 3.30, 104 -> 2.20, 105 -> 2.40
         const placedResults = [
-            { matchId: 101, won: true, settledOdd: 3.50 },
-            { matchId: 102, won: true, settledOdd: 3.60 },
-            { matchId: 103, won: true, settledOdd: 3.30 },
-            { matchId: 104, won: true, settledOdd: 2.20 },
-            { matchId: 105, won: true, settledOdd: 2.40 }
+            { matchId: 101, score: { h: 1, a: 1 }, settledOdd: 3.50 },
+            { matchId: 102, score: { h: 0, a: 2 }, settledOdd: 3.60 },
+            { matchId: 103, score: { h: 2, a: 2 }, settledOdd: 3.30 },
+            { matchId: 104, score: { h: 1, a: 1 }, settledOdd: 2.20 },
+            { matchId: 105, score: { h: 0, a: 1 }, settledOdd: 2.40 }
         ];
 
         const settlement = engine.settleSystem345(sys, placedResults, { costPerColumn: 10, totalCost: 160 });
@@ -740,11 +740,11 @@ async function runTests() {
         // settleSystem345 ile placedCoupon verisinin entegrasyonu
         const sys = engine.buildSystem345(sample5Matches);
         const matchResults = [
-            { matchId: 101, won: true },
-            { matchId: 102, won: true },
-            { matchId: 103, won: true },
-            { matchId: 104, won: true },
-            { matchId: 105, won: true }
+            { matchId: 101, score: { h: 1, a: 1 } },
+            { matchId: 102, score: { h: 0, a: 2 } },
+            { matchId: 103, score: { h: 2, a: 2 } },
+            { matchId: 104, score: { h: 1, a: 1 } },
+            { matchId: 105, score: { h: 0, a: 1 } }
         ];
 
         const settlement = engine.settleSystem345(sys, matchResults, { placedCoupon: fetched });
@@ -808,11 +808,11 @@ async function runTests() {
             totalCost: 160,
             costPerColumn: 10,
             matches: [
-                { matchId: 101, placedOdd: 3.20 },
-                { matchId: 102, placedOdd: 3.40 },
-                { matchId: 103, placedOdd: 3.10 },
-                { matchId: 104, placedOdd: 2.10 },
-                { matchId: 105, placedOdd: 2.30 }
+                { matchId: 101, key: 'ms1', placedOdd: 3.20 },
+                { matchId: 102, key: 'msx', placedOdd: 3.40 },
+                { matchId: 103, key: 'ms2', placedOdd: 3.10 },
+                { matchId: 104, key: 'kgv', placedOdd: 2.10 },
+                { matchId: 105, key: 'ust25', placedOdd: 2.30 }
             ]
         };
 
@@ -830,6 +830,234 @@ async function runTests() {
             }, /dosyaya kaydedilemedi/);
         } finally {
             fs.writeFileSync = originalWriteFileSync;
+        }
+    });
+
+    await it('7.21: recordPlacedCoupon tam olarak 5 maç kabul etmeli; 4 veya 6+ maç reddedilmeli', () => {
+        const baseTicket = {
+            nesineRefCode: 'NES-MATCH-COUNT-TEST',
+            totalCost: 160,
+            costPerColumn: 10,
+            matches: [
+                { matchId: 101, key: 'ms1', placedOdd: 1.80 },
+                { matchId: 102, key: 'msx', placedOdd: 3.20 },
+                { matchId: 103, key: 'ms2', placedOdd: 3.40 },
+                { matchId: 104, key: 'kgv', placedOdd: 1.90 }
+            ]
+        };
+
+        // 4 maç -> hata fırlatmalı
+        assert.throws(() => {
+            engine.recordPlacedCoupon(baseTicket);
+        }, /tam olarak 5 maç gereklidir/);
+
+        // 6 maç -> hata fırlatmalı
+        const sixMatchesTicket = {
+            ...baseTicket,
+            matches: [
+                ...baseTicket.matches,
+                { matchId: 105, key: 'ust25', placedOdd: 2.10 },
+                { matchId: 106, key: 'alt25', placedOdd: 1.70 }
+            ]
+        };
+        assert.throws(() => {
+            engine.recordPlacedCoupon(sixMatchesTicket);
+        }, /tam olarak 5 maç gereklidir/);
+    });
+
+    await it('7.22: recordPlacedCoupon eksik matchId veya eksik costPerColumn durumlarında reddedilmeli (otomatik tutar türetilemez)', () => {
+        // Eksik matchId
+        assert.throws(() => {
+            engine.recordPlacedCoupon({
+                nesineRefCode: 'NES-NO-MATCHID',
+                totalCost: 160,
+                costPerColumn: 10,
+                matches: [
+                    { key: 'ms1', placedOdd: 1.80 }, // matchId YOK!
+                    { matchId: 102, key: 'msx', placedOdd: 3.20 },
+                    { matchId: 103, key: 'ms2', placedOdd: 3.40 },
+                    { matchId: 104, key: 'kgv', placedOdd: 1.90 },
+                    { matchId: 105, key: 'ust25', placedOdd: 2.10 }
+                ]
+            });
+        }, /geçerli matchId bilgisi zorunludur/);
+
+        // Eksik costPerColumn (totalCost / 16 üzerinden otomatik türetilmemeli)
+        assert.throws(() => {
+            engine.recordPlacedCoupon({
+                nesineRefCode: 'NES-NO-COST-PER-COL',
+                totalCost: 160, // costPerColumn YOK
+                matches: [
+                    { matchId: 101, key: 'ms1', placedOdd: 1.80 },
+                    { matchId: 102, key: 'msx', placedOdd: 3.20 },
+                    { matchId: 103, key: 'ms2', placedOdd: 3.40 },
+                    { matchId: 104, key: 'kgv', placedOdd: 1.90 },
+                    { matchId: 105, key: 'ust25', placedOdd: 2.10 }
+                ]
+            });
+        }, /kolon başına tutar \(costPerColumn\) açıkça girilmelidir/);
+    });
+
+    await it('7.23: Para hesaplamalarında 0.01 TL kuruş farkı/toleransı kesinlikle reddedilmeli (sıfır tolerans)', () => {
+        const matches5 = [
+            { matchId: 101, key: 'ms1', placedOdd: 1.80 },
+            { matchId: 102, key: 'msx', placedOdd: 3.20 },
+            { matchId: 103, key: 'ms2', placedOdd: 3.40 },
+            { matchId: 104, key: 'kgv', placedOdd: 1.90 },
+            { matchId: 105, key: 'ust25', placedOdd: 2.10 }
+        ];
+
+        // 16 * 10 = 160.00 TL, fakat girilen 160.01 TL (1 kuruş fark) -> recordPlacedCoupon reddetmeli
+        assert.throws(() => {
+            engine.recordPlacedCoupon({
+                nesineRefCode: 'NES-PENNY-MISMATCH',
+                totalCost: 160.01,
+                costPerColumn: 10,
+                matches: matches5
+            });
+        }, /yuvarlama çelişkisi/);
+
+        // settleSystem345 içinde de kuruş tutarsızlığı ödeme hesaplamamalı
+        const sys = engine.buildSystem345(sample5Matches);
+        const results = [
+            { matchId: 101, score: { h: 1, a: 1 }, settledOdd: 3.20 },
+            { matchId: 102, score: { h: 0, a: 2 }, settledOdd: 3.40 },
+            { matchId: 103, score: { h: 2, a: 2 }, settledOdd: 3.10 },
+            { matchId: 104, score: { h: 1, a: 1 }, settledOdd: 2.10 },
+            { matchId: 105, score: { h: 0, a: 1 }, settledOdd: 2.30 }
+        ];
+        const settleMismatch = engine.settleSystem345(sys, results, { costPerColumn: 10, totalCost: 160.01 });
+        assert.strictEqual(settleMismatch.isSettled, false);
+        assert.strictEqual(settleMismatch.settlementStatus, 'Gerçek ödeme hesaplanamıyor');
+        assert.ok(settleMismatch.reason.includes('Kuruş bazında tutarsızlık'));
+    });
+
+    await it('7.24: settleSystem345 içinde skor bulunmadığında res.won üzerinden sonuçlandırma yapılmamalı', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+        
+        // Sonuçlarda won: true var, oranlar var ama skor nesnesi (score) YOK
+        const resultsNoScore = [
+            { matchId: 101, won: true, settledOdd: 3.20 },
+            { matchId: 102, won: true, settledOdd: 3.40 },
+            { matchId: 103, won: true, settledOdd: 3.10 },
+            { matchId: 104, won: true, settledOdd: 2.10 },
+            { matchId: 105, won: true, settledOdd: 2.30 }
+        ];
+
+        const settlement = engine.settleSystem345(sys, resultsNoScore, { costPerColumn: 10, totalCost: 160 });
+        assert.strictEqual(settlement.isSettled, false);
+        assert.strictEqual(settlement.settlementStatus, 'Sonuçlandırma doğrulanamadı');
+        assert.strictEqual(settlement.settledPayout, null);
+        assert.ok(settlement.reason.includes('skor bilgisi bulunamadı'));
+
+        // İstatistik gerektiren pazar (korner_ust95) için stats eksikse doğrulanamadı dönmeli
+        const matchesWithCorner = [
+            { id: 101, home: 'Real Madrid', away: 'Sevilla', key: 'korner_ust95', p: 0.50, hasRealOdd: true, realOdd: 2.00, oddsFresh: true },
+            { id: 102, home: 'Arsenal', away: 'Chelsea', key: 'ms2', p: 0.30, hasRealOdd: true, realOdd: 3.40, oddsFresh: true },
+            { id: 103, home: 'Milan', away: 'Inter', key: 'ust35', p: 0.32, hasRealOdd: true, realOdd: 3.10, oddsFresh: true },
+            { id: 104, home: 'Ajax', away: 'PSV', key: 'kgv', p: 0.40, hasRealOdd: true, realOdd: 2.10, oddsFresh: true },
+            { id: 105, home: 'Porto', away: 'Benfica', key: 'dcx2', p: 0.38, hasRealOdd: true, realOdd: 2.30, oddsFresh: true }
+        ];
+        const sysCorner = engine.buildSystem345(matchesWithCorner);
+        const resultsMissingStats = [
+            { matchId: 101, score: { h: 2, a: 1 }, settledOdd: 2.00 }, // stats.corners YOK!
+            { matchId: 102, score: { h: 0, a: 2 }, settledOdd: 3.40 },
+            { matchId: 103, score: { h: 2, a: 2 }, settledOdd: 3.10 },
+            { matchId: 104, score: { h: 1, a: 1 }, settledOdd: 2.10 },
+            { matchId: 105, score: { h: 0, a: 1 }, settledOdd: 2.30 }
+        ];
+        const cornerSettlement = engine.settleSystem345(sysCorner, resultsMissingStats, { costPerColumn: 10, totalCost: 160 });
+        assert.strictEqual(cornerSettlement.isSettled, false);
+        assert.strictEqual(cornerSettlement.settlementStatus, 'Sonuçlandırma doğrulanamadı');
+    });
+
+    await it('7.25: settleSystem345 kupon maç ID ve market anahtarları birebir eşleşmediğinde kuponu reddetmeli', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+        
+        // 1. Maç ID uyuşmazlığı (105 yerine 999 numaralı maç kaydedilmiş)
+        const mismatchIdCoupon = {
+            nesineRefCode: 'NES-MISMATCH-ID',
+            totalCost: 160,
+            costPerColumn: 10,
+            matches: [
+                { matchId: 101, key: 'msx', placedOdd: 3.20 },
+                { matchId: 102, key: 'ms2', placedOdd: 3.40 },
+                { matchId: 103, key: 'ust35', placedOdd: 3.10 },
+                { matchId: 104, key: 'kgv', placedOdd: 2.10 },
+                { matchId: 999, key: 'dcx2', placedOdd: 2.30 } // 999 !== 105
+            ]
+        };
+        const results = [
+            { matchId: 101, score: { h: 1, a: 1 }, settledOdd: 3.20 },
+            { matchId: 102, score: { h: 0, a: 2 }, settledOdd: 3.40 },
+            { matchId: 103, score: { h: 2, a: 2 }, settledOdd: 3.10 },
+            { matchId: 104, score: { h: 1, a: 1 }, settledOdd: 2.10 },
+            { matchId: 105, score: { h: 0, a: 1 }, settledOdd: 2.30 }
+        ];
+
+        const resMismatchId = engine.settleSystem345(sys, results, { placedCoupon: mismatchIdCoupon });
+        assert.strictEqual(resMismatchId.isSettled, false);
+        assert.strictEqual(resMismatchId.settlementStatus, 'Kupon maçları uyuşmuyor');
+        assert.ok(resMismatchId.reason.includes('kayıtlı kuponda bulunamadı'));
+
+        // 2. Tercih (market key) uyuşmazlığı (101 maçı için msx yerine ms1 oynanmış)
+        const mismatchKeyCoupon = {
+            nesineRefCode: 'NES-MISMATCH-KEY',
+            totalCost: 160,
+            costPerColumn: 10,
+            matches: [
+                { matchId: 101, key: 'ms1', placedOdd: 3.20 }, // ms1 !== msx
+                { matchId: 102, key: 'ms2', placedOdd: 3.40 },
+                { matchId: 103, key: 'ust35', placedOdd: 3.10 },
+                { matchId: 104, key: 'kgv', placedOdd: 2.10 },
+                { matchId: 105, key: 'dcx2', placedOdd: 2.30 }
+            ]
+        };
+
+        const resMismatchKey = engine.settleSystem345(sys, results, { placedCoupon: mismatchKeyCoupon });
+        assert.strictEqual(resMismatchKey.isSettled, false);
+        assert.strictEqual(resMismatchKey.settlementStatus, 'Kupon maçları uyuşmuyor');
+        assert.ok(resMismatchKey.reason.includes('bahis tercihi'));
+    });
+
+    await it('7.26: Upstash bağlantısı yokken recordPlacedCoupon açık uyarı ve isPersistent: false dönmeli', () => {
+        const ticket = {
+            nesineRefCode: 'NES-UPSTASH-TEST',
+            totalCost: 160,
+            costPerColumn: 10,
+            matches: [
+                { matchId: 101, key: 'msx', placedOdd: 3.20 },
+                { matchId: 102, key: 'ms2', placedOdd: 3.40 },
+                { matchId: 103, key: 'ust35', placedOdd: 3.10 },
+                { matchId: 104, key: 'kgv', placedOdd: 2.10 },
+                { matchId: 105, key: 'dcx2', placedOdd: 2.30 }
+            ]
+        };
+
+        const origUrl = process.env.UPSTASH_REDIS_REST_URL;
+        const origToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+        try {
+            // Upstash tanımlı değilken
+            delete process.env.UPSTASH_REDIS_REST_URL;
+            delete process.env.UPSTASH_REDIS_REST_TOKEN;
+
+            const recUnset = engine.recordPlacedCoupon(ticket);
+            assert.strictEqual(recUnset.isPersistent, false, 'Upstash yokken kalıcı sayılamaz');
+            assert.strictEqual(recUnset.storageBackend, 'local_ephemeral_file');
+            assert.ok(recUnset.storageWarning !== null);
+            assert.ok(recUnset.storageWarning.includes('Render ortamında'), 'Uyarı metni Render riskini belirtmeli');
+
+            // Upstash tanımlandığında
+            process.env.UPSTASH_REDIS_REST_URL = 'https://fake-upstash.upstash.io';
+            process.env.UPSTASH_REDIS_REST_TOKEN = 'fake_token';
+
+            const recSet = engine.recordPlacedCoupon({ ...ticket, nesineRefCode: 'NES-UPSTASH-PERSIST' });
+            assert.strictEqual(recSet.isPersistent, true, 'Upstash varken kalıcı olarak işaretlenmeli');
+            assert.strictEqual(recSet.storageBackend, 'upstash_redis');
+            assert.strictEqual(recSet.storageWarning, null);
+        } finally {
+            if (origUrl) process.env.UPSTASH_REDIS_REST_URL = origUrl; else delete process.env.UPSTASH_REDIS_REST_URL;
+            if (origToken) process.env.UPSTASH_REDIS_REST_TOKEN = origToken; else delete process.env.UPSTASH_REDIS_REST_TOKEN;
         }
     });
 
