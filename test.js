@@ -387,42 +387,121 @@ async function runTests() {
     // ----------------------------------------------------
     // TEST GRUBU 7: Sürpriz Kupon Sistem 3-4-5 Güvenliği
     // ----------------------------------------------------
-    console.log('\n--- TEST 7: Sürpriz Kupon Sistem 3-4-5 ve 1/p Engeli (engine.js) ---');
+    console.log('\n--- TEST 7: Gerçek Sistem 3-4-5 Kolonları, Nesine 50 TL Kuralı & Kesin Sonuçlandırma (engine.js) ---');
 
-    await it('7.1: Bir maçta bile oran eksikse Sistem 3-4-5 gerçek getiri ve ROI simüle etmemeli', () => {
-        const matchesWithOneMissing = [
-            { key: 'msx', p: 0.35, hasRealOdd: true, realOdd: 3.20, oddsFresh: true },
-            { key: 'ms2', p: 0.30, hasRealOdd: true, realOdd: 3.40, oddsFresh: true },
-            { key: 'ust35', p: 0.32, hasRealOdd: true, realOdd: 3.10, oddsFresh: true },
-            { key: 'kgv', p: 0.40, hasRealOdd: false, realOdd: null, oddsFresh: false },
-            { key: 'dcx2', p: 0.38, hasRealOdd: true, realOdd: 2.30, oddsFresh: true }
-        ];
+    const sample5Matches = [
+        { id: 101, home: 'Real Madrid', away: 'Sevilla', key: 'msx', p: 0.35, hasRealOdd: true, realOdd: 3.20, oddsFresh: true },
+        { id: 102, home: 'Arsenal', away: 'Chelsea', key: 'ms2', p: 0.30, hasRealOdd: true, realOdd: 3.40, oddsFresh: true },
+        { id: 103, home: 'Milan', away: 'Inter', key: 'ust35', p: 0.32, hasRealOdd: true, realOdd: 3.10, oddsFresh: true },
+        { id: 104, home: 'Ajax', away: 'PSV', key: 'kgv', p: 0.40, hasRealOdd: true, realOdd: 2.10, oddsFresh: true },
+        { id: 105, home: 'Porto', away: 'Benfica', key: 'dcx2', p: 0.38, hasRealOdd: true, realOdd: 2.30, oddsFresh: true }
+    ];
 
-        const sim = engine.simulateSystem345(matchesWithOneMissing, 20);
-        assert.strictEqual(sim.hasRealOdds, false);
-        assert.strictEqual(sim.isHypothetical, true);
-        assert.strictEqual(sim.expectedPayout, null, 'Eksik oran varken beklenen getiri null olmalı');
-        assert.strictEqual(sim.roiPct, null, 'Eksik oran varken ROI null olmalı');
+    await it('7.1: buildSystem345 tam 16 kolon (10 üçlü, 5 dörtlü, 1 beşli) üretmeli ve maç dağılımını içermeli', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+        assert.ok(sys !== null, 'Sistem nesnesi null olmamalı');
+        assert.strictEqual(sys.totalColumns, 16, 'Toplam 16 kolon üretilmeli');
+        assert.strictEqual(sys.tripleCount, 10, '10 adet üçlü kolon olmalı');
+        assert.strictEqual(sys.quadrupleCount, 5, '5 adet dörtlü kolon olmalı');
+        assert.strictEqual(sys.quintupleCount, 1, '1 adet beşli kolon olmalı');
+        assert.strictEqual(sys.columns.length, 16, 'Kolon dizisi 16 eleman içermeli');
+
+        // Her kolonda doğru sayıda maç bulunmalı
+        const triples = sys.columns.filter(c => c.type === '3-lü Kombinasyon');
+        const quads = sys.columns.filter(c => c.type === '4-lü Kombinasyon');
+        const quints = sys.columns.filter(c => c.type === '5-li Kombinasyon');
+
+        assert.strictEqual(triples.length, 10);
+        assert.strictEqual(quads.length, 5);
+        assert.strictEqual(quints.length, 1);
+
+        triples.forEach(c => assert.strictEqual(c.matches.length, 3));
+        quads.forEach(c => assert.strictEqual(c.matches.length, 4));
+        quints.forEach(c => assert.strictEqual(c.matches.length, 5));
     });
 
-    await it('7.2: Tüm oranlar gerçek ve tazeyse tam 16 kolon ve kombinasyon kazançları hesaplanmalı', () => {
-        const fullOddsMatches = [
-            { key: 'msx', p: 0.35, hasRealOdd: true, realOdd: 3.20, oddsFresh: true },
-            { key: 'ms2', p: 0.30, hasRealOdd: true, realOdd: 3.40, oddsFresh: true },
-            { key: 'ust35', p: 0.32, hasRealOdd: true, realOdd: 3.10, oddsFresh: true },
-            { key: 'kgv', p: 0.40, hasRealOdd: true, realOdd: 2.10, oddsFresh: true },
-            { key: 'dcx2', p: 0.38, hasRealOdd: true, realOdd: 2.30, oddsFresh: true }
-        ];
+    await it('7.2: Eski 20 TL varsayılanı kalmamalı; Nesine 50 TL kuralı yapılandırılabilir olmalı ve iki senaryo da doğru hesaplanmalı', () => {
+        const sysDefault = engine.buildSystem345(sample5Matches);
+        const cost = sysDefault.costAnalysis;
 
-        const sim = engine.simulateSystem345(fullOddsMatches, 20);
-        assert.strictEqual(sim.hasRealOdds, true);
-        assert.strictEqual(sim.totalColumns, 16);
-        assert.strictEqual(sim.totalCost, 320);
-        assert.ok(sim.expectedPayout > 0);
-        assert.ok(typeof sim.roiPct === 'number');
+        assert.strictEqual(cost.minBetAmount, 50, 'Varsayılan tutar 50 TL olmalı (20 TL olmamalı)');
+        assert.strictEqual(cost.columnStakeRule.costPerColumn, 50, 'Kolon başı tutar 50 TL olmalı');
+        assert.strictEqual(cost.columnStakeRule.totalCost, 800, 'Kolon başı 50 TL ile 16 kolon 800 TL olmalı');
+        assert.strictEqual(cost.couponTotalRule.totalCost, 50, 'Kupon tabanı kuralında toplam tutar 50 TL olmalı');
+        assert.strictEqual(cost.couponTotalRule.costPerColumn, 3.13, 'Kupon tabanı 50 TL olunca kolon başı ~3.13 TL olmalı');
+
+        // Yapılandırılabilir özel tutar (örn: 100 TL)
+        const sysCustom = engine.buildSystem345(sample5Matches, 100);
+        assert.strictEqual(sysCustom.costAnalysis.minBetAmount, 100);
+        assert.strictEqual(sysCustom.costAnalysis.columnStakeRule.totalCost, 1600);
     });
 
-    await it('7.3: mockIncompleteMetricsTable ile sürpriz kupon açıklamasının Eksik kalibrasyon verisi ve doğrulanamadı içerdiği doğrulanmalı', () => {
+    await it('7.3: Simülasyon ve varsayımsal kazanç alanları (expectedPayout, roiPct, min3Payout vb.) çıktılarda BULUNMAMALI', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+        assert.strictEqual(sys.expectedPayout, undefined, 'expectedPayout alanı bulunmamalı');
+        assert.strictEqual(sys.roiPct, undefined, 'roiPct alanı bulunmamalı');
+        assert.strictEqual(sys.min3Payout, undefined, 'min3Payout alanı bulunmamalı');
+        assert.strictEqual(sys.max3Payout, undefined, 'max3Payout alanı bulunmamalı');
+        assert.strictEqual(sys.all5Payout, undefined, 'all5Payout alanı bulunmamalı');
+        assert.strictEqual(sys.pAtLeast3WinPct, undefined, 'pAtLeast3WinPct alanı bulunmamalı');
+    });
+
+    await it('7.4: Maçlar tamamlanmadan gerçek kazanç veya kesin ödeme gösterilmemeli', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+        assert.strictEqual(sys.settlement.isSettled, false);
+
+        // Eksik sonuçlarla sonuçlandırma çağrıldığında ödeme hesaplanmamalı
+        const partialResults = [
+            { matchId: 101, won: true, settledOdd: 3.20 },
+            { matchId: 102, won: true, settledOdd: 3.40 }
+        ];
+        const settleAttempt = engine.settleSystem345(sys, partialResults, { costPerColumn: 50 });
+        assert.strictEqual(settleAttempt.isSettled, false);
+        assert.strictEqual(settleAttempt.settledPayout, null);
+    });
+
+    await it('7.5: Gerçek sonuçlar geldikten sonra kazanan kolonlar ve kesin ödeme doğru hesaplanmalı (ve iptal maç Nesine kuralına göre 1.00 oran sayılmalı)', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+
+        // 3 maç kazandı (101, 102, 103), 1 maç iptal/ertelendi (104, void=1.00), 1 maç kaybetti (105)
+        // Bu durumda kazanan maçlar: 101 (3.20), 102 (3.40), 103 (3.10), 104 (1.00 void)
+        // 5. maç (105) kaybettiği için 5'li kolon kaybeder.
+        // 4 maç kazanan kombinasyonlar:
+        // Üçlü kolonlar: C(4, 3) = 4 adet üçlü kolon kazanır!
+        // Dörtlü kolonlar: C(4, 4) = 1 adet dörtlü kolon kazanır!
+        // Toplam kazanan kolon: 4 + 1 = 5 kolon.
+        const completedResults = [
+            { matchId: 101, won: true, settledOdd: 3.20 },
+            { matchId: 102, won: true, settledOdd: 3.40 },
+            { matchId: 103, won: true, settledOdd: 3.10 },
+            { matchId: 104, won: false, void: true }, // Nesine İptal/Erteleme: Oran 1.00
+            { matchId: 105, won: false, settledOdd: 2.30 } // Kaybetti
+        ];
+
+        const settlement = engine.settleSystem345(sys, completedResults, { costPerColumn: 50, totalCost: 800 });
+        assert.strictEqual(settlement.isSettled, true);
+        assert.strictEqual(settlement.wonColumnsCount, 5, '4 başarılı maçla (biri void=1.00) 5 kolon kazanmalı');
+        assert.ok(settlement.settledPayout > 0, 'Gerçek ödeme pozitif olmalı');
+        assert.strictEqual(settlement.totalCost, 800);
+    });
+
+    await it('7.6: Gerçek oynanan oran veya bahis tutarı eksik olduğunda "Gerçek ödeme hesaplanamıyor" dönmeli', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+        const results = [
+            { matchId: 101, won: true, settledOdd: 3.20 },
+            { matchId: 102, won: true, settledOdd: 3.40 },
+            { matchId: 103, won: true, settledOdd: 3.10 },
+            { matchId: 104, won: true, settledOdd: 2.10 },
+            { matchId: 105, won: true, settledOdd: 2.30 }
+        ];
+
+        // Bahis tutarı belirtilmeden çağrıldığında
+        const noStake = engine.settleSystem345(sys, results, {});
+        assert.strictEqual(noStake.isSettled, false);
+        assert.strictEqual(noStake.settlementStatus, 'Gerçek ödeme hesaplanamıyor');
+    });
+
+    await it('7.7: mockIncompleteMetricsTable ile sürpriz kupon açıklamasının Eksik kalibrasyon verisi ve doğrulanamadı içerdiği doğrulanmalı', () => {
         const matches = [
             {
                 m: { id: 401, home: 'Everton', away: 'Brighton', mbs: 1, inBulletin: true, state: 'pre' },
@@ -435,7 +514,7 @@ async function runTests() {
         assert.ok(coupons.surprise.instruction.includes('doğrulanamadı'), 'Sürpriz kupon açıklamasında doğrulanamadı bulunmalı');
     });
 
-    await it('7.4: mockDuplicateMatchesTable ile sürpriz kupon açıklamasının tekrarlanan maç kayıtları ve doğrulanamadı içerdiği doğrulanmalı', () => {
+    await it('7.8: mockDuplicateMatchesTable ile sürpriz kupon açıklamasının tekrarlanan maç kayıtları ve doğrulanamadı içerdiği doğrulanmalı', () => {
         const matches = [
             {
                 m: { id: 401, home: 'Everton', away: 'Brighton', mbs: 1, inBulletin: true, state: 'pre' },

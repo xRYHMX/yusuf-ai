@@ -2037,8 +2037,8 @@ function buildCoupons(items, model, opts = {}) {
         ? +(surprise.filter(x => x.hasRealOdd).reduce((s, x) => s + x.realOdd, 0) / surprise.filter(x => x.hasRealOdd).length).toFixed(2)
         : null;
 
-    // Jack'in Kontrol 4 Tespiti: Sürpriz kupon için Sistem 3-4-5 maliyet ve beklenen getiri simülasyonu
-    const systemSimulation = (surprise.length === 5) ? simulateSystem345(surprise, 20) : null;
+    // Gerçek Sistem 3-4-5 Kuponu (16 Kolon, simülasyon yok, oynanabilir kolon listesi)
+    const system345 = (surprise.length === 5) ? buildSystem345(surprise, opts.minBetAmount || 50) : null;
 
     // Jack'in Kontrol 1, 3 & 4 Tespiti: Kombine olasılığı bağımsızlık varsayımına dayanır; Delta Yöntemi ile asimptotik varyans aralığı hesaplanır
     const lastBankoOddsUpdate = banko.find(b => b.oddsUpdatedAt)?.oddsUpdatedAt || 'Bilinmiyor';
@@ -2049,13 +2049,11 @@ function buildCoupons(items, model, opts = {}) {
         : `Delta Yöntemi teorik %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir (Doğrulanamadı: ${(bankoCI.verificationReason || '').replace(/\.$/, '')}; maçların bağımsızlık varsayımına dayalı ön simülasyondur, kesin başarı garantisi taşımaz).`;
 
     const bankoInstruction = banko.length
-        ? `Bu ${banko.length} maçın tekil ortalama güveni %${bankoConfidence} (en düşük %${minBankoPct}). Maçların bağımsızlık varsayımı ile birlikte gelme olasılığı (Kombine: p1×p2×p3×p4) %${bankoJointConfidence} olup, ${bankoCiNote} Son oran kontrolü: ${lastBankoOddsUpdate}.`
+        ? `Bu ${banko.length} maçın tekil ortalama güveni %${bankoConfidence} (en düşük %${minBankoPct}). Maçların bağımsızlık varsayımı ile birlikte gelme olasılığı (Kombine: p1×p2×p3×p4) %${bankoJointConfidence} olup, ${bankoCiNote} Son veri çekilme zamanı (Son oran kontrolü: ${lastBankoOddsUpdate}).`
         : 'Şu an bültende kriterlere uygun (A/B kalite, güncel gerçek oranlı) banko maç bulunamadı.';
 
-    const sysTxt = systemSimulation
-        ? systemSimulation.hasRealOdds
-            ? ` | [SİSTEM 3-4-5 GERÇEK KAZANÇ SİMÜLASYONU: Toplam 16 Kolon • Kupon Maliyeti: ${systemSimulation.totalCost} TL (20 TL/kolon) | En az 3 maçın tutarak kazanç sağlama ihtimali: %${systemSimulation.pAtLeast3WinPct} | Gerçek Oranlarla Min 3'lü Getiri: ${systemSimulation.min3Payout} TL, 5'li Getiri: ${systemSimulation.all5Payout} TL, Beklenen Geri Dönüş: ${systemSimulation.expectedPayout} TL (Beklenen ROI: +%${systemSimulation.roiPct})]`
-            : ` | [SİSTEM 3-4-5 ANALİZİ: Toplam 16 Kolon • Kupon Maliyeti: ${systemSimulation.totalCost} TL | En az 3 maçın tutarak kazanç sağlama ihtimali: %${systemSimulation.pAtLeast3WinPct} | ${systemSimulation.statusMessage}]`
+    const sysTxt = system345
+        ? ` | [GERÇEK SİSTEM 3-4-5: 16 Kolon (10 Üçlü, 5 Dörtlü, 1 Beşli) • Nesine Taban Tutarı: 50 TL • Kolon başı 50 TL: 800 TL / Kupon tabanı 50 TL: Kolon başı ~3.13 TL. Maçlar sonuçlanmadan sanal/tahmini kazanç hesaplanmaz.]`
         : '';
 
     let surpCiNote = surpCI.isEmpirical
@@ -2063,7 +2061,7 @@ function buildCoupons(items, model, opts = {}) {
         : `[Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}, doğrulanamadı: ${surpCI.verificationReason}]`;
 
     const surpInstruction = surprise.length
-        ? `Piyasa favorileri elenerek yüksek oranlı, istatistiksel olarak anlamlı ters sonuçlardan seçilen ${surprise.length} maçın sıklık çarpanı ortalama ${surpAvgLift}x${surpAvgOdd ? ` (Ortalama Gerçek Nesine Oranı: ${surpAvgOdd})` : ''} seviyesindedir (${surpValueBetCount}/${surprise.length} seçimde gerçek Nesine oranı ile pozitif EV / Value Bet doğrulandı; 5'li düz kombine olasılığı %${surpJointConfidence} ${surpCiNote} olduğu için Sistem 3-4-5 önerilir).${sysTxt} Son oran kontrolü: ${lastSurpOddsUpdate}.`
+        ? `Piyasa favorileri elenerek yüksek oranlı, istatistiksel olarak anlamlı ters sonuçlardan seçilen ${surprise.length} maçın sıklık çarpanı ortalama ${surpAvgLift}x${surpAvgOdd ? ` (Ortalama Gerçek Nesine Oranı: ${surpAvgOdd})` : ''} seviyesindedir (${surpValueBetCount}/${surprise.length} seçimde gerçek Nesine oranı ile pozitif EV / Value Bet doğrulandı; 5'li düz kombine olasılığı %${surpJointConfidence} ${surpCiNote} olduğu için Sistem 3-4-5 önerilir).${sysTxt} Son veri çekilme zamanı (Son oran kontrolü: ${lastSurpOddsUpdate}).`
         : 'Şu an bültende kriterlere uygun yaklaşan sürpriz maç bulunamadı.';
 
     return {
@@ -2088,18 +2086,19 @@ function buildCoupons(items, model, opts = {}) {
             jointConfidence: surpJointConfidence,
             jointVarianceBand: { low: surpCI.lowPct, high: surpCI.highPct },
             valueBetCount: surpValueBetCount,
-            systemSimulation,
+            system345,
             updatedAt: lastSurpOddsUpdate,
             matches: surprise
         }
     };
 }
 
-// ---------------- Jack'in Kontrol 4 Çözümü: Sistem 3-4-5 Kombinatorik Maliyet & Getiri Simülatörü ----------------
-function simulateSystem345(matches, unitPrice = 20) {
-    if (matches.length !== 5) return null;
-    const allHaveRealOdds = matches.every(m => m.hasRealOdd && m.oddsFresh && typeof m.realOdd === 'number' && m.realOdd > 1.01);
-    const probs = matches.map(m => m.p);
+// ---------------- Gerçek Sistem 3-4-5 Kolon Üretici (16 Kolon, Sanal Simülasyon Yok) ----------------
+function buildSystem345(matches, minBetAmount = 50) {
+    if (!Array.isArray(matches) || matches.length !== 5) return null;
+
+    const defaultMinBet = 50;
+    const effectiveMinBet = (typeof minBetAmount === 'number' && minBetAmount > 0) ? minBetAmount : defaultMinBet;
 
     const comb3 = [];
     for (let i = 0; i < 5; i++) {
@@ -2121,104 +2120,238 @@ function simulateSystem345(matches, unitPrice = 20) {
         }
     }
 
-    const totalColumns = comb3.length + comb4.length + 1; // 16 kolon
-    const totalCost = totalColumns * unitPrice; // 320 TL
+    const mapMatch = (m, idx) => ({
+        index: idx + 1,
+        matchId: m.matchId || m.id || m.m?.id || (idx + 1),
+        home: m.home || m.m?.home || 'Ev Sahibi',
+        away: m.away || m.m?.away || 'Deplasman',
+        league: m.league?.full || m.league?.name || m.m?.league?.full || '',
+        label: m.label || m.key || 'Tercih',
+        key: m.key,
+        p: m.p,
+        hasRealOdd: Boolean(m.hasRealOdd),
+        odd: (m.hasRealOdd && typeof m.realOdd === 'number') ? m.realOdd : null,
+        oddsFresh: Boolean(m.oddsFresh),
+        date: m.m?.date || m.date || null,
+        time: m.m?.time || m.time || null
+    });
 
-    let pMin3Win = 0;
-    for (let mask = 0; mask < 32; mask++) {
-        let maskProb = 1;
-        let hits = 0;
-        for (let i = 0; i < 5; i++) {
-            if ((mask & (1 << i)) !== 0) {
-                maskProb *= probs[i];
-                hits++;
-            } else {
-                maskProb *= (1 - probs[i]);
-            }
-        }
-        if (hits >= 3) {
-            pMin3Win += maskProb;
-        }
+    const mappedMatches = matches.map(mapMatch);
+
+    const columns = [];
+    let colIdx = 1;
+
+    // 10 Adet Üçlü Kolon
+    for (const c of comb3) {
+        const colMatches = [mappedMatches[c[0]], mappedMatches[c[1]], mappedMatches[c[2]]];
+        const allHaveRealOdds = colMatches.every(m => m.hasRealOdd && m.odd !== null);
+        const totalOdd = allHaveRealOdds
+            ? +(colMatches[0].odd * colMatches[1].odd * colMatches[2].odd).toFixed(2)
+            : null;
+        columns.push({
+            columnIndex: colIdx++,
+            type: '3-lü Kombinasyon',
+            systemType: 3,
+            matchIndices: [c[0] + 1, c[1] + 1, c[2] + 1],
+            matches: colMatches,
+            totalOdd
+        });
     }
 
-    // Jack Kontrol 4: Eksik gerçek oran varsa gerçek kazanç simülasyonu gösterilmez (1/p varsayımsal oranla kazanç hesaplanmaz)
-    if (!allHaveRealOdds) {
-        return {
-            systemName: 'Sistem 3-4-5',
-            totalColumns,
-            unitPrice,
-            totalCost,
-            pAtLeast3WinPct: +(pMin3Win * 100).toFixed(1),
-            hasRealOdds: false,
-            isHypothetical: true,
-            statusMessage: 'Kuponda gerçek/güncel Nesine oranı eksik maçlar bulunduğu için kazanç ve ROI simülasyonu gösterilmez (varsayımsal 1/p oranlarıyla getiri simüle edilmez).',
-            min3Payout: null,
-            max3Payout: null,
-            all5Payout: null,
-            expectedPayout: null,
-            roiPct: null
-        };
+    // 5 Adet Dörtlü Kolon
+    for (const c of comb4) {
+        const colMatches = [mappedMatches[c[0]], mappedMatches[c[1]], mappedMatches[c[2]], mappedMatches[c[3]]];
+        const allHaveRealOdds = colMatches.every(m => m.hasRealOdd && m.odd !== null);
+        const totalOdd = allHaveRealOdds
+            ? +(colMatches[0].odd * colMatches[1].odd * colMatches[2].odd * colMatches[3].odd).toFixed(2)
+            : null;
+        columns.push({
+            columnIndex: colIdx++,
+            type: '4-lü Kombinasyon',
+            systemType: 4,
+            matchIndices: [c[0] + 1, c[1] + 1, c[2] + 1, c[3] + 1],
+            matches: colMatches,
+            totalOdd
+        });
     }
 
-    const odds = matches.map(m => m.realOdd);
-    let expectedPayout = 0;
-    let min3Payout = Infinity;
-    let max3Payout = 0;
-    let all5Payout = 0;
-
-    for (let mask = 0; mask < 32; mask++) {
-        let maskProb = 1;
-        const won = [];
-        for (let i = 0; i < 5; i++) {
-            if ((mask & (1 << i)) !== 0) {
-                maskProb *= probs[i];
-                won.push(i);
-            } else {
-                maskProb *= (1 - probs[i]);
-            }
-        }
-
-        const hits = won.length;
-        if (hits >= 3) {
-            let maskPayout = 0;
-            for (const c of comb3) {
-                if (c.every(idx => won.includes(idx))) {
-                    maskPayout += (odds[c[0]] * odds[c[1]] * odds[c[2]]) * unitPrice;
-                }
-            }
-            for (const c of comb4) {
-                if (c.every(idx => won.includes(idx))) {
-                    maskPayout += (odds[c[0]] * odds[c[1]] * odds[c[2]] * odds[c[3]]) * unitPrice;
-                }
-            }
-            if (hits === 5) {
-                maskPayout += (odds[0] * odds[1] * odds[2] * odds[3] * odds[4]) * unitPrice;
-                all5Payout = maskPayout;
-            }
-
-            if (hits === 3) {
-                if (maskPayout < min3Payout) min3Payout = maskPayout;
-                if (maskPayout > max3Payout) max3Payout = maskPayout;
-            }
-
-            expectedPayout += maskPayout * maskProb;
-        }
+    // 1 Adet Beşli Kolon
+    {
+        const colMatches = mappedMatches;
+        const allHaveRealOdds = colMatches.every(m => m.hasRealOdd && m.odd !== null);
+        const totalOdd = allHaveRealOdds
+            ? +(colMatches.reduce((acc, m) => acc * m.odd, 1)).toFixed(2)
+            : null;
+        columns.push({
+            columnIndex: colIdx++,
+            type: '5-li Kombinasyon',
+            systemType: 5,
+            matchIndices: [1, 2, 3, 4, 5],
+            matches: colMatches,
+            totalOdd
+        });
     }
+
+    const allMatchesHaveRealOdds = mappedMatches.every(m => m.hasRealOdd && m.odd !== null && m.oddsFresh);
 
     return {
         systemName: 'Sistem 3-4-5',
-        totalColumns,
-        unitPrice,
+        totalColumns: 16,
+        tripleCount: 10,
+        quadrupleCount: 5,
+        quintupleCount: 1,
+        matches: mappedMatches,
+        allMatchesHaveRealOdds,
+        columns,
+        costAnalysis: {
+            totalColumns: 16,
+            minBetAmount: effectiveMinBet,
+            couponTotalRule: {
+                totalCost: effectiveMinBet,
+                costPerColumn: +(effectiveMinBet / 16).toFixed(2),
+                label: `Kupon Tabanı ${effectiveMinBet} TL (16 kolon için kolon başı ~${(effectiveMinBet / 16).toFixed(2)} TL)`
+            },
+            columnStakeRule: {
+                totalCost: 16 * effectiveMinBet,
+                costPerColumn: effectiveMinBet,
+                label: `Kolon Başı ${effectiveMinBet} TL (16 kolon için toplam ${16 * effectiveMinBet} TL)`
+            },
+            note: `Nesine'de kupon taban ücreti ${effectiveMinBet} TL'dir. Kolon başı ${effectiveMinBet} TL oynandığında toplam maliyet ${16 * effectiveMinBet} TL; kupon toplamı minimum ${effectiveMinBet} TL olarak yatırıldığında kolon başı tutar ~${(effectiveMinBet / 16).toFixed(2)} TL olmaktadır. Gerçek kupon bedeli Nesine kupon onay ekranındaki 'Misli / Kolon Bedeli' seçiminize bağlıdır; tek bir toplam kesin kabul edilmemelidir.`
+        },
+        settlement: {
+            isSettled: false,
+            message: 'Maçlar tamamlanmadan gerçek kazanç veya ödeme hesaplanamaz. Maçlar bittikten sonra gerçek oranlar ve yatırılan tutarla kesin ödeme hesaplanır.'
+        }
+    };
+}
+
+// ---------------- Gerçek Maç Sonuçlarıyla Kesin Ödeme Hesaplayıcı (Sanal/Varsayımsal Getiri Yok) ----------------
+function settleSystem345(system345, results, actualStake = {}) {
+    if (!system345 || !Array.isArray(system345.columns)) {
+        return { isSettled: false, error: 'Geçersiz Sistem 3-4-5 nesnesi' };
+    }
+
+    const hasValidStake = (typeof actualStake.costPerColumn === 'number' && actualStake.costPerColumn > 0)
+        || (typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0);
+
+    const costPerColumn = typeof actualStake.costPerColumn === 'number' && actualStake.costPerColumn > 0
+        ? actualStake.costPerColumn
+        : (typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0 ? +(actualStake.totalCost / 16).toFixed(4) : null);
+
+    const totalCost = typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0
+        ? actualStake.totalCost
+        : (costPerColumn ? +(costPerColumn * 16).toFixed(2) : null);
+
+    const resultMap = new Map();
+    if (results instanceof Map) {
+        for (const [k, v] of results.entries()) resultMap.set(String(k), v);
+    } else if (Array.isArray(results)) {
+        for (const r of results) {
+            const id = String(r.matchId || r.id);
+            resultMap.set(id, r);
+        }
+    } else if (results && typeof results === 'object') {
+        for (const [k, v] of Object.entries(results)) resultMap.set(String(k), v);
+    }
+
+    const matches = system345.matches || [];
+    const missingResults = matches.filter(m => !resultMap.has(String(m.matchId)));
+
+    if (missingResults.length > 0) {
+        return {
+            isSettled: false,
+            settlementStatus: 'Maçlar henüz tamamlanmadı',
+            pendingMatchesCount: missingResults.length,
+            settledPayout: null,
+            message: 'Maçlar tamamlanmadan gerçek kazanç hesaplanamaz. Kalan maçların sonuçlanması bekleniyor.'
+        };
+    }
+
+    const missingOdds = matches.filter(m => {
+        const res = resultMap.get(String(m.matchId));
+        if (res && (res.void || res.cancelled || res.postponed)) return false;
+        const odd = (res && typeof res.settledOdd === 'number') ? res.settledOdd : m.odd;
+        return typeof odd !== 'number' || odd <= 1.0;
+    });
+
+    if (missingOdds.length > 0) {
+        return {
+            isSettled: false,
+            settlementStatus: 'Gerçek ödeme hesaplanamıyor',
+            reason: 'Gerçek oynanan oran kayıtlı değil veya eksik.',
+            settledPayout: null
+        };
+    }
+
+    if (!hasValidStake) {
+        return {
+            isSettled: false,
+            settlementStatus: 'Gerçek ödeme hesaplanamıyor',
+            reason: 'Gerçek yatırılan bahis tutarı kayıtlı değil.',
+            settledPayout: null
+        };
+    }
+
+    let settledPayout = 0;
+    let wonColumnsCount = 0;
+    const settledColumns = system345.columns.map(col => {
+        let colWon = true;
+        let colMultiplier = 1;
+        const colMatchDetails = [];
+
+        for (const m of col.matches) {
+            const res = resultMap.get(String(m.matchId));
+            const isVoid = Boolean(res.void || res.cancelled || res.postponed);
+            const isWon = Boolean(res.won);
+            const effectiveOdd = isVoid ? 1.00 : ((typeof res.settledOdd === 'number') ? res.settledOdd : m.odd);
+
+            colMatchDetails.push({
+                matchId: m.matchId,
+                home: m.home,
+                away: m.away,
+                isVoid,
+                won: isWon,
+                odd: effectiveOdd
+            });
+
+            if (!isVoid && !isWon) {
+                colWon = false;
+            } else {
+                colMultiplier *= effectiveOdd;
+            }
+        }
+
+        const colPayout = colWon ? +(colMultiplier * costPerColumn).toFixed(2) : 0;
+        if (colWon) {
+            wonColumnsCount++;
+            settledPayout += colPayout;
+        }
+
+        return {
+            ...col,
+            settled: true,
+            won: colWon,
+            multiplier: +colMultiplier.toFixed(2),
+            payout: colPayout,
+            matchDetails: colMatchDetails
+        };
+    });
+
+    settledPayout = +settledPayout.toFixed(2);
+    const netProfit = +(settledPayout - totalCost).toFixed(2);
+
+    return {
+        isSettled: true,
+        settlementStatus: 'Sonuçlandı',
+        totalColumns: 16,
+        wonColumnsCount,
+        lostColumnsCount: 16 - wonColumnsCount,
         totalCost,
-        pAtLeast3WinPct: +(pMin3Win * 100).toFixed(1),
-        hasRealOdds: true,
-        isHypothetical: false,
-        statusMessage: 'Tüm oranlar güncel gerçek Nesine oranlarıyla doğrulandı.',
-        min3Payout: +min3Payout.toFixed(0),
-        max3Payout: +max3Payout.toFixed(0),
-        all5Payout: +all5Payout.toFixed(0),
-        expectedPayout: +expectedPayout.toFixed(0),
-        roiPct: +(((expectedPayout - totalCost) / totalCost) * 100).toFixed(1)
+        costPerColumn,
+        settledPayout,
+        netProfit,
+        columns: settledColumns,
+        message: `${wonColumnsCount}/16 kolon kazandı. Gerçek ödeme: ${settledPayout} TL (Yatırılan: ${totalCost} TL, Net: ${netProfit >= 0 ? '+' : ''}${netProfit} TL).`
     };
 }
 
@@ -2575,7 +2708,8 @@ module.exports = {
     isMainstreamMatch,
     evaluateModelPerformance,
     selectTopPreMatchPick,
-    simulateSystem345,
+    buildSystem345,
+    settleSystem345,
     computeJointConfidenceInterval,
     MARKET_COMPANIONS,
     isModelPerformanceVerified,

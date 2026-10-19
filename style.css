@@ -3541,11 +3541,64 @@ body.theme-light .drop-overlay {
     margin: 0;
 }
 
-@media (max-width: 768px) {
     .sys-sim-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 5px;
     }
+}
+
+.sys-col-item {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sys-col-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.sys-col-badge {
+    color: #f59e0b;
+}
+
+.sys-col-odd {
+    font-family: var(--font-mono);
+    color: var(--accent-emerald, #10b981);
+}
+
+.sys-col-matches {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sys-col-m {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+}
+
+.sys-col-m-name {
+    max-width: 130px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sys-col-m-pick {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text-primary);
 }
 
 /* ==========================================================================

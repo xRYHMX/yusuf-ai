@@ -455,7 +455,7 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
     if (day.coupons.banko && day.coupons.banko.matches.length) {
         day.coupons.banko.matches.forEach((b, i) => {
             const bOddStr = b.hasRealOdd && b.realOdd
-                ? `, Gerçek Nesine Oranı: ${b.realOdd.toFixed(2)} (Güncelleme: ${b.oddsUpdatedAt || 'Canlı'}), EV: ${b.evPct >= 0 ? '+' : ''}%${b.evPct}${b.isValueBet ? ' [Value Bet]' : ''}`
+                ? `, Gerçek Nesine Oranı: ${b.realOdd.toFixed(2)} (Son Veri Çekilme: ${b.oddsUpdatedAt || 'Bilinmiyor'}), EV: ${b.evPct >= 0 ? '+' : ''}%${b.evPct}${b.isValueBet ? ' [Value Bet]' : ''}`
                 : `, Nesine Oranı: Bu pazar için gerçek oran bulunamadı (EV hesaplanamadı)`;
             const matchDateStr = b.m.date || today;
             bankoSummary += `${i + 1}. [${matchDateStr} ${b.m.time}] ${b.m.home} - ${b.m.away} (${b.m.league.full}) | Tercih: ${b.label} (Model Olasılığı: %${Math.round(b.p * 100)}${bOddStr}, Risk: ${b.riskLevel || 'Düşük Risk'}, İstikrar: %${b.an.avgConsistency || 75})\n`;
@@ -476,7 +476,7 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
     if (day.coupons.surprise && day.coupons.surprise.matches.length) {
         day.coupons.surprise.matches.forEach((s, i) => {
             const sOddStr = s.hasRealOdd && s.realOdd
-                ? `, Gerçek Nesine Oranı: ${s.realOdd.toFixed(2)} (Güncelleme: ${s.oddsUpdatedAt || 'Canlı'}), Gerçek EV: ${s.evPct >= 0 ? '+' : ''}%${s.evPct}${s.isValueBet ? ' [Value Bet]' : ''}`
+                ? `, Gerçek Nesine Oranı: ${s.realOdd.toFixed(2)} (Son Veri Çekilme: ${s.oddsUpdatedAt || 'Bilinmiyor'}), Gerçek EV: ${s.evPct >= 0 ? '+' : ''}%${s.evPct}${s.isValueBet ? ' [Value Bet]' : ''}`
                 : `, Nesine Oranı: Bu pazar için gerçek oran bulunamadı (Value Bet olarak etiketlenmez)`;
             const matchDateStr = s.m.date || today;
             surpSummary += `${i + 1}. [${matchDateStr} ${s.m.time}] ${s.m.home} - ${s.m.away} (${s.m.league.full}) | Tercih: ${s.label} (Model Olasılığı: %${Math.round(s.p * 100)}${sOddStr}, Çarpan: ${s.lift ? s.lift.toFixed(1) + 'x' : '-'
@@ -628,7 +628,7 @@ async function buildAiSportsContext(userMessage = '', opts = {}) {
         ? (nesineSt.updatedAt.includes('T') ? new Date(nesineSt.updatedAt).toLocaleTimeString('tr-TR') : nesineSt.updatedAt)
         : '';
     const nesineLine = nesineSt && nesineSt.isFresh && nesineTimeDisplay
-        ? `[NESİNE CANLI ORAN DURUMU]: Güncel (${nesineTimeDisplay}, ${nesineSt.ageSeconds || 0} sn önce yenilendi)`
+        ? `[NESİNE CANLI ORAN DURUMU]: Güncel (Son veri çekilme zamanı: ${nesineTimeDisplay}, ${nesineSt.ageSeconds || 0} sn önce çekildi, 2 dk TTL)`
         : `[NESİNE CANLI ORAN DURUMU]: Oran yenilenemediği için eski oranlar kullanılmadı.`;
 
     const todayTrFull = new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', weekday: 'long', timeZone: 'Europe/Istanbul' });

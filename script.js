@@ -1086,33 +1086,64 @@ function renderCoupons(data) {
             const sLift = surp.avgLift;
             const sJoint = surp.jointConfidence;
             surpriseLiftVal.textContent = `${sLift}x Çarpan • Kombine %${sJoint}`;
-            if (surp.systemSimulation) {
-                const sim = surp.systemSimulation;
+            if (surp.system345) {
+                const sys = surp.system345;
+                const cost = sys.costAnalysis || {};
+                const cols = sys.columns || [];
+                
+                const colsHtml = cols.map(c => `
+                    <div class="sys-col-item">
+                        <div class="sys-col-hdr">
+                            <span class="sys-col-badge">${escapeHtml(c.type)} #${c.columnIndex}</span>
+                            <span class="sys-col-odd">${c.totalOdd ? `Kolon Oranı: ${c.totalOdd}` : 'Oran Eksik'}</span>
+                        </div>
+                        <div class="sys-col-matches">
+                            ${c.matches.map(m => `
+                                <div class="sys-col-m">
+                                    <span class="sys-col-m-name">${escapeHtml(m.home)} - ${escapeHtml(m.away)}</span>
+                                    <span class="sys-col-m-pick">${escapeHtml(m.label)} (${m.odd ? m.odd.toFixed(2) : '-'})</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('');
+
                 surpriseInstruction.innerHTML = `
                     <div class="system-sim-box">
                         <div class="sys-sim-hdr">
-                            <strong>🎲 Sistem 3-4-5 Maliyet & Getiri Analizi</strong>
-                            <span class="sys-col-tag">16 Kolon • Kupon Maliyeti: ${sim.totalCost} TL (20 TL/kolon)</span>
+                            <strong>🎲 Gerçek Nesine Sistem 3-4-5 Kolonları</strong>
+                            <span class="sys-col-tag">16 Oynanabilir Kolon (10 Üçlü • 5 Dörtlü • 1 Beşli)</span>
                         </div>
                         <div class="sys-sim-grid">
                             <div class="sys-cell">
-                                <span class="sys-lbl">En Az 3 Maç Tutma Olasılığı</span>
-                                <strong class="sys-val highlight-emerald">%${sim.pAtLeast3WinPct}</strong>
+                                <span class="sys-lbl">Toplam Kolon</span>
+                                <strong class="sys-val">16 Kolon</strong>
                             </div>
                             <div class="sys-cell">
-                                <span class="sys-lbl">Min 3 Maç Tutarsa Getiri</span>
-                                <strong class="sys-val">${sim.min3Payout} TL</strong>
+                                <span class="sys-lbl">Kolon Başı 50 TL</span>
+                                <strong class="sys-val">800 TL (16 x 50)</strong>
                             </div>
                             <div class="sys-cell">
-                                <span class="sys-lbl">5 Maç Tamamı Tutarsa</span>
-                                <strong class="sys-val highlight-gold">${sim.all5Payout} TL</strong>
+                                <span class="sys-lbl">Kupon Tabanı 50 TL</span>
+                                <strong class="sys-val">50 TL (~3.13 TL/kolon)</strong>
                             </div>
                             <div class="sys-cell">
-                                <span class="sys-lbl">Beklenen Getiri / ROI</span>
-                                <strong class="sys-val highlight-emerald">${sim.expectedPayout} TL (+%${sim.roiPct})</strong>
+                                <span class="sys-lbl">Sonuçlandırma Kuralı</span>
+                                <strong class="sys-val highlight-emerald">Kesin/Gerçek Sonuç</strong>
                             </div>
                         </div>
-                        <p class="sys-sim-note">💡 Düz 5'li kombine olasılığı (%${sJoint}) riskli olduğu için 16 kolonluk Sistem 3-4-5 oynandığında 3 maç tutsa dahi kupon bedeli amorti edilmekte ve beklenen getiri pozitif olmaktadır.</p>
+                        <p class="sys-sim-note">💡 ${escapeHtml(cost.note || 'Nesine kupon alt limiti 50 TL\'dir.')}</p>
+                        <details class="sys-col-details" style="margin-top:6px;">
+                            <summary style="cursor:pointer; font-size:0.75rem; font-weight:600; color:var(--text-secondary); padding:4px 0;">
+                                📋 16 Kolonun Detaylı Maç Dağılımını Göster (Oynanabilir Liste)
+                            </summary>
+                            <div class="sys-col-list" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:6px; margin-top:6px; max-height:280px; overflow-y:auto; padding-right:4px;">
+                                ${colsHtml}
+                            </div>
+                        </details>
+                        <p class="sys-sim-note" style="font-size:0.68rem; color:var(--text-muted); margin-top:4px;">
+                            ⚖️ Maçlar tamamlanmadan sanal veya tahmini kazanç hesaplanmaz. Maçlar bittikten sonra gerçek sonuçlar ve yatırılan net tutar üzerinden kesin ödeme hesaplanır. İptal/ertelenen maçlar Nesine kuralına göre 1.00 oran sayılır.
+                        </p>
                     </div>
                 `;
             } else {
@@ -1325,7 +1356,7 @@ function createCouponMatchElement(item, isSurprise) {
         ? item.realOdd.toFixed(2)
         : 'Oran bulunamadı (Bu pazar bültende kapalı)';
     const oddTimeDisplayVal = hasRealOdd && item.oddsUpdatedAt
-        ? `${item.oddsUpdatedAt} ${item.oddsFresh ? '🟢 Canlı' : '⚠️ Yenilenemedi'}`
+        ? `${item.oddsUpdatedAt} ${item.oddsFresh ? '🟢 Son Veri Çekilme' : '⚠️ Yenilenemedi'}`
         : 'Oran yenilenemedi (Eski oran kullanılmadı)';
     const evDisplayVal = (hasRealOdd && item.evPct !== null && item.evPct !== undefined)
         ? `${item.evPct >= 0 ? '+' : ''}%${item.evPct}${isValueBet ? ' (Value Bet)' : ' (Negatif EV)'}`
@@ -1342,7 +1373,7 @@ function createCouponMatchElement(item, isSurprise) {
                 <strong class="ev-t-val">${escapeHtml(oddDisplayVal)}</strong>
             </div>
             <div class="ev-t-cell">
-                <span class="ev-t-label">Oran Güncelleme Zamanı</span>
+                <span class="ev-t-label">Son Veri Çekilme Zamanı</span>
                 <strong class="ev-t-val">${escapeHtml(oddTimeDisplayVal)}</strong>
             </div>
             <div class="ev-t-cell">
