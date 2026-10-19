@@ -632,6 +632,127 @@ async function runTests() {
         assert.strictEqual(settle50.totalCost, 50);
     });
 
+    await it('7.14: 3.125 TL gibi yarım kuruşlu tutar oynanabilir tutar olarak gösterilmemeli (isPlayableAmount: false)', () => {
+        const sys = engine.buildSystem345(sample5Matches, 50);
+        const cost = sys.costAnalysis;
+
+        // couponTotalRule 50 / 16 = 3.125 TL olup yasal olarak yarım kuruş oynanamaz
+        assert.strictEqual(cost.couponTotalRule.exactCostPerColumn, 3.125);
+        assert.strictEqual(cost.couponTotalRule.isPlayableAmount, false, '3.125 TL oynanamaz olarak işaretlenmeli');
+        assert.ok(cost.couponTotalRule.playableStatus.includes('Oynanamaz'), 'playableStatus oynanamaz olduğunu belirtmeli');
+        assert.ok(cost.couponTotalRule.playableNote.includes('kuruş') || cost.couponTotalRule.playableNote.includes('teorik'));
+
+        // columnStakeRule (50 TL kolon başı) ise geçerli ve oynanabilir olmalı
+        assert.strictEqual(cost.columnStakeRule.costPerColumn, 50);
+        assert.strictEqual(cost.columnStakeRule.isPlayableAmount, true, '50 TL kolon başı oynanabilir olmalı');
+        assert.ok(cost.columnStakeRule.playableStatus.includes('Oynanabilir'));
+    });
+
+    await it('7.15: Gerçek kupon oranı ile öneri oranı farklıysa gerçek kupon oranı kullanılmalı', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+        
+        // Kullanıcı kuponu onayladığında oranlar değişmiş: 101 -> 3.50, 102 -> 3.60, 103 -> 3.30, 104 -> 2.20, 105 -> 2.40
+        const placedResults = [
+            { matchId: 101, won: true, settledOdd: 3.50 },
+            { matchId: 102, won: true, settledOdd: 3.60 },
+            { matchId: 103, won: true, settledOdd: 3.30 },
+            { matchId: 104, won: true, settledOdd: 2.20 },
+            { matchId: 105, won: true, settledOdd: 2.40 }
+        ];
+
+        const settlement = engine.settleSystem345(sys, placedResults, { costPerColumn: 10, totalCost: 160 });
+        assert.strictEqual(settlement.isSettled, true);
+        assert.strictEqual(settlement.wonColumnsCount, 16);
+
+        // İlk 3'lü kolon (101, 102, 103):
+        // Öneri oranıyla: 3.20 * 3.40 * 3.10 = 33.728
+        // Gerçek oynanan oranla: 3.50 * 3.60 * 3.30 = 41.58 -> Kolon kazancı: 41.58 * 10 = 415.80 TL
+        const col1 = settlement.columns.find(c => c.columnIndex === 1);
+        assert.strictEqual(col1.multiplier, 41.58);
+        assert.strictEqual(col1.payout, 415.8);
+    });
+
+    await it('7.16: Yanlış bahis sonucu ile ödeme hesaplanmamalı (evaluateBetOutcome piyasa kuralı doğrulaması)', () => {
+        // Doğrudan kural kontrolleri
+        assert.strictEqual(engine.evaluateBetOutcome('ms1', { h: 2, a: 1 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('ms1', { h: 1, a: 1 }), false);
+        assert.strictEqual(engine.evaluateBetOutcome('alt25', { h: 2, a: 1 }), false);
+        assert.strictEqual(engine.evaluateBetOutcome('ust25', { h: 2, a: 1 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('kgv', { h: 2, a: 0 }), false);
+        assert.strictEqual(engine.evaluateBetOutcome('kgv', { h: 1, a: 1 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('dc1x', { h: 0, a: 1 }), false);
+
+        // Sistem sonuçlandırmasında skor doğrulaması
+        const sys = engine.buildSystem345(sample5Matches);
+        const resultsWithScores = [
+            { matchId: 101, score: { h: 1, a: 1 }, settledOdd: 3.20 }, // key: msx -> 1-1 -> KAZANDI
+            { matchId: 102, score: { h: 0, a: 2 }, settledOdd: 3.40 }, // key: ms2 -> 0-2 -> KAZANDI
+            { matchId: 103, won: true, score: { h: 2, a: 1 }, settledOdd: 3.10 }, // key: ust35 -> 2-1 (3 gol) -> YANLIŞ/KAYBETTİ!
+            { matchId: 104, score: { h: 1, a: 1 }, settledOdd: 2.10 }, // key: kgv -> 1-1 -> KAZANDI
+            { matchId: 105, score: { h: 0, a: 1 }, settledOdd: 2.30 }  // key: dcx2 -> 0-1 -> KAZANDI
+        ];
+
+        const settlement = engine.settleSystem345(sys, resultsWithScores, { costPerColumn: 10, totalCost: 160 });
+        assert.strictEqual(settlement.isSettled, true);
+        // 103 kaybettiği için 5 maçtan 4'ü kazandı. 4 kazanan maç ile 5 kolon kazanır
+        assert.strictEqual(settlement.wonColumnsCount, 5, 'Hatalı bahis tercihi değerlendirildiğinde 103 kaybetmeli ve 5 kolon kazanmalı');
+        const wonWith103 = settlement.columns.filter(c => c.won && c.matches.some(m => m.matchId === 103));
+        assert.strictEqual(wonWith103.length, 0, '103 numaralı kaybeden maçı içeren kolon kazanmamalı');
+    });
+
+    await it('7.17: Kupon toplamı ve kolon tutarları gerçek Nesine kupon kaydı (recordPlacedCoupon) ile doğrulanmalı', () => {
+        const mockTicket = {
+            nesineRefCode: 'NES-TEST-998877',
+            totalCost: 160,
+            costPerColumn: 10,
+            placedDate: '2026-10-19',
+            placedTime: '18:30:00',
+            matches: [
+                { matchId: 101, home: 'Real Madrid', away: 'Sevilla', key: 'msx', placedOdd: 3.25 },
+                { matchId: 102, home: 'Arsenal', away: 'Chelsea', key: 'ms2', placedOdd: 3.45 },
+                { matchId: 103, home: 'Milan', away: 'Inter', key: 'ust35', placedOdd: 3.15 },
+                { matchId: 104, home: 'Ajax', away: 'PSV', key: 'kgv', placedOdd: 2.15 },
+                { matchId: 105, home: 'Porto', away: 'Benfica', key: 'dcx2', placedOdd: 2.35 }
+            ]
+        };
+
+        const recorded = engine.recordPlacedCoupon(mockTicket);
+        assert.strictEqual(recorded.nesineRefCode, 'NES-TEST-998877');
+        assert.strictEqual(recorded.totalCost, 160);
+        assert.strictEqual(recorded.costPerColumn, 10);
+        assert.strictEqual(recorded.matches.length, 5);
+
+        const fetched = engine.getPlacedCoupon('NES-TEST-998877');
+        assert.ok(fetched !== null);
+        assert.strictEqual(fetched.totalCost, 160);
+
+        // Çelişkili tutar ile kayıt reddedilmeli
+        assert.throws(() => {
+            engine.recordPlacedCoupon({
+                nesineRefCode: 'NES-INVALID',
+                totalCost: 150,
+                costPerColumn: 10,
+                matches: mockTicket.matches
+            });
+        }, /yuvarlama çelişkisi/);
+
+        // settleSystem345 ile placedCoupon verisinin entegrasyonu
+        const sys = engine.buildSystem345(sample5Matches);
+        const matchResults = [
+            { matchId: 101, won: true },
+            { matchId: 102, won: true },
+            { matchId: 103, won: true },
+            { matchId: 104, won: true },
+            { matchId: 105, won: true }
+        ];
+
+        const settlement = engine.settleSystem345(sys, matchResults, { placedCoupon: fetched });
+        assert.strictEqual(settlement.isSettled, true);
+        assert.strictEqual(settlement.totalCost, 160);
+        assert.strictEqual(settlement.costPerColumn, 10);
+        assert.strictEqual(settlement.wonColumnsCount, 16);
+    });
+
     // ----------------------------------------------------
     // TEST GRUBU 8: Maç Öncesi Tahmin Kilitlemede oddsFresh Kontrolü
     // ----------------------------------------------------

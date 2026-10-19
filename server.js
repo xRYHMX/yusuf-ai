@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const football = require('./football');
+const engine = require('./engine');
 
 const PORT = process.env.PORT || 3000;
 const MAX_BODY_BYTES = 8 * 1024 * 1024; // 8 MB maksimum istek boyutu sınırı
@@ -174,6 +175,56 @@ const server = http.createServer(async (req, res) => {
             logServerError('CouponsAPI', err, 'football');
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: 'Kuponlar oluşturulurken hata oluştu: ' + err.message }));
+        }
+        return;
+    }
+
+    // ---------------- Futbol API: Gerçek Oynanan Nesine Kuponu Kaydı ----------------
+    if (pathname === '/api/football/coupon/record' && req.method === 'POST') {
+        let body = '';
+        req.on('data', c => { body += c; if (body.length > 50000) req.destroy(); });
+        req.on('end', () => {
+            try {
+                const data = JSON.parse(body || '{}');
+                const record = engine.recordPlacedCoupon(data);
+                addSystemLog({
+                    level: 'info',
+                    category: 'nesine',
+                    scope: 'CouponRecord',
+                    message: `Gerçek Nesine kuponu kaydedildi: ${record.nesineRefCode} (${record.totalCost} TL)`,
+                    details: record
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ ok: true, coupon: record }));
+            } catch (err) {
+                res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+        return;
+    }
+
+    // ---------------- Futbol API: Kayıtlı Gerçek Nesine Kuponları Listeleme / Arama ----------------
+    if (pathname === '/api/football/coupon/recorded' && req.method === 'GET') {
+        try {
+            if (query.refCode || query.id) {
+                const coupon = engine.getPlacedCoupon(query.refCode || query.id);
+                if (!coupon) {
+                    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+                    res.end(JSON.stringify({ error: 'Kayıtlı kupon bulunamadı.' }));
+                    return;
+                }
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ ok: true, coupon }));
+                return;
+            }
+            const coupons = engine.loadPlacedCoupons();
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ ok: true, coupons }));
+        } catch (err) {
+            logServerError('RecordedCouponsAPI', err, 'football');
+            res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ error: err.message }));
         }
         return;
     }

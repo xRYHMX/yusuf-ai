@@ -2226,8 +2226,11 @@ function buildSystem345(matches, minBetAmount = 50) {
                 roundedDisplay,
                 sumOfColumns: exactSumCouponTotal,
                 roundingDiscrepancy: +(exactSumCouponTotal - effectiveMinBet).toFixed(4),
-                label: `Kupon Tabanı ${effectiveMinBet} TL (16 kolon için kolon başı net ${exactPerColumnForTotal} TL, toplam: ${exactSumCouponTotal} TL)`,
-                description: `Kupon taban tutarı ${effectiveMinBet} TL uygulandığında 16 kolonun her birine net ${exactPerColumnForTotal} TL düşer; 16 kolonun toplamı (${exactSumCouponTotal} TL) kupon taban tutarıyla birebir uyuşur.`
+                isPlayableAmount: false,
+                playableStatus: 'Oynanamaz (Teorik Bölüm)',
+                playableNote: '3.125 TL teorik bir matematiksel bölümdür (50 TL / 16 Kolon). Nesine ve İddaa sisteminde 1 kuruşun altında (0.005 TL) yarım kuruşlu kolon bahsi oynanamaz. Kupon onay ekranında yalnızca tam kuruş / tam misli tutarları geçerlidir.',
+                label: `Kupon Tabanı ${effectiveMinBet} TL (16 kolon için kolon başı net ${exactPerColumnForTotal} TL - Teorik Bölüm, Oynanamaz)`,
+                description: `Kupon taban tutarı ${effectiveMinBet} TL uygulandığında 16 kolonun her birine net ${exactPerColumnForTotal} TL teorik pay düşer; 16 kolonun toplamı (${exactSumCouponTotal} TL) kupon taban tutarıyla birebir uyuşur ancak tekil kolon olarak oynanamaz.`
             },
             columnStakeRule: {
                 scenarioName: 'Kolon Başı Tutar Kuralı',
@@ -2235,7 +2238,10 @@ function buildSystem345(matches, minBetAmount = 50) {
                 costPerColumn: effectiveMinBet,
                 sumOfColumns: exactSumColumnStake,
                 roundingDiscrepancy: 0,
-                label: `Kolon Başı ${effectiveMinBet} TL (16 kolon için toplam ${exactSumColumnStake} TL)`,
+                isPlayableAmount: true,
+                playableStatus: 'Oynanabilir (Misli / Kolon Tutarı)',
+                playableNote: 'Nesine kupon onay ekranında her kolon için tam tutar belirlendiğinde uygulanabilen geçerli bahis kuralıdır.',
+                label: `Kolon Başı ${effectiveMinBet} TL (16 kolon için toplam ${exactSumColumnStake} TL - Oynanabilir)`,
                 description: `Kolon başına ${effectiveMinBet} TL oynandığında 16 kolonun toplam maliyeti tam ${exactSumColumnStake} TL eder.`
             },
             couponTotalScenario: {
@@ -2246,7 +2252,10 @@ function buildSystem345(matches, minBetAmount = 50) {
                 roundedDisplay,
                 sumOfColumns: exactSumCouponTotal,
                 roundingDiscrepancy: +(exactSumCouponTotal - effectiveMinBet).toFixed(4),
-                label: `Kupon Tabanı ${effectiveMinBet} TL (16 kolon için kolon başı net ${exactPerColumnForTotal} TL, toplam: ${exactSumCouponTotal} TL)`
+                isPlayableAmount: false,
+                playableStatus: 'Oynanamaz (Teorik Bölüm)',
+                playableNote: '3.125 TL teorik matematiksel bir bölümdür (50 TL / 16 Kolon). Nesine ve İddaa sisteminde 1 kuruşun altında (0.005 TL) yarım kuruşlu kolon bahsi oynanamaz. Kupon onay ekranında yalnızca tam kuruş / tam misli tutarları geçerlidir.',
+                label: `Kupon Tabanı ${effectiveMinBet} TL (16 kolon için kolon başı net ${exactPerColumnForTotal} TL - Teorik Bölüm, Oynanamaz)`
             },
             columnStakeScenario: {
                 scenarioName: 'Kolon Başı Tutar Kuralı',
@@ -2254,9 +2263,12 @@ function buildSystem345(matches, minBetAmount = 50) {
                 costPerColumn: effectiveMinBet,
                 sumOfColumns: exactSumColumnStake,
                 roundingDiscrepancy: 0,
-                label: `Kolon Başı ${effectiveMinBet} TL (16 kolon için toplam ${exactSumColumnStake} TL)`
+                isPlayableAmount: true,
+                playableStatus: 'Oynanabilir (Misli / Kolon Tutarı)',
+                playableNote: 'Nesine kupon onay ekranında her kolon için tam tutar belirlendiğinde uygulanabilen geçerli bahis kuralıdır.',
+                label: `Kolon Başı ${effectiveMinBet} TL (16 kolon için toplam ${exactSumColumnStake} TL - Oynanabilir)`
             },
-            note: `Nesine'de tek bir doğrulanmış taban kuralı varsayılmamalıdır. Kolon başı ${effectiveMinBet} TL oynandığında toplam maliyet ${exactSumColumnStake} TL; kupon toplamı minimum ${effectiveMinBet} TL tabanıyla oynandığında kolon başı net ${exactPerColumnForTotal} TL (16 x ${exactPerColumnForTotal} = ${exactSumCouponTotal} TL) olmaktadır. Gerçek kupon bedeli Nesine kupon onay ekranındaki seçiminize göre doğrulanmalıdır.`
+            note: `Nesine'de tek bir doğrulanmış taban kuralı varsayılmamalıdır. Kolon başı ${effectiveMinBet} TL oynandığında toplam maliyet ${exactSumColumnStake} TL (oynanabilir); kupon toplamı minimum ${effectiveMinBet} TL tabanıyla oynandığında kolon başı net ${exactPerColumnForTotal} TL (16 x ${exactPerColumnForTotal} = ${exactSumCouponTotal} TL) olmaktadır ancak 3.125 TL tek başına oynanabilir bir tutar değildir. Gerçek kupon bedeli Nesine kupon onay ekranındaki seçiminize göre doğrulanmalıdır.`
         },
         settlement: {
             isSettled: false,
@@ -2265,32 +2277,280 @@ function buildSystem345(matches, minBetAmount = 50) {
     };
 }
 
+// ---------------- Jack Kontrol 4: Seçilen Bahis Türüne Göre Matematiksel Sonuçlandırma ----------------
+function evaluateBetOutcome(marketKey, score, htScore = null, stats = null) {
+    if (!marketKey || !score || typeof score.h !== 'number' || typeof score.a !== 'number') {
+        return null; // Skor yoksa değerlendirilemez
+    }
+
+    const h = Number(score.h);
+    const a = Number(score.a);
+    const totalGoals = h + a;
+
+    const htH = (htScore && typeof htScore.h === 'number') ? Number(htScore.h) : null;
+    const htA = (htScore && typeof htScore.a === 'number') ? Number(htScore.a) : null;
+    const htGoals = (htH !== null && htA !== null) ? (htH + htA) : null;
+
+    const normKey = String(marketKey).toLowerCase().trim();
+
+    switch (normKey) {
+        // Maç Sonucu (1X2)
+        case 'ms1':
+        case 'h':
+            return h > a;
+        case 'msx':
+        case 'd':
+            return h === a;
+        case 'ms2':
+        case 'a':
+            return h < a;
+
+        // Çifte Şans
+        case 'dc1x':
+            return h >= a;
+        case 'dc12':
+            return h !== a;
+        case 'dcx2':
+            return h <= a;
+
+        // Toplam Gol Alt / Üst
+        case 'alt05':
+            return totalGoals < 0.5;
+        case 'ust05':
+            return totalGoals > 0.5;
+        case 'alt15':
+            return totalGoals < 1.5;
+        case 'ust15':
+            return totalGoals > 1.5;
+        case 'alt25':
+            return totalGoals < 2.5;
+        case 'ust25':
+            return totalGoals > 2.5;
+        case 'alt35':
+            return totalGoals < 3.5;
+        case 'ust35':
+            return totalGoals > 3.5;
+        case 'alt45':
+            return totalGoals < 4.5;
+        case 'ust45':
+            return totalGoals > 4.5;
+
+        // Karşılıklı Gol (KG)
+        case 'kgv':
+            return h > 0 && a > 0;
+        case 'kgy':
+            return h === 0 || a === 0;
+
+        // İlk Yarı Sonucu (İY 1X2)
+        case 'iy1':
+            return htH !== null && htA !== null ? htH > htA : null;
+        case 'iyx':
+            return htH !== null && htA !== null ? htH === htA : null;
+        case 'iy2':
+            return htH !== null && htA !== null ? htH < htA : null;
+
+        // İlk Yarı Gol Alt / Üst
+        case 'iyalt05':
+            return htGoals !== null ? htGoals < 0.5 : null;
+        case 'iyust05':
+            return htGoals !== null ? htGoals > 0.5 : null;
+        case 'iyalt15':
+            return htGoals !== null ? htGoals < 1.5 : null;
+        case 'iyust15':
+            return htGoals !== null ? htGoals > 1.5 : null;
+
+        // Ev Sahibi Gol Alt / Üst
+        case 'ev_alt05':
+            return h < 0.5;
+        case 'ev_ust05':
+            return h > 0.5;
+        case 'ev_alt15':
+            return h < 1.5;
+        case 'ev_ust15':
+            return h > 1.5;
+
+        // Deplasman Gol Alt / Üst
+        case 'dep_alt05':
+            return a < 0.5;
+        case 'dep_ust05':
+            return a > 0.5;
+        case 'dep_alt15':
+            return a < 1.5;
+        case 'dep_ust15':
+            return a > 1.5;
+
+        // Toplam Gol Aralığı
+        case 'tg01':
+            return totalGoals <= 1;
+        case 'tg23':
+            return totalGoals >= 2 && totalGoals <= 3;
+        case 'tg46':
+            return totalGoals >= 4 && totalGoals <= 6;
+        case 'tg7p':
+            return totalGoals >= 7;
+
+        // Kombine Pazarlar
+        case 'ms1_kgv':
+            return h > a && h > 0 && a > 0;
+        case 'ms2_kgv':
+            return h < a && h > 0 && a > 0;
+        case 'msx_kgv':
+            return h === a && h > 0 && a > 0;
+        case 'ms1_ust25':
+            return h > a && totalGoals > 2.5;
+        case 'ms2_ust25':
+            return h < a && totalGoals > 2.5;
+        case 'ust25_kgv':
+            return totalGoals > 2.5 && h > 0 && a > 0;
+
+        // İstatistiksel Pazarlar (Korner & Kart)
+        case 'korner_ust95':
+            return (stats && typeof stats.corners === 'number') ? stats.corners > 9.5 : null;
+        case 'kart_ust35':
+            return (stats && typeof stats.cards === 'number') ? stats.cards > 3.5 : null;
+
+        default:
+            return null; // Bilinmeyen pazar için null döner, caller fallback'i yönetir
+    }
+}
+
+// ---------------- Jack Kontrol 2: Oynanan Nesine Kupon Kayıt & Doğrulama Katmanı ----------------
+const PLACED_COUPONS_FILE = path.join(__dirname, '.cache', 'placed_coupons.json');
+
+function loadPlacedCoupons() {
+    try {
+        if (fs.existsSync(PLACED_COUPONS_FILE)) {
+            const raw = JSON.parse(fs.readFileSync(PLACED_COUPONS_FILE, 'utf8'));
+            if (Array.isArray(raw)) return raw;
+            if (raw && typeof raw === 'object' && Array.isArray(raw.coupons)) return raw.coupons;
+        }
+    } catch (_) {}
+    return [];
+}
+
+function savePlacedCoupons(coupons) {
+    try {
+        const dir = path.dirname(PLACED_COUPONS_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(PLACED_COUPONS_FILE, JSON.stringify({ coupons, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function recordPlacedCoupon(input) {
+    if (!input || typeof input !== 'object') {
+        throw new Error('Geçersiz kupon verisi');
+    }
+
+    const nesineRefCode = String(input.nesineRefCode || input.receiptId || input.couponId || '').trim();
+    if (!nesineRefCode) {
+        throw new Error('Gerçek Nesine kupon referans kodu (barkod / kupon no) zorunludur');
+    }
+
+    const totalCost = Number(input.totalCost);
+    if (!isFinite(totalCost) || totalCost <= 0) {
+        throw new Error('Kupon toplam tutarı pozitif bir sayı olmalıdır');
+    }
+
+    const costPerColumn = Number(input.costPerColumn || (totalCost / 16));
+    if (!isFinite(costPerColumn) || costPerColumn <= 0) {
+        throw new Error('Kolon başına tutar geçerli bir sayı olmalıdır');
+    }
+
+    // 16 kolonluk tutar ile toplam tutar kontrolü (yuvarlama çelişkisi yasağı)
+    const columnsSum = +(16 * costPerColumn).toFixed(2);
+    if (Math.abs(columnsSum - totalCost) > 0.01) {
+        throw new Error(`Kolon tutarları toplamı (${columnsSum} TL) ile kupon toplam maliyeti (${totalCost} TL) arasında yuvarlama çelişkisi tespit edildi.`);
+    }
+
+    const matches = Array.isArray(input.matches) ? input.matches : [];
+    if (matches.length < 5) {
+        throw new Error('Sistem 3-4-5 kupon kaydı için 5 maçın tamamı gereklidir');
+    }
+
+    const verifiedMatches = matches.map((m, idx) => {
+        const matchId = m.matchId || m.id || (idx + 1);
+        const placedOdd = Number(m.placedOdd || m.settledOdd || m.odd);
+        if (!isFinite(placedOdd) || placedOdd <= 1.0) {
+            throw new Error(`Maç #${matchId} için onaylanan gerçek Nesine oranı geçersiz`);
+        }
+        return {
+            matchId,
+            home: m.home || '',
+            away: m.away || '',
+            key: m.key || '',
+            label: m.label || '',
+            placedOdd
+        };
+    });
+
+    const now = new Date();
+    const placedDate = input.placedDate || now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
+    const placedTime = input.placedTime || now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
+    const placedAt = input.placedAt || `${placedDate}T${placedTime}:00+03:00`;
+
+    const record = {
+        id: `placed_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        nesineRefCode,
+        totalCost,
+        costPerColumn,
+        placedDate,
+        placedTime,
+        placedAt,
+        matches: verifiedMatches,
+        isVerified: true,
+        createdAt: new Date().toISOString()
+    };
+
+    const existing = loadPlacedCoupons();
+    const filtered = existing.filter(c => c.nesineRefCode !== nesineRefCode);
+    filtered.push(record);
+    savePlacedCoupons(filtered);
+
+    return record;
+}
+
+function getPlacedCoupon(refCode) {
+    if (!refCode) return null;
+    const all = loadPlacedCoupons();
+    return all.find(c => c.nesineRefCode === refCode || c.id === refCode) || null;
+}
+
 // ---------------- Gerçek Maç Sonuçlarıyla Kesin Ödeme Hesaplayıcı (Sanal/Varsayımsal Getiri Yok) ----------------
 function settleSystem345(system345, results, actualStake = {}) {
     if (!system345 || !Array.isArray(system345.columns)) {
         return { isSettled: false, error: 'Geçersiz Sistem 3-4-5 nesnesi' };
     }
 
-    // Gerçek oynanan kupon onay ekranındaki tutarın doğrulanması gerekir
-    const hasValidStake = (typeof actualStake.costPerColumn === 'number' && actualStake.costPerColumn > 0)
-        || (typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0);
+    // Jack Kontrol 2 & 3: Kullanıcının gerçek oynanan onaylı kupon kaydı (placedCoupon veya nesineRefCode)
+    const placedCoupon = actualStake.placedCoupon
+        || (actualStake.nesineRefCode ? getPlacedCoupon(actualStake.nesineRefCode) : null);
+
+    const costPerColumn = typeof actualStake.costPerColumn === 'number' && actualStake.costPerColumn > 0
+        ? actualStake.costPerColumn
+        : (placedCoupon && typeof placedCoupon.costPerColumn === 'number' && placedCoupon.costPerColumn > 0
+            ? placedCoupon.costPerColumn
+            : (typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0 ? +(actualStake.totalCost / 16) : null));
+
+    const totalCost = typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0
+        ? actualStake.totalCost
+        : (placedCoupon && typeof placedCoupon.totalCost === 'number' && placedCoupon.totalCost > 0
+            ? placedCoupon.totalCost
+            : (costPerColumn ? +(costPerColumn * 16).toFixed(2) : null));
+
+    const hasValidStake = (typeof costPerColumn === 'number' && costPerColumn > 0)
+        && (typeof totalCost === 'number' && totalCost > 0);
 
     if (!hasValidStake) {
         return {
             isSettled: false,
             settlementStatus: 'Gerçek ödeme hesaplanamıyor',
-            reason: 'Gerçek yatırılan bahis tutarı (kolon başı veya kupon toplamı) kayıtlı veya doğrulanmış değil.',
+            reason: 'Kullanıcının Nesine kupon onay ekranında oynadığı kupon kaydı (Nesine referans kodu, yatırılan gerçek tutar ve onaylanan oranlar) sisteme girilmemiş. Öneri oranları oynanmış oran kabul edilemez.',
             settledPayout: null
         };
     }
-
-    const costPerColumn = typeof actualStake.costPerColumn === 'number' && actualStake.costPerColumn > 0
-        ? actualStake.costPerColumn
-        : (typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0 ? +(actualStake.totalCost / 16) : null);
-
-    const totalCost = typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0
-        ? actualStake.totalCost
-        : (costPerColumn ? +(costPerColumn * 16).toFixed(2) : null);
 
     // Yuvarlama kontrolü: 16 kolonun tutarları toplamı ile totalCost birebir uyuşmalı (Madde 3 & 5)
     const calculatedColumnsSum = +(16 * costPerColumn).toFixed(2);
@@ -2331,6 +2591,11 @@ function settleSystem345(system345, results, actualStake = {}) {
         const isPostponed = Boolean(res.postponed || res.state === 'ppd');
         if (isPostponed) return true; // Karar bekliyor
 
+        // Maç skoru verilmişse (res.score.h ve res.score.a) maç tamamlanmıştır
+        if (res.score && typeof res.score.h === 'number' && typeof res.score.a === 'number') {
+            return false;
+        }
+
         // Sonuçlanmamış maç (won değeri boolean değil)
         return typeof res.won !== 'boolean';
     });
@@ -2345,7 +2610,7 @@ function settleSystem345(system345, results, actualStake = {}) {
         };
     }
 
-    // 2. Gerçek oynanan oran kontrolü (Madde 1)
+    // 2. Gerçek oynanan oran kontrolü (Madde 1 & 3)
     // Kullanıcının gerçekten oynadığı ve kaydedilmiş oran zorunludur.
     // Öneri anındaki m.odd değerine ASLA geri dönülmez (fallback yapılmaz).
     const missingPlayedOdds = matches.filter(m => {
@@ -2353,13 +2618,14 @@ function settleSystem345(system345, results, actualStake = {}) {
         const isFinalVoid = Boolean(res && (res.void || res.cancelled || res.isVoid || res.isCancelled || res.state === 'canc'));
         if (isFinalVoid) return false; // İptal maçta oran 1.00'e sabitlenir, oynanan orana gerek kalmaz
 
+        const placedFromCoupon = placedCoupon?.matches?.find(pm => String(pm.matchId) === String(m.matchId))?.placedOdd;
         const playedOdd = (res && typeof res.settledOdd === 'number')
             ? res.settledOdd
             : (res && typeof res.playedOdd === 'number')
                 ? res.playedOdd
                 : (res && typeof res.actualOdd === 'number')
                     ? res.actualOdd
-                    : null;
+                    : (placedFromCoupon || (actualStake.placedOdds && typeof actualStake.placedOdds[String(m.matchId)] === 'number' ? actualStake.placedOdds[String(m.matchId)] : null));
 
         return typeof playedOdd !== 'number' || playedOdd <= 1.0;
     });
@@ -2373,7 +2639,7 @@ function settleSystem345(system345, results, actualStake = {}) {
         };
     }
 
-    // 3. Kolonların sonuçlandırılması
+    // 3. Kolonların sonuçlandırılması (Madde 4: Bahis türüne göre kesin matematiksel değerlendirme)
     let settledPayout = 0;
     let wonColumnsCount = 0;
     const settledColumns = system345.columns.map(col => {
@@ -2384,21 +2650,37 @@ function settleSystem345(system345, results, actualStake = {}) {
         for (const m of col.matches) {
             const res = resultMap.get(String(m.matchId));
             const isFinalVoid = Boolean(res && (res.void || res.cancelled || res.isVoid || res.isCancelled || res.state === 'canc'));
-            const isWon = Boolean(res && res.won);
 
-            // Gerçek oynanan oran: Sadece kayıtlı gerçek oran alınır, m.odd fallback'i KESİNLİKLE YOKTUR!
+            // Jack Kontrol 4: Gerçek maç skoru verilmişse, bahis türüne (m.key) göre değerlendir
+            let isWon = false;
+            if (res && res.score && typeof res.score.h === 'number' && typeof res.score.a === 'number') {
+                const evalOutcome = evaluateBetOutcome(m.key, res.score, res.ht, res.stats);
+                if (evalOutcome !== null) {
+                    isWon = evalOutcome;
+                } else {
+                    isWon = Boolean(res.won);
+                }
+            } else {
+                isWon = Boolean(res && res.won);
+            }
+
+            // Gerçek oynanan oran: m.odd fallback'i KESİNLİKLE YOKTUR!
+            const placedFromCoupon = placedCoupon?.matches?.find(pm => String(pm.matchId) === String(m.matchId))?.placedOdd;
             const effectiveOdd = isFinalVoid
                 ? 1.00
                 : ((res && typeof res.settledOdd === 'number')
                     ? res.settledOdd
                     : ((res && typeof res.playedOdd === 'number')
                         ? res.playedOdd
-                        : res.actualOdd));
+                        : ((res && typeof res.actualOdd === 'number')
+                            ? res.actualOdd
+                            : (placedFromCoupon || (actualStake.placedOdds && actualStake.placedOdds[String(m.matchId)])))));
 
             colMatchDetails.push({
                 matchId: m.matchId,
                 home: m.home,
                 away: m.away,
+                key: m.key,
                 isVoid: isFinalVoid,
                 won: isWon,
                 odd: effectiveOdd
@@ -2433,6 +2715,7 @@ function settleSystem345(system345, results, actualStake = {}) {
     return {
         isSettled: true,
         settlementStatus: 'Sonuçlandı',
+        nesineRefCode: placedCoupon?.nesineRefCode || actualStake.nesineRefCode || null,
         totalColumns: 16,
         wonColumnsCount,
         lostColumnsCount: 16 - wonColumnsCount,
@@ -2804,7 +3087,11 @@ module.exports = {
     computeJointConfidenceInterval,
     MARKET_COMPANIONS,
     isModelPerformanceVerified,
-    getModelVerificationMetrics
+    getModelVerificationMetrics,
+    evaluateBetOutcome,
+    recordPlacedCoupon,
+    getPlacedCoupon,
+    loadPlacedCoupons
 };
 
 
