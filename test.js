@@ -352,6 +352,38 @@ async function runTests() {
         assert.strictEqual(coupons.banko.instruction.includes('maçla kalibre edildi'), false, 'Yetersiz örneklemde kalibre edildi denilemez');
     });
 
+    await it('6.5: Jack Kontrol: Eksik Brier/LogLoss durumunda kupon açıklaması doğrudan verificationReason metnini (Eksik kalibrasyon verisi) göstermeli', () => {
+        const matches = [
+            {
+                m: { id: 301, home: 'PSG', away: 'Metz', oddsFresh: true, odds: { ms1: 1.25, msx: 5.50, ms2: 11.00 }, oddsUpdatedAt: '18:45:00', mbs: 1, inBulletin: true, state: 'pre' },
+                an: { quality: 'A', p: { ms1: 0.88 } }
+            },
+            {
+                m: { id: 302, home: 'Bayern', away: 'Bochum', oddsFresh: true, odds: { ms1: 1.20, msx: 6.00, ms2: 13.00 }, oddsUpdatedAt: '18:45:00', mbs: 1, inBulletin: true, state: 'pre' },
+                an: { quality: 'A', p: { ms1: 0.90 } }
+            }
+        ];
+        const coupons = engine.buildCoupons(matches, {}, { bankoN: 2, customTable: mockIncompleteMetricsTable });
+        assert.ok(coupons.banko.instruction.includes('Eksik kalibrasyon verisi'), 'Başarısızlık sebebi olarak eksik kalibrasyon verisi gösterilmeli');
+        assert.ok(coupons.banko.instruction.includes('Doğrulanamadı:'), 'Doğrulanamadı ibaresi bulunmalı');
+    });
+
+    await it('6.6: Jack Kontrol: Tekrarlanan/kopya maçlar olduğunda kupon açıklaması doğrudan verificationReason metnini (tekrarlanan maç kayıtları) göstermeli', () => {
+        const matches = [
+            {
+                m: { id: 301, home: 'PSG', away: 'Metz', oddsFresh: true, odds: { ms1: 1.25, msx: 5.50, ms2: 11.00 }, oddsUpdatedAt: '18:45:00', mbs: 1, inBulletin: true, state: 'pre' },
+                an: { quality: 'A', p: { ms1: 0.88 } }
+            },
+            {
+                m: { id: 302, home: 'Bayern', away: 'Bochum', oddsFresh: true, odds: { ms1: 1.20, msx: 6.00, ms2: 13.00 }, oddsUpdatedAt: '18:45:00', mbs: 1, inBulletin: true, state: 'pre' },
+                an: { quality: 'A', p: { ms1: 0.90 } }
+            }
+        ];
+        const coupons = engine.buildCoupons(matches, {}, { bankoN: 2, customTable: mockDuplicateMatchesTable });
+        assert.ok(coupons.banko.instruction.includes('tekrarlanan maç kayıtları'), 'Başarısızlık sebebi olarak tekrarlanan maç kayıtları gösterilmeli');
+        assert.ok(coupons.banko.instruction.includes('Doğrulanamadı:'), 'Doğrulanamadı ibaresi bulunmalı');
+    });
+
     // ----------------------------------------------------
     // TEST GRUBU 7: Sürpriz Kupon Sistem 3-4-5 Güvenliği
     // ----------------------------------------------------

@@ -2045,8 +2045,8 @@ function buildCoupons(items, model, opts = {}) {
     const lastSurpOddsUpdate = surprise.find(s => s.oddsUpdatedAt)?.oddsUpdatedAt || 'Bilinmiyor';
 
     let bankoCiNote = bankoCI.isEmpirical
-        ? `Delta Yöntemi asimptotik %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir (Geçmiş ${bankoCI.nEff} bağımsız out-of-sample test maçıyla kalibre edildi; maçların korelasyonsuzluk varsayımına dayalı teorik aralıktır, kesin kazanç garantisi taşımaz).`
-        : `Delta Yöntemi teorik %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir (Yetersiz geçmiş örneklem: N < 50 olduğu için ampirik olarak henüz doğrulanmamıştır; maçların bağımsızlık varsayımına dayalı ön simülasyondur, kesin başarı garantisi taşımaz).`;
+        ? `Delta Yöntemi asimptotik %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir (${(bankoCI.verificationReason || '').replace(/\.$/, '')}; maçların korelasyonsuzluk varsayımına dayalı teorik aralıktır, kesin kazanç garantisi taşımaz).`
+        : `Delta Yöntemi teorik %90 güven aralığı [%${bankoVarLow} - %${bankoVarHigh}] seviyesindedir (Doğrulanamadı: ${(bankoCI.verificationReason || '').replace(/\.$/, '')}; maçların bağımsızlık varsayımına dayalı ön simülasyondur, kesin başarı garantisi taşımaz).`;
 
     const bankoInstruction = banko.length
         ? `Bu ${banko.length} maçın tekil ortalama güveni %${bankoConfidence} (en düşük %${minBankoPct}). Maçların bağımsızlık varsayımı ile birlikte gelme olasılığı (Kombine: p1×p2×p3×p4) %${bankoJointConfidence} olup, ${bankoCiNote} Son oran kontrolü: ${lastBankoOddsUpdate}.`
@@ -2059,8 +2059,8 @@ function buildCoupons(items, model, opts = {}) {
         : '';
 
     let surpCiNote = surpCI.isEmpirical
-        ? `[Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}, N=${surpCI.nEff} maçla kalibre edildi (bağımsızlık varsayımı)]`
-        : `[Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}, doğrulama aşamasında (N < 50)]`;
+        ? `[Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}, ${surpCI.verificationReason} (bağımsızlık varsayımı)]`
+        : `[Delta CI: %${surpCI.lowPct} - %${surpCI.highPct}, doğrulanamadı: ${surpCI.verificationReason}]`;
 
     const surpInstruction = surprise.length
         ? `Piyasa favorileri elenerek yüksek oranlı, istatistiksel olarak anlamlı ters sonuçlardan seçilen ${surprise.length} maçın sıklık çarpanı ortalama ${surpAvgLift}x${surpAvgOdd ? ` (Ortalama Gerçek Nesine Oranı: ${surpAvgOdd})` : ''} seviyesindedir (${surpValueBetCount}/${surprise.length} seçimde gerçek Nesine oranı ile pozitif EV / Value Bet doğrulandı; 5'li düz kombine olasılığı %${surpJointConfidence} ${surpCiNote} olduğu için Sistem 3-4-5 önerilir).${sysTxt} Son oran kontrolü: ${lastSurpOddsUpdate}.`
