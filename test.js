@@ -40,7 +40,9 @@ const mockVerifiedTable = {
         matchId: 900000 + i,
         won: i < 45, // 45 / 60 = %75.0 (>= %70)
         brier: 0.190, // <= 0.220
-        logLoss: 0.550 // <= 1.150
+        logLoss: 0.550, // <= 1.150
+        kickoff: '2026-10-18T18:00:00.000Z',
+        recordedBeforeKickoffAt: '2026-10-18T12:00:00.000Z'
     }))
 };
 
@@ -50,7 +52,9 @@ const mockUnverifiedTable = {
         matchId: 800000 + i,
         won: i < 28, // %80.0 başarı fakat N=35 (< 50)
         brier: 0.185,
-        logLoss: 0.520
+        logLoss: 0.520,
+        kickoff: '2026-10-18T18:00:00.000Z',
+        recordedBeforeKickoffAt: '2026-10-18T12:00:00.000Z'
     }))
 };
 
@@ -61,7 +65,9 @@ const mockIncompleteMetricsTable = {
         matchId: 700000 + i,
         won: i < 45,
         brier: i < 10 ? 0.190 : null,
-        logLoss: i < 10 ? 0.550 : null
+        logLoss: i < 10 ? 0.550 : null,
+        kickoff: '2026-10-18T18:00:00.000Z',
+        recordedBeforeKickoffAt: '2026-10-18T12:00:00.000Z'
     }))
 };
 
@@ -72,7 +78,9 @@ const mockDuplicateMatchesTable = {
         matchId: 600000 + (i % 30), // Yalnızca 30 tekil maç!
         won: i < 45,
         brier: 0.190,
-        logLoss: 0.550
+        logLoss: 0.550,
+        kickoff: '2026-10-18T18:00:00.000Z',
+        recordedBeforeKickoffAt: '2026-10-18T12:00:00.000Z'
     }))
 };
 
@@ -246,6 +254,24 @@ async function runTests() {
         const metrics = engine.getModelVerificationMetrics(mockDuplicateMatchesTable);
         assert.strictEqual(metrics.isVerified, false, 'Tekrarlanan maç içeren örneklem bağımsız sayılamaz');
         assert.ok(metrics.reason.includes('tekrarlanan maç kayıtları'));
+    });
+
+    await it('4.6: Jack Kontrol: Örneklemde recordedBeforeKickoffAt veya kickoff eksik/geçersizse model DOĞRULANMAMIŞ (isVerified=false) sayılmalı ve eksik zaman bilgisi raporlanmalı', () => {
+        const mockMissingTimingTable = {
+            walkForwardRecords: Array.from({ length: 60 }, (_, i) => ({
+                id: `mock_missing_${i}`,
+                matchId: 950000 + i,
+                won: i < 45,
+                brier: 0.190,
+                logLoss: 0.550,
+                kickoff: i < 50 ? '2026-10-18T18:00:00.000Z' : null, // 10 maçta kickoff eksik!
+                recordedBeforeKickoffAt: i < 50 ? '2026-10-18T12:00:00.000Z' : null
+            }))
+        };
+        const metrics = engine.getModelVerificationMetrics(mockMissingTimingTable);
+        assert.strictEqual(metrics.isVerified, false, 'Eksik zaman damgası olan model doğrulanamaz');
+        assert.strictEqual(metrics.missingTimingCount, 10);
+        assert.ok(metrics.reason.includes('Eksik veya geçersiz zaman bilgisi'));
     });
 
     // ----------------------------------------------------
@@ -1254,8 +1280,8 @@ async function runTests() {
 
     await it('9.3: Brier Score ve Log Loss hesapları gerçek tahmin olasılıkları üzerinden yapılmalı (uydurma sabit metrik olmamalı)', () => {
         const mockRecords = [
-            { matchId: 1, date: '2026-10-15', pickKey: 'ust15', pick: '1,5 Üst', predictedProb: 0.80, probPct: 80, won: true, brier: 0.040, logLoss: 0.223, modelAsOfDate: '2026-10-15' },
-            { matchId: 2, date: '2026-10-16', pickKey: 'ust25', pick: '2,5 Üst', predictedProb: 0.70, probPct: 70, won: false, brier: 0.490, logLoss: 1.204, modelAsOfDate: '2026-10-16' }
+            { matchId: 1, date: '2026-10-15', pickKey: 'ust15', pick: '1,5 Üst', predictedProb: 0.80, probPct: 80, won: true, brier: 0.040, logLoss: 0.223, modelAsOfDate: '2026-10-15', kickoff: '2026-10-15T18:00:00.000Z', recordedBeforeKickoffAt: '2026-10-15T12:00:00.000Z' },
+            { matchId: 2, date: '2026-10-16', pickKey: 'ust25', pick: '2,5 Üst', predictedProb: 0.70, probPct: 70, won: false, brier: 0.490, logLoss: 1.204, modelAsOfDate: '2026-10-16', kickoff: '2026-10-16T18:00:00.000Z', recordedBeforeKickoffAt: '2026-10-16T12:00:00.000Z' }
         ];
 
         // 1. maç için: p = 0.80, won = 1 -> Brier = (0.80 - 1)^2 = 0.04
@@ -1270,7 +1296,7 @@ async function runTests() {
 
         // Hatalı brier skoru verildiğinde audit yakalamalı
         const badRecords = [
-            { matchId: 3, date: '2026-10-17', pickKey: 'ms1', predictedProb: 0.85, won: true, brier: 0.999, modelAsOfDate: '2026-10-17' }
+            { matchId: 3, date: '2026-10-17', pickKey: 'ms1', predictedProb: 0.85, won: true, brier: 0.999, modelAsOfDate: '2026-10-17', kickoff: '2026-10-17T18:00:00.000Z', recordedBeforeKickoffAt: '2026-10-17T12:00:00.000Z' }
         ];
         const badAudit = engine.verifyWalkForwardIntegrity(badRecords);
         assert.strictEqual(badAudit.isValid, false);
@@ -1287,7 +1313,9 @@ async function runTests() {
                     predictedProb: 0.80,
                     won: i < 20, // 20/25 = %80
                     brier: i < 20 ? 0.04 : 0.64,
-                    logLoss: i < 20 ? 0.223 : 1.609
+                    logLoss: i < 20 ? 0.223 : 1.609,
+                    kickoff: '2026-10-18T18:00:00.000Z',
+                    recordedBeforeKickoffAt: '2026-10-18T12:00:00.000Z'
                 })),
                 ...Array(25).fill(0).map((_, i) => ({
                     matchId: 2000 + i,
@@ -1296,7 +1324,9 @@ async function runTests() {
                     predictedProb: 0.72,
                     won: i < 18, // 18/25 = %72
                     brier: i < 18 ? 0.078 : 0.518,
-                    logLoss: i < 18 ? 0.328 : 1.272
+                    logLoss: i < 18 ? 0.328 : 1.272,
+                    kickoff: '2026-10-18T18:00:00.000Z',
+                    recordedBeforeKickoffAt: '2026-10-18T12:00:00.000Z'
                 })),
                 ...Array(10).fill(0).map((_, i) => ({
                     matchId: 3000 + i,
@@ -1305,7 +1335,9 @@ async function runTests() {
                     predictedProb: 0.75,
                     won: i < 7, // 7/10 = %70
                     brier: i < 7 ? 0.0625 : 0.5625,
-                    logLoss: i < 7 ? 0.287 : 1.386
+                    logLoss: i < 7 ? 0.287 : 1.386,
+                    kickoff: '2026-10-18T18:00:00.000Z',
+                    recordedBeforeKickoffAt: '2026-10-18T12:00:00.000Z'
                 }))
             ]
         };
@@ -1364,7 +1396,7 @@ async function runTests() {
 
         // Tahmin olasılığı olmayan kaydın Brier Score ve Log Loss'a sızmadığı ve audit tarafından geçersiz sayıldığı doğrulanmalı
         const badProbRecord = [
-            { matchId: 901, pickKey: 'ust15', won: true, predictedProb: null, brier: null, logLoss: null }
+            { matchId: 901, pickKey: 'ust15', won: true, predictedProb: null, brier: null, logLoss: null, kickoff: '2026-10-19T18:00:00.000Z', recordedBeforeKickoffAt: '2026-10-19T12:00:00.000Z' }
         ];
         const audit = engine.verifyWalkForwardIntegrity(badProbRecord);
         assert.strictEqual(audit.isValid, false, 'predictedProb null olan kayıt kalibrasyon bütünlüğünden geçmemeli');
@@ -1417,6 +1449,37 @@ async function runTests() {
         assert.ok(locked !== undefined, 'Maç öncesi kayıt kilitlenmiş olmalı');
         assert.ok(isoRegex.test(locked.recordedBeforeKickoffAt), 'recordedBeforeKickoffAt geçerli ISO string olmalı');
         assert.ok(new Date(locked.recordedBeforeKickoffAt).getTime() < new Date(locked.kickoff).getTime(), 'Kayıt zamanı kickoff öncesinde olmalı');
+    });
+
+    await it('9.8: Eksik veya geçersiz zaman damgası otomatik geçerli kabul edilmemeli, kalibrasyondan dışlanmalı ve missingTimingCount olarak raporlanmalı', () => {
+        const missingTimingRecords = [
+            {
+                matchId: 801,
+                date: '2026-10-19',
+                // recordedBeforeKickoffAt eksik!
+                kickoff: '2026-10-19T18:00:00.000Z',
+                pickKey: 'ust15',
+                predictedProb: 0.80,
+                won: true,
+                brier: 0.04,
+                logLoss: 0.223
+            },
+            {
+                matchId: 802,
+                date: '2026-10-19',
+                recordedBeforeKickoffAt: '2026-10-19T12:00:00.000Z',
+                // kickoff eksik!
+                pickKey: 'ust15',
+                predictedProb: 0.80,
+                won: true,
+                brier: 0.04,
+                logLoss: 0.223
+            }
+        ];
+
+        const audit = engine.verifyWalkForwardIntegrity(missingTimingRecords);
+        assert.strictEqual(audit.isValid, false, 'Eksik zaman damgası olan kayıtlar geçerli sayılamaz');
+        assert.strictEqual(audit.missingTimingCount, 2);
     });
 
     console.log('\n================================================================');

@@ -1843,6 +1843,42 @@ function getModelVerificationMetrics(customTable = null) {
             };
         }
 
+        // Jack Kontrolü: 3. Zamanlama Bütünlüğü Kontrolü (Kickoff & Kayıt Zamanı Kontrolü)
+        let missingTimingCount = 0;
+        let timingViolations = 0;
+        const invalidTimingRecords = [];
+
+        for (const r of resolved) {
+            const hasValidIso = Boolean(r.recordedBeforeKickoffAt && typeof r.recordedBeforeKickoffAt === 'string' && !isNaN(Date.parse(r.recordedBeforeKickoffAt)));
+            const hasValidKickoff = Boolean(r.kickoff && !isNaN(Date.parse(r.kickoff)));
+            if (!hasValidIso || !hasValidKickoff) {
+                missingTimingCount++;
+                invalidTimingRecords.push({ matchId: r.matchId || r.id, reason: 'Eksik veya geçersiz zaman damgası' });
+            } else {
+                const recTime = new Date(r.recordedBeforeKickoffAt).getTime();
+                const kickTime = new Date(r.kickoff).getTime();
+                if (recTime > kickTime) {
+                    timingViolations++;
+                    invalidTimingRecords.push({ matchId: r.matchId || r.id, reason: 'Kayıt zamanı kickoff sonrasında' });
+                }
+            }
+        }
+
+        if (missingTimingCount > 0 || timingViolations > 0) {
+            return {
+                isVerified: false,
+                sampleCount: count,
+                hitRatePct: +((resolved.filter(r => r.won).length / count) * 100).toFixed(1),
+                brierScore: null,
+                logLoss: null,
+                nEff: Math.max(10, count),
+                missingTimingCount,
+                timingViolations,
+                invalidTimingRecords,
+                reason: `Eksik veya geçersiz zaman bilgisi: ${count} maçın ${missingTimingCount} tanesinde kayıt/kickoff zamanı eksik, ${timingViolations} tanesinde zamanlama ihlali tespit edildi. Yalnızca kickoff öncesinde kilitlenen tahminler kalibrasyona dahil edilebilir.`
+            };
+        }
+
         const hits = resolved.filter(r => r.won).length;
         const hitRatePct = +((hits / count) * 100).toFixed(1);
 
@@ -1887,9 +1923,12 @@ function getModelVerificationMetrics(customTable = null) {
             brierScore: avgBrier,
             logLoss: avgLogLoss,
             nEff: count,
+            missingTimingCount: 0,
+            timingViolations: 0,
+            invalidTimingRecords: [],
             marketBreakdown,
             reason: isVerified
-                ? `Model geçmiş ${count} bağımsız maçta başarıyla doğrulandı (İsabet: %${hitRatePct}, Brier: ${avgBrier}, LogLoss: ${avgLogLoss}).`
+                ? `Model geçmiş ${count} bağımsız maçta başarıyla doğrulandı (İsabet: %${hitRatePct}, Brier: ${avgBrier}, LogLoss: ${avgLogLoss}, 0 zamanlama ihlali).`
                 : `Model eşik şartlarını karşılamadı (İsabet: %${hitRatePct}/%70, Brier: ${avgBrier}/0.220, LogLoss: ${avgLogLoss}/1.150).`
         };
     } catch (_) {
@@ -3304,6 +3343,9 @@ function evaluateModelPerformance(model, dayItems = []) {
     // 4. ADIM: Metrikleri yalnızca Out-of-Sample Walk-Forward ve Maç Öncesi Kayıt verilerinden hesapla
     let brierSum = 0, logLossSum = 0, count = 0;
     let bankoHits = 0, bankoTotal = 0;
+    let missingTimingCount = 0;
+    let timingViolations = 0;
+    const invalidTimingRecords = [];
     const marketStats = {
         ust15: { key: 'ust15', label: '1,5 Üst', hits: 0, total: 0, brierSum: 0, logLossSum: 0, probSum: 0 },
         iyust05: { key: 'iyust05', label: 'İY 0,5 Üst', hits: 0, total: 0, brierSum: 0, logLossSum: 0, probSum: 0 },
@@ -3315,15 +3357,34 @@ function evaluateModelPerformance(model, dayItems = []) {
     const leagueMap = new Map();
 
     for (const rec of walkForwardRecords) {
-        // Gerçek maç öncesi tahmin olasılığı ve zamanlama kontrolü (0.70 varsayımı tamamen kaldırıldı)
+        // Gerçek maç öncesi tahmin olasılığı kontrolü (0.70 varsayımı tamamen kaldırıldı)
         const hasValidProb = typeof rec.predictedProb === 'number' &&
             Number.isFinite(rec.predictedProb) &&
             rec.predictedProb > 0 &&
             rec.predictedProb < 1;
 
-        const recTime = rec.recordedBeforeKickoffAt ? new Date(rec.recordedBeforeKickoffAt).getTime() : NaN;
-        const kickTime = rec.kickoff ? new Date(rec.kickoff).getTime() : NaN;
-        const isTimingValid = (!isNaN(recTime) && !isNaN(kickTime)) ? recTime <= kickTime : true;
+        // Katı zaman damgası doğrulaması: eksik veya geçersizse ASLA true kabul edilemez!
+        const hasValidIso = Boolean(rec.recordedBeforeKickoffAt && typeof rec.recordedBeforeKickoffAt === 'string' && !isNaN(Date.parse(rec.recordedBeforeKickoffAt)));
+        const hasValidKickoff = Boolean(rec.kickoff && !isNaN(Date.parse(rec.kickoff)));
+        const recTime = hasValidIso ? new Date(rec.recordedBeforeKickoffAt).getTime() : NaN;
+        const kickTime = hasValidKickoff ? new Date(rec.kickoff).getTime() : NaN;
+        const isTimingValid = Boolean(hasValidIso && hasValidKickoff && recTime <= kickTime);
+
+        if (!hasValidIso || !hasValidKickoff) {
+            missingTimingCount++;
+            invalidTimingRecords.push({
+                matchId: rec.matchId,
+                reason: !hasValidIso && !hasValidKickoff
+                    ? 'recordedBeforeKickoffAt ve kickoff zaman damgaları eksik veya geçersiz'
+                    : (!hasValidIso ? 'recordedBeforeKickoffAt eksik veya geçersiz ISO tarih' : 'kickoff eksik veya geçersiz tarih')
+            });
+        } else if (recTime > kickTime) {
+            timingViolations++;
+            invalidTimingRecords.push({
+                matchId: rec.matchId,
+                reason: `Zamanlama ihlali: kayıt zamanı (${rec.recordedBeforeKickoffAt}) kickoff (${rec.kickoff}) sonrasında`
+            });
+        }
 
         if (hasValidProb && isTimingValid && typeof rec.brier === 'number' && typeof rec.logLoss === 'number') {
             brierSum += rec.brier;
@@ -3425,7 +3486,10 @@ function evaluateModelPerformance(model, dayItems = []) {
         leaguesReport,
         verifiedMatches,
         pendingPreMatch,
-        allPreMatch: table.preMatchRecords
+        allPreMatch: table.preMatchRecords,
+        missingTimingCount,
+        timingViolations,
+        invalidTimingRecords
     };
 }
 
@@ -3435,17 +3499,23 @@ function verifyWalkForwardIntegrity(records = []) {
     let brierMismatches = 0;
     let invalidProbabilities = 0;
     let timingViolations = 0;
+    let missingTimingCount = 0;
 
     for (const rec of records) {
         // 1. Veri sızıntısı kontrolü: modelAsOfDate > rec.date olamaz!
         if (rec.modelAsOfDate && rec.date && rec.modelAsOfDate > rec.date) {
             leaksDetected++;
         }
-        // 2. Pre-match zamanlama kontrolü: recordedBeforeKickoffAt gerçek ISO formatında olmalı ve kickoff'tan sonra olamaz
-        if (rec.recordedBeforeKickoffAt && rec.kickoff) {
+        // 2. Pre-match zamanlama kontrolü: recordedBeforeKickoffAt ve kickoff gerçek ISO formatında olmalı ve recTime <= kickTime olmalı
+        const hasValidIso = Boolean(rec.recordedBeforeKickoffAt && typeof rec.recordedBeforeKickoffAt === 'string' && !isNaN(Date.parse(rec.recordedBeforeKickoffAt)));
+        const hasValidKickoff = Boolean(rec.kickoff && !isNaN(Date.parse(rec.kickoff)));
+        if (!hasValidIso || !hasValidKickoff) {
+            missingTimingCount++;
+            timingViolations++;
+        } else {
             const recTime = new Date(rec.recordedBeforeKickoffAt).getTime();
             const kickTime = new Date(rec.kickoff).getTime();
-            if (isNaN(recTime) || isNaN(kickTime) || recTime > kickTime) {
+            if (recTime > kickTime) {
                 timingViolations++;
             }
         }
@@ -3464,12 +3534,13 @@ function verifyWalkForwardIntegrity(records = []) {
     }
 
     return {
-        isValid: leaksDetected === 0 && brierMismatches === 0 && invalidProbabilities === 0 && timingViolations === 0,
+        isValid: leaksDetected === 0 && brierMismatches === 0 && invalidProbabilities === 0 && timingViolations === 0 && missingTimingCount === 0,
         totalChecked: records.length,
         leaksDetected,
         brierMismatches,
         invalidProbabilities,
-        timingViolations
+        timingViolations,
+        missingTimingCount
     };
 }
 
