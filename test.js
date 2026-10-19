@@ -422,6 +422,32 @@ async function runTests() {
         assert.ok(typeof sim.roiPct === 'number');
     });
 
+    await it('7.3: mockIncompleteMetricsTable ile sürpriz kupon açıklamasının Eksik kalibrasyon verisi ve doğrulanamadı içerdiği doğrulanmalı', () => {
+        const matches = [
+            {
+                m: { id: 401, home: 'Everton', away: 'Brighton', mbs: 1, inBulletin: true, state: 'pre' },
+                an: { quality: 'B', lh: 1.20, la: 1.20, p: { msx: 0.32 } }
+            }
+        ];
+        const coupons = engine.buildCoupons(matches, {}, { surpN: 1, customTable: mockIncompleteMetricsTable });
+        assert.ok(coupons.surprise.matches.length > 0, 'Sürpriz maç seçilmiş olmalı');
+        assert.ok(coupons.surprise.instruction.includes('Eksik kalibrasyon verisi'), 'Sürpriz kupon açıklamasında Eksik kalibrasyon verisi bulunmalı');
+        assert.ok(coupons.surprise.instruction.includes('doğrulanamadı'), 'Sürpriz kupon açıklamasında doğrulanamadı bulunmalı');
+    });
+
+    await it('7.4: mockDuplicateMatchesTable ile sürpriz kupon açıklamasının tekrarlanan maç kayıtları ve doğrulanamadı içerdiği doğrulanmalı', () => {
+        const matches = [
+            {
+                m: { id: 401, home: 'Everton', away: 'Brighton', mbs: 1, inBulletin: true, state: 'pre' },
+                an: { quality: 'B', lh: 1.20, la: 1.20, p: { msx: 0.32 } }
+            }
+        ];
+        const coupons = engine.buildCoupons(matches, {}, { surpN: 1, customTable: mockDuplicateMatchesTable });
+        assert.ok(coupons.surprise.matches.length > 0, 'Sürpriz maç seçilmiş olmalı');
+        assert.ok(coupons.surprise.instruction.includes('tekrarlanan maç kayıtları'), 'Sürpriz kupon açıklamasında tekrarlanan maç kayıtları bulunmalı');
+        assert.ok(coupons.surprise.instruction.includes('doğrulanamadı'), 'Sürpriz kupon açıklamasında doğrulanamadı bulunmalı');
+    });
+
     // ----------------------------------------------------
     // TEST GRUBU 8: Maç Öncesi Tahmin Kilitlemede oddsFresh Kontrolü
     // ----------------------------------------------------
