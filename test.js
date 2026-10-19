@@ -428,7 +428,8 @@ async function runTests() {
         assert.strictEqual(cost.columnStakeRule.costPerColumn, 50, 'Kolon başı tutar 50 TL olmalı');
         assert.strictEqual(cost.columnStakeRule.totalCost, 800, 'Kolon başı 50 TL ile 16 kolon 800 TL olmalı');
         assert.strictEqual(cost.couponTotalRule.totalCost, 50, 'Kupon tabanı kuralında toplam tutar 50 TL olmalı');
-        assert.strictEqual(cost.couponTotalRule.costPerColumn, 3.13, 'Kupon tabanı 50 TL olunca kolon başı ~3.13 TL olmalı');
+        assert.strictEqual(cost.couponTotalRule.exactCostPerColumn, 3.125, 'Kupon tabanı 50 TL olunca kolon başı net 3.125 TL olmalı');
+        assert.strictEqual(cost.couponTotalRule.sumOfColumns, 50, 'Kolon tutarlarının toplamı kupon tabanıyla birebir uyuşmalı');
 
         // Yapılandırılabilir özel tutar (örn: 100 TL)
         const sysCustom = engine.buildSystem345(sample5Matches, 100);
@@ -525,6 +526,110 @@ async function runTests() {
         assert.ok(coupons.surprise.matches.length > 0, 'Sürpriz maç seçilmiş olmalı');
         assert.ok(coupons.surprise.instruction.includes('tekrarlanan maç kayıtları'), 'Sürpriz kupon açıklamasında tekrarlanan maç kayıtları bulunmalı');
         assert.ok(coupons.surprise.instruction.includes('doğrulanamadı'), 'Sürpriz kupon açıklamasında doğrulanamadı bulunmalı');
+    });
+
+    await it('7.9: Gerçek oynanan oran yoksa eski öneri oranından ödeme hesaplanmamalı (m.odd fallback engeli)', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+        // Sonuçlarda won: true var, ancak settledOdd / playedOdd verilmemiş (sadece kupon oluşturulurken m.odd vardı)
+        const resultsWithoutPlayedOdds = [
+            { matchId: 101, won: true },
+            { matchId: 102, won: true },
+            { matchId: 103, won: true },
+            { matchId: 104, won: true },
+            { matchId: 105, won: true }
+        ];
+
+        const settlement = engine.settleSystem345(sys, resultsWithoutPlayedOdds, { costPerColumn: 50 });
+        assert.strictEqual(settlement.isSettled, false);
+        assert.strictEqual(settlement.settlementStatus, 'Gerçek ödeme hesaplanamıyor');
+        assert.ok(settlement.reason.includes('eski öneri oranı') || settlement.reason.includes('kayıtlı değil'));
+    });
+
+    await it('7.10: Ertelenen maç (postponed / ppd) iptal/geçersiz kararı kesinleşmeden kupon sonuçlandırılmamalı', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+        // 104 numaralı maç ertelendi, ancak void/cancelled kesinleşmedi
+        const resultsWithPostponed = [
+            { matchId: 101, won: true, settledOdd: 3.20 },
+            { matchId: 102, won: true, settledOdd: 3.40 },
+            { matchId: 103, won: true, settledOdd: 3.10 },
+            { matchId: 104, won: null, postponed: true, void: false }, // Ertelendi, karar bekleniyor
+            { matchId: 105, won: false, settledOdd: 2.30 }
+        ];
+
+        const settlement = engine.settleSystem345(sys, resultsWithPostponed, { costPerColumn: 50 });
+        assert.strictEqual(settlement.isSettled, false);
+        assert.strictEqual(settlement.settlementStatus, 'Maçlar henüz tamamlanmadı');
+        assert.strictEqual(settlement.pendingMatchesCount, 1);
+        assert.ok(settlement.message.includes('Ertelenen veya'));
+    });
+
+    await it('7.11: Kesin iptal edilen maç (void/cancelled) 1.00 oranla değerlendirilmeli ve kupon sonuçlandırılmalı', () => {
+        const sys = engine.buildSystem345(sample5Matches);
+        // 104 numaralı maç resmi olarak iptal edildi (cancelled: true)
+        const resultsWithCancelled = [
+            { matchId: 101, won: true, settledOdd: 3.20 },
+            { matchId: 102, won: true, settledOdd: 3.40 },
+            { matchId: 103, won: true, settledOdd: 3.10 },
+            { matchId: 104, won: false, cancelled: true }, // Kesinleşmiş iptal: Oran 1.00
+            { matchId: 105, won: false, settledOdd: 2.30 }
+        ];
+
+        const settlement = engine.settleSystem345(sys, resultsWithCancelled, { costPerColumn: 50, totalCost: 800 });
+        assert.strictEqual(settlement.isSettled, true);
+        assert.strictEqual(settlement.settlementStatus, 'Sonuçlandı');
+        assert.strictEqual(settlement.wonColumnsCount, 5); // 4 başarılı maç (biri void=1.00) ile 5 kolon kazanır
+        assert.ok(settlement.settledPayout > 0);
+    });
+
+    await it('7.12: Bayat oranlarla (oddsFresh=false) kolon toplam oranı oluşturulmamalı (totalOdd null olmalı)', () => {
+        const matchesWithStale = [
+            { id: 201, home: 'Real Madrid', away: 'Sevilla', key: 'msx', p: 0.35, hasRealOdd: true, realOdd: 3.20, oddsFresh: true },
+            { id: 202, home: 'Arsenal', away: 'Chelsea', key: 'ms2', p: 0.30, hasRealOdd: true, realOdd: 3.40, oddsFresh: true },
+            { id: 203, home: 'Milan', away: 'Inter', key: 'ust35', p: 0.32, hasRealOdd: true, realOdd: 3.10, oddsFresh: false }, // Bayat oran!
+            { id: 204, home: 'Ajax', away: 'PSV', key: 'kgv', p: 0.40, hasRealOdd: true, realOdd: 2.10, oddsFresh: true },
+            { id: 205, home: 'Porto', away: 'Benfica', key: 'dcx2', p: 0.38, hasRealOdd: true, realOdd: 2.30, oddsFresh: true }
+        ];
+
+        const sys = engine.buildSystem345(matchesWithStale);
+        // 203 numaralı maçı içeren kolonların tamamında totalOdd null olmalıdır
+        const colsWithStaleMatch = sys.columns.filter(c => c.matches.some(m => m.matchId === 203));
+        assert.ok(colsWithStaleMatch.length > 0, 'Bayat maç içeren kolonlar bulunmalı');
+        colsWithStaleMatch.forEach(c => {
+            assert.strictEqual(c.totalOdd, null, `Kolon #${c.columnIndex} bayat oran içerdiği için totalOdd null olmalı`);
+        });
+
+        // 203 numaralı maçı içermeyen (sadece taze oranlı maçlardan oluşan) kolonların totalOdd değeri hesaplanabilmeli
+        const colsAllFresh = sys.columns.filter(c => !c.matches.some(m => m.matchId === 203));
+        assert.ok(colsAllFresh.length > 0);
+        colsAllFresh.forEach(c => {
+            assert.ok(typeof c.totalOdd === 'number' && c.totalOdd > 0, `Tamamı taze kolon #${c.columnIndex} için totalOdd hesaplanmalı`);
+        });
+    });
+
+    await it('7.13: Kolon tutarlarının toplamı gerçek toplam maliyetle birebir uyuşmalı (sıfır yuvarlama çelişkisi)', () => {
+        const sys = engine.buildSystem345(sample5Matches, 50);
+        const cost = sys.costAnalysis;
+
+        // 1. Kupon tabanı senaryosu: 16 x 3.125 = 50.00 TL (sıfır kuruş farkı)
+        assert.strictEqual(cost.couponTotalRule.sumOfColumns, 50);
+        assert.strictEqual(cost.couponTotalRule.roundingDiscrepancy, 0);
+        assert.strictEqual(+(16 * cost.couponTotalRule.exactCostPerColumn).toFixed(2), cost.couponTotalRule.totalCost);
+
+        // 2. Kolon başı senaryosu: 16 x 50 = 800.00 TL
+        assert.strictEqual(cost.columnStakeRule.sumOfColumns, 800);
+        assert.strictEqual(cost.columnStakeRule.roundingDiscrepancy, 0);
+
+        // 3. settleSystem345 içinde tutar tutarlılığı
+        const results = [
+            { matchId: 101, won: true, settledOdd: 3.20 },
+            { matchId: 102, won: true, settledOdd: 3.40 },
+            { matchId: 103, won: true, settledOdd: 3.10 },
+            { matchId: 104, won: true, settledOdd: 2.10 },
+            { matchId: 105, won: true, settledOdd: 2.30 }
+        ];
+        const settle50 = engine.settleSystem345(sys, results, { totalCost: 50 });
+        assert.strictEqual(settle50.sumOfColumns, 50);
+        assert.strictEqual(settle50.totalCost, 50);
     });
 
     // ----------------------------------------------------

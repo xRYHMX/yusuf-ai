@@ -2141,11 +2141,14 @@ function buildSystem345(matches, minBetAmount = 50) {
     const columns = [];
     let colIdx = 1;
 
+    // Her maç için hem hasRealOdd hem oddsFresh zorunludur (Madde 4)
+    const isOddValidAndFresh = (m) => Boolean(m.hasRealOdd && m.oddsFresh && typeof m.odd === 'number' && m.odd > 1.0);
+
     // 10 Adet Üçlü Kolon
     for (const c of comb3) {
         const colMatches = [mappedMatches[c[0]], mappedMatches[c[1]], mappedMatches[c[2]]];
-        const allHaveRealOdds = colMatches.every(m => m.hasRealOdd && m.odd !== null);
-        const totalOdd = allHaveRealOdds
+        const allFreshRealOdds = colMatches.every(isOddValidAndFresh);
+        const totalOdd = allFreshRealOdds
             ? +(colMatches[0].odd * colMatches[1].odd * colMatches[2].odd).toFixed(2)
             : null;
         columns.push({
@@ -2161,8 +2164,8 @@ function buildSystem345(matches, minBetAmount = 50) {
     // 5 Adet Dörtlü Kolon
     for (const c of comb4) {
         const colMatches = [mappedMatches[c[0]], mappedMatches[c[1]], mappedMatches[c[2]], mappedMatches[c[3]]];
-        const allHaveRealOdds = colMatches.every(m => m.hasRealOdd && m.odd !== null);
-        const totalOdd = allHaveRealOdds
+        const allFreshRealOdds = colMatches.every(isOddValidAndFresh);
+        const totalOdd = allFreshRealOdds
             ? +(colMatches[0].odd * colMatches[1].odd * colMatches[2].odd * colMatches[3].odd).toFixed(2)
             : null;
         columns.push({
@@ -2178,8 +2181,8 @@ function buildSystem345(matches, minBetAmount = 50) {
     // 1 Adet Beşli Kolon
     {
         const colMatches = mappedMatches;
-        const allHaveRealOdds = colMatches.every(m => m.hasRealOdd && m.odd !== null);
-        const totalOdd = allHaveRealOdds
+        const allFreshRealOdds = colMatches.every(isOddValidAndFresh);
+        const totalOdd = allFreshRealOdds
             ? +(colMatches.reduce((acc, m) => acc * m.odd, 1)).toFixed(2)
             : null;
         columns.push({
@@ -2192,7 +2195,14 @@ function buildSystem345(matches, minBetAmount = 50) {
         });
     }
 
-    const allMatchesHaveRealOdds = mappedMatches.every(m => m.hasRealOdd && m.odd !== null && m.oddsFresh);
+    const allMatchesHaveRealOdds = mappedMatches.every(isOddValidAndFresh);
+
+    // Jack Kontrol 3: Yuvarlama nedeniyle toplam tutar ile kolon tutarları çelişmemelidir.
+    // 50 TL / 16 = 3.125 TL net. 16 * 3.125 = 50.00 TL (sıfır kuruş çelişkisi).
+    const exactPerColumnForTotal = +(effectiveMinBet / 16).toFixed(4); // 3.125
+    const exactSumCouponTotal = +(16 * exactPerColumnForTotal).toFixed(2); // 50.00
+    const exactSumColumnStake = +(16 * effectiveMinBet).toFixed(2); // 800.00
+    const roundedDisplay = +(effectiveMinBet / 16).toFixed(2); // 3.13
 
     return {
         systemName: 'Sistem 3-4-5',
@@ -2206,17 +2216,47 @@ function buildSystem345(matches, minBetAmount = 50) {
         costAnalysis: {
             totalColumns: 16,
             minBetAmount: effectiveMinBet,
+            isVerifiedByNesineScreen: false,
+            unverifiedNotice: 'Gerçek Nesine kupon onay ekranındaki Misli / Kolon Bedeli teyit edilmeden kesin toplam maliyet veya ödeme belirlenemez.',
             couponTotalRule: {
+                scenarioName: 'Kupon Tabanı Kuralı',
                 totalCost: effectiveMinBet,
-                costPerColumn: +(effectiveMinBet / 16).toFixed(2),
-                label: `Kupon Tabanı ${effectiveMinBet} TL (16 kolon için kolon başı ~${(effectiveMinBet / 16).toFixed(2)} TL)`
+                costPerColumn: exactPerColumnForTotal,
+                exactCostPerColumn: exactPerColumnForTotal,
+                roundedDisplay,
+                sumOfColumns: exactSumCouponTotal,
+                roundingDiscrepancy: +(exactSumCouponTotal - effectiveMinBet).toFixed(4),
+                label: `Kupon Tabanı ${effectiveMinBet} TL (16 kolon için kolon başı net ${exactPerColumnForTotal} TL, toplam: ${exactSumCouponTotal} TL)`,
+                description: `Kupon taban tutarı ${effectiveMinBet} TL uygulandığında 16 kolonun her birine net ${exactPerColumnForTotal} TL düşer; 16 kolonun toplamı (${exactSumCouponTotal} TL) kupon taban tutarıyla birebir uyuşur.`
             },
             columnStakeRule: {
-                totalCost: 16 * effectiveMinBet,
+                scenarioName: 'Kolon Başı Tutar Kuralı',
+                totalCost: exactSumColumnStake,
                 costPerColumn: effectiveMinBet,
-                label: `Kolon Başı ${effectiveMinBet} TL (16 kolon için toplam ${16 * effectiveMinBet} TL)`
+                sumOfColumns: exactSumColumnStake,
+                roundingDiscrepancy: 0,
+                label: `Kolon Başı ${effectiveMinBet} TL (16 kolon için toplam ${exactSumColumnStake} TL)`,
+                description: `Kolon başına ${effectiveMinBet} TL oynandığında 16 kolonun toplam maliyeti tam ${exactSumColumnStake} TL eder.`
             },
-            note: `Nesine'de kupon taban ücreti ${effectiveMinBet} TL'dir. Kolon başı ${effectiveMinBet} TL oynandığında toplam maliyet ${16 * effectiveMinBet} TL; kupon toplamı minimum ${effectiveMinBet} TL olarak yatırıldığında kolon başı tutar ~${(effectiveMinBet / 16).toFixed(2)} TL olmaktadır. Gerçek kupon bedeli Nesine kupon onay ekranındaki 'Misli / Kolon Bedeli' seçiminize bağlıdır; tek bir toplam kesin kabul edilmemelidir.`
+            couponTotalScenario: {
+                scenarioName: 'Kupon Tabanı Kuralı',
+                totalCost: effectiveMinBet,
+                costPerColumn: exactPerColumnForTotal,
+                exactCostPerColumn: exactPerColumnForTotal,
+                roundedDisplay,
+                sumOfColumns: exactSumCouponTotal,
+                roundingDiscrepancy: +(exactSumCouponTotal - effectiveMinBet).toFixed(4),
+                label: `Kupon Tabanı ${effectiveMinBet} TL (16 kolon için kolon başı net ${exactPerColumnForTotal} TL, toplam: ${exactSumCouponTotal} TL)`
+            },
+            columnStakeScenario: {
+                scenarioName: 'Kolon Başı Tutar Kuralı',
+                totalCost: exactSumColumnStake,
+                costPerColumn: effectiveMinBet,
+                sumOfColumns: exactSumColumnStake,
+                roundingDiscrepancy: 0,
+                label: `Kolon Başı ${effectiveMinBet} TL (16 kolon için toplam ${exactSumColumnStake} TL)`
+            },
+            note: `Nesine'de tek bir doğrulanmış taban kuralı varsayılmamalıdır. Kolon başı ${effectiveMinBet} TL oynandığında toplam maliyet ${exactSumColumnStake} TL; kupon toplamı minimum ${effectiveMinBet} TL tabanıyla oynandığında kolon başı net ${exactPerColumnForTotal} TL (16 x ${exactPerColumnForTotal} = ${exactSumCouponTotal} TL) olmaktadır. Gerçek kupon bedeli Nesine kupon onay ekranındaki seçiminize göre doğrulanmalıdır.`
         },
         settlement: {
             isSettled: false,
@@ -2231,16 +2271,37 @@ function settleSystem345(system345, results, actualStake = {}) {
         return { isSettled: false, error: 'Geçersiz Sistem 3-4-5 nesnesi' };
     }
 
+    // Gerçek oynanan kupon onay ekranındaki tutarın doğrulanması gerekir
     const hasValidStake = (typeof actualStake.costPerColumn === 'number' && actualStake.costPerColumn > 0)
         || (typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0);
 
+    if (!hasValidStake) {
+        return {
+            isSettled: false,
+            settlementStatus: 'Gerçek ödeme hesaplanamıyor',
+            reason: 'Gerçek yatırılan bahis tutarı (kolon başı veya kupon toplamı) kayıtlı veya doğrulanmış değil.',
+            settledPayout: null
+        };
+    }
+
     const costPerColumn = typeof actualStake.costPerColumn === 'number' && actualStake.costPerColumn > 0
         ? actualStake.costPerColumn
-        : (typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0 ? +(actualStake.totalCost / 16).toFixed(4) : null);
+        : (typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0 ? +(actualStake.totalCost / 16) : null);
 
     const totalCost = typeof actualStake.totalCost === 'number' && actualStake.totalCost > 0
         ? actualStake.totalCost
         : (costPerColumn ? +(costPerColumn * 16).toFixed(2) : null);
+
+    // Yuvarlama kontrolü: 16 kolonun tutarları toplamı ile totalCost birebir uyuşmalı (Madde 3 & 5)
+    const calculatedColumnsSum = +(16 * costPerColumn).toFixed(2);
+    if (Math.abs(calculatedColumnsSum - totalCost) > 0.01) {
+        return {
+            isSettled: false,
+            settlementStatus: 'Gerçek ödeme hesaplanamıyor',
+            reason: `Kolon tutarları toplamı (${calculatedColumnsSum} TL) ile kupon toplam maliyeti (${totalCost} TL) arasında yuvarlama çelişkisi tespit edildi.`,
+            settledPayout: null
+        };
+    }
 
     const resultMap = new Map();
     if (results instanceof Map) {
@@ -2255,43 +2316,64 @@ function settleSystem345(system345, results, actualStake = {}) {
     }
 
     const matches = system345.matches || [];
-    const missingResults = matches.filter(m => !resultMap.has(String(m.matchId)));
 
-    if (missingResults.length > 0) {
+    // 1. Ertelenen ve henüz kesinleşmemiş maç kontrolü (Madde 2)
+    // Postponed durumu otomatik void (1.00) kabul EDİLEMEZ.
+    // Yalnızca resmi iptal/geçersiz (void/cancelled) kararı kesinleşmiş maçlar 1.00 oran alır.
+    const pendingMatches = matches.filter(m => {
+        const res = resultMap.get(String(m.matchId));
+        if (!res) return true; // Sonuç kaydı yok
+
+        const isFinalVoid = Boolean(res.void || res.cancelled || res.isVoid || res.isCancelled || res.state === 'canc');
+        if (isFinalVoid) return false; // Kesinleşmiş iptal, beklenmez (oranı 1.00 kabul edilir)
+
+        // Ertelenmiş (postponed / ppd) ve henüz iptal/geçersiz kesinleşmemiş maç
+        const isPostponed = Boolean(res.postponed || res.state === 'ppd');
+        if (isPostponed) return true; // Karar bekliyor
+
+        // Sonuçlanmamış maç (won değeri boolean değil)
+        return typeof res.won !== 'boolean';
+    });
+
+    if (pendingMatches.length > 0) {
         return {
             isSettled: false,
             settlementStatus: 'Maçlar henüz tamamlanmadı',
-            pendingMatchesCount: missingResults.length,
+            pendingMatchesCount: pendingMatches.length,
             settledPayout: null,
-            message: 'Maçlar tamamlanmadan gerçek kazanç hesaplanamaz. Kalan maçların sonuçlanması bekleniyor.'
+            message: 'Ertelenen veya sonucu henüz kesinleşmeyen maçlar bulunmaktadır. İptal/geçersiz kararı kesinleşmeden veya ertelenen maç oynanmadan kupon sonuçlandırılamaz.'
         };
     }
 
-    const missingOdds = matches.filter(m => {
+    // 2. Gerçek oynanan oran kontrolü (Madde 1)
+    // Kullanıcının gerçekten oynadığı ve kaydedilmiş oran zorunludur.
+    // Öneri anındaki m.odd değerine ASLA geri dönülmez (fallback yapılmaz).
+    const missingPlayedOdds = matches.filter(m => {
         const res = resultMap.get(String(m.matchId));
-        if (res && (res.void || res.cancelled || res.postponed)) return false;
-        const odd = (res && typeof res.settledOdd === 'number') ? res.settledOdd : m.odd;
-        return typeof odd !== 'number' || odd <= 1.0;
+        const isFinalVoid = Boolean(res && (res.void || res.cancelled || res.isVoid || res.isCancelled || res.state === 'canc'));
+        if (isFinalVoid) return false; // İptal maçta oran 1.00'e sabitlenir, oynanan orana gerek kalmaz
+
+        const playedOdd = (res && typeof res.settledOdd === 'number')
+            ? res.settledOdd
+            : (res && typeof res.playedOdd === 'number')
+                ? res.playedOdd
+                : (res && typeof res.actualOdd === 'number')
+                    ? res.actualOdd
+                    : null;
+
+        return typeof playedOdd !== 'number' || playedOdd <= 1.0;
     });
 
-    if (missingOdds.length > 0) {
+    if (missingPlayedOdds.length > 0) {
         return {
             isSettled: false,
             settlementStatus: 'Gerçek ödeme hesaplanamıyor',
-            reason: 'Gerçek oynanan oran kayıtlı değil veya eksik.',
+            reason: 'Kullanıcının oynadığı gerçek Nesine oranı kayıtlı değil veya eksik (eski öneri oranı ödeme hesabında kullanılamaz).',
             settledPayout: null
         };
     }
 
-    if (!hasValidStake) {
-        return {
-            isSettled: false,
-            settlementStatus: 'Gerçek ödeme hesaplanamıyor',
-            reason: 'Gerçek yatırılan bahis tutarı kayıtlı değil.',
-            settledPayout: null
-        };
-    }
-
+    // 3. Kolonların sonuçlandırılması
     let settledPayout = 0;
     let wonColumnsCount = 0;
     const settledColumns = system345.columns.map(col => {
@@ -2301,20 +2383,28 @@ function settleSystem345(system345, results, actualStake = {}) {
 
         for (const m of col.matches) {
             const res = resultMap.get(String(m.matchId));
-            const isVoid = Boolean(res.void || res.cancelled || res.postponed);
-            const isWon = Boolean(res.won);
-            const effectiveOdd = isVoid ? 1.00 : ((typeof res.settledOdd === 'number') ? res.settledOdd : m.odd);
+            const isFinalVoid = Boolean(res && (res.void || res.cancelled || res.isVoid || res.isCancelled || res.state === 'canc'));
+            const isWon = Boolean(res && res.won);
+
+            // Gerçek oynanan oran: Sadece kayıtlı gerçek oran alınır, m.odd fallback'i KESİNLİKLE YOKTUR!
+            const effectiveOdd = isFinalVoid
+                ? 1.00
+                : ((res && typeof res.settledOdd === 'number')
+                    ? res.settledOdd
+                    : ((res && typeof res.playedOdd === 'number')
+                        ? res.playedOdd
+                        : res.actualOdd));
 
             colMatchDetails.push({
                 matchId: m.matchId,
                 home: m.home,
                 away: m.away,
-                isVoid,
+                isVoid: isFinalVoid,
                 won: isWon,
                 odd: effectiveOdd
             });
 
-            if (!isVoid && !isWon) {
+            if (!isFinalVoid && !isWon) {
                 colWon = false;
             } else {
                 colMultiplier *= effectiveOdd;
@@ -2348,6 +2438,7 @@ function settleSystem345(system345, results, actualStake = {}) {
         lostColumnsCount: 16 - wonColumnsCount,
         totalCost,
         costPerColumn,
+        sumOfColumns: calculatedColumnsSum,
         settledPayout,
         netProfit,
         columns: settledColumns,
