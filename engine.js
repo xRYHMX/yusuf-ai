@@ -36,6 +36,29 @@ function fitLambda(p1, pX, p2, pO, lh0, la0) {
     return best;
 }
 
+// ---------------- Kronolojik Zaman Damgası & Sıralama Yardımcıları ----------------
+function getMatchTimestamp(g) {
+    if (!g) return 0;
+    if (g.kickoff) {
+        const ms = new Date(g.kickoff).getTime();
+        if (!isNaN(ms)) return ms;
+    }
+    const d = g.date || '1970-01-01';
+    const t = g.time ? (g.time.length === 5 ? g.time + ':00' : g.time) : '12:00:00';
+    const ms = new Date(`${d}T${t}Z`).getTime();
+    return isNaN(ms) ? new Date(d + 'T12:00:00Z').getTime() : ms;
+}
+
+function getSortedMatchesDesc(list) {
+    if (!Array.isArray(list) || list.length === 0) return [];
+    return list.slice().sort((a, b) => {
+        const tA = getMatchTimestamp(a);
+        const tB = getMatchTimestamp(b);
+        if (tA !== tB) return tB - tA; // En yeni maç en başta (index 0)
+        return String(b.id || '').localeCompare(String(a.id || ''));
+    });
+}
+
 // ---------------- Model kurulumu (yalnızca asOf tarihinden ÖNCEKİ maçlarla) ----------------
 function buildModel(hist, asOf, opts = {}) {
     const asOfT = new Date(asOf + 'T00:00:00Z').getTime();
@@ -100,7 +123,9 @@ function buildModel(hist, asOf, opts = {}) {
                 n: 0, w: 0, gf: 0, bgf: 0, ga: 0, bga: 0, gf1: 0, ga1: 0,
                 hn: 0, hw: 0, hgf: 0, hbgf: 0, hga: 0, hbga: 0, hgf1: 0, hga1: 0,
                 an: 0, aw: 0, agf: 0, abgf: 0, aga: 0, abga: 0, agf1: 0, aga1: 0,
-                last: []
+                last: [],
+                homeLast: [],
+                awayLast: []
             };
             teams.set(id, t);
         }
@@ -119,10 +144,21 @@ function buildModel(hist, asOf, opts = {}) {
         a.n++; a.w += w; a.gf += w * m.score.a; a.bgf += w * L.muA; a.ga += w * m.score.h; a.bga += w * L.muH; a.gf1 += w * m.ht.a; a.ga1 += w * m.ht.h;
         a.an++; a.aw += w; a.agf += w * m.score.a; a.abgf += w * L.muA; a.aga += w * m.score.h; a.abga += w * L.muH; a.agf1 += w * m.ht.a; a.aga1 += w * m.ht.h;
 
-        h.last.push({ id: m.id, isHome: true, date: m.date, oppId: m.awayId, opp: m.away, home: true, gf: m.score.h, ga: m.score.a, ht: m.ht });
-        a.last.push({ id: m.id, isHome: false, date: m.date, oppId: m.homeId, opp: m.home, home: false, gf: m.score.a, ga: m.score.h, ht: { h: m.ht.a, a: m.ht.h } });
+        const hMatch = { id: m.id, isHome: true, date: m.date, time: m.time, kickoff: m.kickoff, oppId: m.awayId, opp: m.away, home: true, gf: m.score.h, ga: m.score.a, ht: m.ht };
+        const aMatch = { id: m.id, isHome: false, date: m.date, time: m.time, kickoff: m.kickoff, oppId: m.homeId, opp: m.home, home: false, gf: m.score.a, ga: m.score.h, ht: { h: m.ht.a, a: m.ht.h } };
+
+        h.last.push(hMatch);
+        h.homeLast.push(hMatch);
+
+        a.last.push(aMatch);
+        a.awayLast.push(aMatch);
     }
-    for (const t of teams.values()) t.last.sort((x, y) => (x.date < y.date ? 1 : -1));
+    // Tüm takımların son maçlarını KESİNLİKLE en yeniden en eskiye sırala (index 0 = en yeni maç)
+    for (const t of teams.values()) {
+        t.last = getSortedMatchesDesc(t.last);
+        t.homeLast = getSortedMatchesDesc(t.homeLast);
+        t.awayLast = getSortedMatchesDesc(t.awayLast);
+    }
 
     // Temel oranlar (lift hesabı için): geçmiş maçlarda her pazarın gerçekleşme sıklığı
     const base = {}; let nb = 0;
@@ -383,12 +419,34 @@ function computeMarkets(lh, la, sh, sa, rho = -0.08) {
 }
 
 // ---------------- Derin Takım Özeti (Son 10 Maç, Son 5 Maç, Ev/Dep Karnesi, 1Y/2Y Dağılımı & İstikrar) ----------------
-function teamFacts(t) {
+function teamFacts(t, matchDateIso = null) {
     if (!t) return null;
-    const last = t.last.slice(0, 10);
-    const last5 = t.last.slice(0, 5);
-    const homeGames = t.last.filter(x => x.home).slice(0, 6);
-    const awayGames = t.last.filter(x => !x.home).slice(0, 6);
+    const targetMs = matchDateIso ? new Date(matchDateIso + 'T12:00:00Z').getTime() : null;
+    let pool = Array.isArray(t.last) ? t.last : [];
+    if (targetMs !== null) {
+        pool = pool.filter(g => getMatchTimestamp(g) < targetMs);
+    }
+    const sorted = getSortedMatchesDesc(pool);
+    const last = sorted.slice(0, 10);
+    const last5 = sorted.slice(0, 5);
+
+    let homePool = (t.homeLast && Array.isArray(t.homeLast) && t.homeLast.length > 0)
+        ? t.homeLast
+        : sorted.filter(x => x.home || x.isHome);
+    if (targetMs !== null) {
+        homePool = homePool.filter(g => getMatchTimestamp(g) < targetMs);
+    }
+    const homeMatches = getSortedMatchesDesc(homePool);
+    const homeGames = homeMatches.slice(0, 6);
+
+    let awayPool = (t.awayLast && Array.isArray(t.awayLast) && t.awayLast.length > 0)
+        ? t.awayLast
+        : sorted.filter(x => !x.home && !x.isHome);
+    if (targetMs !== null) {
+        awayPool = awayPool.filter(g => getMatchTimestamp(g) < targetMs);
+    }
+    const awayMatches = getSortedMatchesDesc(awayPool);
+    const awayGames = awayMatches.slice(0, 6);
 
     const avg = (arr, f) => (arr.length ? arr.reduce((s, x) => s + f(x), 0) / arr.length : null);
     const r1 = (v) => (v === null ? null : Math.round(v * 100) / 100);
@@ -402,8 +460,8 @@ function teamFacts(t) {
     const cleanSheetPct = last.length ? Math.round((last.filter(x => x.ga === 0).length / last.length) * 100) : 0;
 
     // 1. Yarı ve 2. Yarı gol üretimi, yeme ortalamaları ve yüzde dağılımı
-    const gf1Val = r1(avg(last, x => x.ht.h)) || 0;
-    const ga1Val = r1(avg(last, x => x.ht.a)) || 0;
+    const gf1Val = r1(avg(last, x => (x.ht ? x.ht.h : 0))) || 0;
+    const ga1Val = r1(avg(last, x => (x.ht ? x.ht.a : 0))) || 0;
     const gf2 = r1(avg(last, x => Math.max(0, x.gf - (x.ht ? x.ht.h : 0)))) || 0;
     const ga2 = r1(avg(last, x => Math.max(0, x.ga - (x.ht ? x.ht.a : 0)))) || 0;
     const totGf = Math.max(0.1, gf1Val + gf2);
@@ -430,12 +488,12 @@ function teamFacts(t) {
         n: t.n,
         hn: t.hn,
         an: t.an,
-        form: formStr(t.last, 5),
-        formStr: formStr(t.last, 5),
-        form10Str: formStr(t.last, 10),
+        form: formStr(sorted, 5),
+        formStr: formStr(sorted, 5),
+        form10Str: formStr(sorted, 10),
         last10Pts,
-        homeForm: formStr(homeGames, 5),
-        awayForm: formStr(awayGames, 5),
+        homeForm: formStr(homeMatches, 5),
+        awayForm: formStr(awayMatches, 5),
         gf: r1(avg(last, x => x.gf)),
         ga: r1(avg(last, x => x.ga)),
         last5Gf: r1(avg(last5, x => x.gf)),
@@ -452,13 +510,13 @@ function teamFacts(t) {
         h2GoalSharePct,
         over25: r1(avg(last, x => (x.gf + x.ga > 2.5 ? 1 : 0))),
         btts: r1(avg(last, x => (x.gf > 0 && x.ga > 0 ? 1 : 0))),
-        iyGol: r1(avg(last, x => (x.ht.h + x.ht.a > 0 ? 1 : 0))),
+        iyGol: r1(avg(last, x => (((x.ht?.h || 0) + (x.ht?.a || 0)) > 0 ? 1 : 0))),
         cleanSheetPct,
         leadHoldPct,
         comebackPct,
         consistencyPct,
         volatilityPct,
-        son: t.last.slice(0, 5).map(x => `${x.home ? 'E' : 'D'} ${x.opp} ${x.gf}-${x.ga}`),
+        son: sorted.slice(0, 5).map(x => `${x.home ? 'E' : 'D'} ${x.opp} ${x.gf}-${x.ga}`),
         son10Count: last.length,
         homeSon: homeGames.slice(0, 4).map(x => `${x.opp} ${x.gf}-${x.ga}`),
         awaySon: awayGames.slice(0, 4).map(x => `${x.opp} ${x.gf}-${x.ga}`)
@@ -471,12 +529,23 @@ function computeRestAndFatigue(t, matchDateIso) {
         return { restDays: null, gamesLast10d: 0, isFatigued: false, isFresh: false, attMod: 1.0, dfnMod: 1.0, shMod: 0, label: 'Normal Fikstür' };
     }
     const targetMs = new Date(matchDateIso + 'T12:00:00Z').getTime();
-    const lastMs = new Date(t.last[0].date + 'T12:00:00Z').getTime();
+
+    // Yalnızca hedef maç tarihinden kesinlikle ÖNCEKİ maçları al (gelecek maç sızıntısı engellenir)
+    const validMatches = getSortedMatchesDesc(t.last.filter(g => {
+        const ms = getMatchTimestamp(g);
+        return ms < targetMs;
+    }));
+
+    if (!validMatches.length) {
+        return { restDays: null, gamesLast10d: 0, isFatigued: false, isFresh: false, attMod: 1.0, dfnMod: 1.0, shMod: 0, label: 'Normal Fikstür' };
+    }
+
+    const lastMs = getMatchTimestamp(validMatches[0]);
     const restDays = Math.max(1, Math.round((targetMs - lastMs) / 86400000));
 
     let gamesLast10d = 0;
-    for (const g of t.last) {
-        const d = Math.round((targetMs - new Date(g.date + 'T12:00:00Z').getTime()) / 86400000);
+    for (const g of validMatches) {
+        const d = Math.round((targetMs - getMatchTimestamp(g)) / 86400000);
         if (d > 0 && d <= 10) gamesLast10d++;
     }
 
@@ -762,13 +831,21 @@ function analyzeH2HAndCommon(th, ta, m, intel) {
     // 1. H2H (Hem 75 günlük veritabanı hem de dış istihbarat geçmiş sezonlar)
     const h2hList = [];
     const seenDates = new Set();
+    const matchKickoffMs = m ? getMatchTimestamp(m) : null;
+    const matchDateStr = m ? m.date : null;
 
-    if (th && ta) {
+    if (th && ta && Array.isArray(th.last)) {
         for (const g of th.last) {
+            // Gelecek maç veya maçın kendisi sızamaz!
+            if (m && (g.id === m.id || (matchKickoffMs && getMatchTimestamp(g) >= matchKickoffMs))) continue;
+            if (matchDateStr && g.date >= matchDateStr) continue;
+
             if (g.oppId === ta.id) {
                 seenDates.add(g.date);
                 h2hList.push({
                     date: g.date,
+                    time: g.time,
+                    kickoff: g.kickoff,
                     homeTeam: g.home ? th.name : ta.name,
                     awayTeam: g.home ? ta.name : th.name,
                     homeGoals: g.home ? g.gf : g.ga,
@@ -782,11 +859,15 @@ function analyzeH2HAndCommon(th, ta, m, intel) {
 
     if (intel && Array.isArray(intel.espnH2H)) {
         for (const eh of intel.espnH2H) {
+            if (m && (eh.id === m.id || (matchKickoffMs && getMatchTimestamp(eh) >= matchKickoffMs))) continue;
+            if (matchDateStr && eh.date >= matchDateStr) continue;
             if (seenDates.has(eh.date)) continue;
             seenDates.add(eh.date);
             const isThHome = eh.home && m.home && eh.home.toLowerCase().slice(0, 4) === m.home.toLowerCase().slice(0, 4);
             h2hList.push({
                 date: eh.date,
+                time: eh.time,
+                kickoff: eh.kickoff,
                 homeTeam: eh.home,
                 awayTeam: eh.away,
                 homeGoals: eh.gh,
@@ -797,17 +878,28 @@ function analyzeH2HAndCommon(th, ta, m, intel) {
         }
     }
 
+    // H2H maçlarını KESİNLİKLE en yeniden en eskiye sırala!
+    h2hList.sort((a, b) => getMatchTimestamp(b) - getMatchTimestamp(a));
+
     let h2hModH = 1.0, h2hModA = 1.0, h2hSummary = null;
     if (h2hList.length > 0) {
         let hw = 0, d = 0, aw = 0, totG = 0;
-        for (const item of h2hList) {
+        let weightedDiff = 0, totalH2hW = 0;
+        for (let i = 0; i < h2hList.length; i++) {
+            const item = h2hList[i];
             if (item.thGoals > item.taGoals) hw++;
             else if (item.thGoals === item.taGoals) d++;
             else aw++;
             totG += item.thGoals + item.taGoals;
+
+            // En son H2H maçlarına daha yüksek ağırlık ver (kronolojik ağırlıklandırma)
+            const w = Math.max(1, h2hList.length - i);
+            const outcomeVal = item.thGoals > item.taGoals ? 1 : item.thGoals < item.taGoals ? -1 : 0;
+            weightedDiff += w * outcomeVal;
+            totalH2hW += w;
         }
         const avgG = (totG / h2hList.length).toFixed(1);
-        const diff = (hw - aw) / h2hList.length;
+        const diff = totalH2hW > 0 ? (weightedDiff / totalH2hW) : ((hw - aw) / h2hList.length);
         h2hModH = Math.min(1.07, Math.max(0.93, 1 + 0.06 * diff));
         h2hModA = Math.min(1.07, Math.max(0.93, 1 - 0.06 * diff));
         const scoresText = h2hList.slice(0, 3).map(x => `${x.thGoals}-${x.taGoals}`).join(', ');
@@ -816,9 +908,12 @@ function analyzeH2HAndCommon(th, ta, m, intel) {
 
     // 2. Ortak Rakipler (Common Opponents)
     let commonModH = 1.0, commonModA = 1.0, commonSummary = null;
-    if (th && ta && th.last.length && ta.last.length) {
+    if (th && ta && th.last && th.last.length && ta.last && ta.last.length) {
+        const validTh = getSortedMatchesDesc(th.last.filter(g => (!matchDateStr || g.date < matchDateStr) && (!m || g.id !== m.id)));
+        const validTa = getSortedMatchesDesc(ta.last.filter(g => (!matchDateStr || g.date < matchDateStr) && (!m || g.id !== m.id)));
+
         const mapH = new Map();
-        for (const g of th.last) {
+        for (const g of validTh) {
             if (!g.oppId || g.oppId === ta.id) continue;
             const cur = mapH.get(g.oppId) || { name: g.opp, n: 0, gd: 0, pts: 0, gf: 0, ga: 0 };
             cur.n++;
@@ -830,7 +925,7 @@ function analyzeH2HAndCommon(th, ta, m, intel) {
         }
 
         const mapA = new Map();
-        for (const g of ta.last) {
+        for (const g of validTa) {
             if (!g.oppId || g.oppId === th.id) continue;
             const cur = mapA.get(g.oppId) || { name: g.opp, n: 0, gd: 0, pts: 0, gf: 0, ga: 0 };
             cur.n++;
@@ -865,17 +960,35 @@ function analyzeH2HAndCommon(th, ta, m, intel) {
     return { h2hModH, h2hModA, h2hSummary, commonModH, commonModA, commonSummary };
 }
 
-// Son 5 maçlık form ivmesi (Momentum çarpanı)
-function computeFormMomentum(t) {
-    if (!t || !t.last || t.last.length < 3) return 1.0;
-    const recent = t.last.slice(0, 5);
-    let pts = 0, gd = 0;
-    for (const g of recent) {
-        pts += g.gf > g.ga ? 3 : g.gf === g.ga ? 1 : 0;
-        gd += (g.gf - g.ga);
+// Son 5 maçlık form ivmesi (Momentum çarpanı) - Kronolojik Ağırlıklı (Recency-Weighted)
+function computeFormMomentum(t, matchDateIso = null) {
+    if (!t || !t.last || !Array.isArray(t.last) || t.last.length < 3) return 1.0;
+
+    const targetMs = matchDateIso ? new Date(matchDateIso + 'T12:00:00Z').getTime() : null;
+    let pool = t.last;
+    if (targetMs !== null) {
+        pool = pool.filter(g => getMatchTimestamp(g) < targetMs);
+        if (pool.length < 3) return 1.0;
     }
-    const ppg = pts / recent.length; // 0..3, nötr = 1.4
-    const gdpg = gd / recent.length;
+
+    // Her koşulda kronolojik olarak en yeni maçları al
+    const sorted = getSortedMatchesDesc(pool);
+    const recent = sorted.slice(0, 5);
+
+    // Kronolojik sıra ağırlıklandırması: En yeni maç (index 0) en yüksek ağırlığa (5, 4, 3, 2, 1) sahiptir
+    let weightedPts = 0, weightedGd = 0, totalW = 0;
+    for (let i = 0; i < recent.length; i++) {
+        const g = recent[i];
+        const w = recent.length - i;
+        const pts = g.gf > g.ga ? 3 : g.gf === g.ga ? 1 : 0;
+        const gd = g.gf - g.ga;
+        weightedPts += w * pts;
+        weightedGd += w * gd;
+        totalW += w;
+    }
+
+    const ppg = totalW > 0 ? (weightedPts / totalW) : 1.4;
+    const gdpg = totalW > 0 ? (weightedGd / totalW) : 0;
     const raw = 1 + 0.035 * (ppg - 1.4) + 0.02 * gdpg;
     return Math.min(1.10, Math.max(0.90, raw));
 }
@@ -1063,9 +1176,20 @@ function computeDataTrustMetrics(m, nh, na, homeFacts, awayFacts, intel, L, rest
     const contextPts = (intel?.standings ? 4 : 0) + ((intel?.espnH2H?.length || 0) > 0 ? 3 : 0) + (L?.n >= 20 ? 3 : 1);
     const marketDepthPts = Math.min(10, Math.round((m.nesineMarketsCount || 0) / 5));
 
-    const sufficiencyScore = Math.max(15, Math.min(100,
+    let sufficiencyScore = Math.max(15, Math.min(100,
         matchSamplePts + splitSamplePts + cornerSamplePts + shotSamplePts + squadPts + contextPts + marketDepthPts
     ));
+
+    const minTeamHistory = Math.min(nh, na);
+    const isSparseHistory = minTeamHistory < 5;
+    const isVerySparseHistory = minTeamHistory < 3;
+
+    // Eksik geçmiş verisi olan takımlara yüksek güven puanı verilmesini engelle
+    if (isVerySparseHistory) {
+        sufficiencyScore = Math.min(38, sufficiencyScore);
+    } else if (isSparseHistory) {
+        sufficiencyScore = Math.min(52, sufficiencyScore);
+    }
 
     // 2. VERİ GÜNCELLİĞİ PUANI (0 - 100): Nesine oranlarının anlık tazeliği, son maç yakınlığı, kadro ve hava durumu senkronizasyonu
     let oddsFreshPts = 0;
@@ -1095,13 +1219,30 @@ function computeDataTrustMetrics(m, nh, na, homeFacts, awayFacts, intel, L, rest
     ));
 
     // 3. BİRLEŞİK VERİ GÜVEN PUANI
-    const overallScore = Math.round(0.55 * sufficiencyScore + 0.45 * freshnessScore);
+    let overallScore = Math.round(0.55 * sufficiencyScore + 0.45 * freshnessScore);
+    if (isVerySparseHistory) {
+        overallScore = Math.min(48, overallScore); // Asla 'Orta' veya 'Yüksek' Veri Güveni olamaz (max 48: Sınırlı)
+    } else if (isSparseHistory) {
+        overallScore = Math.min(59, overallScore); // Asla 'Yüksek Veri Güveni' olamaz (max 59: Sınırlı)
+    }
+
+    const sufficiencyLabel = isVerySparseHistory
+        ? 'Çok Yetersiz Geçmiş'
+        : isSparseHistory
+            ? 'Yetersiz Geçmiş'
+            : (sufficiencyScore >= 80 ? 'Çok Yüksek' : sufficiencyScore >= 62 ? 'Yüksek' : sufficiencyScore >= 45 ? 'Orta' : 'Sınırlı');
+
+    const overallLabel = isVerySparseHistory
+        ? 'Düşük Güven (Çok Yetersiz Geçmiş)'
+        : isSparseHistory
+            ? 'Sınırlı Veri Güveni (Yetersiz Geçmiş)'
+            : (overallScore >= 80 ? 'Yüksek Veri Güveni' : overallScore >= 60 ? 'Orta Veri Güveni' : 'Sınırlı Veri Güveni');
 
     return {
         sufficiencyScore,
         freshnessScore,
         overallScore,
-        sufficiencyLabel: sufficiencyScore >= 80 ? 'Çok Yüksek' : sufficiencyScore >= 62 ? 'Yüksek' : sufficiencyScore >= 45 ? 'Orta' : 'Sınırlı',
+        sufficiencyLabel,
         freshnessLabel: !m.oddsFresh
             ? 'Oran Yenilenemedi'
             : freshnessScore >= 82
@@ -1109,7 +1250,7 @@ function computeDataTrustMetrics(m, nh, na, homeFacts, awayFacts, intel, L, rest
                 : freshnessScore >= 65
                     ? 'Güncel'
                     : 'Kısmi Güncel',
-        overallLabel: overallScore >= 80 ? 'Yüksek Veri Güveni' : overallScore >= 60 ? 'Orta Veri Güveni' : 'Sınırlı Veri Güveni',
+        overallLabel,
         oddsFresh: Boolean(m.oddsFresh),
         oddsUpdatedAt: m.oddsFresh ? m.oddsUpdatedAt : null,
         hasRealCorners: Boolean(projections?.hasRealCorners),
@@ -1126,8 +1267,8 @@ function analyze(model, m, opts = {}) {
     const L = model.lgStat(m.league.id), g = model.glob;
     const nh = th ? th.n : 0, na = ta ? ta.n : 0;
 
-    const homeFacts = teamFacts(th);
-    const awayFacts = teamFacts(ta);
+    const homeFacts = teamFacts(th, m.date);
+    const awayFacts = teamFacts(ta, m.date);
 
     // 1. Katman: Genel + Ev/Deplasman Ayrı Hücum ve Savunma Güçleri (Lig Bazlı Ev Sahibi Avantajı Dahil)
     const K_GEN = 4, K_SPLIT = 3;
@@ -1150,8 +1291,8 @@ function analyze(model, m, opts = {}) {
     let la = L.muA * effAttA * effDfnH;
 
     // 2. Katman: Son 5 Maç Form İvmesi (Momentum)
-    const momH = computeFormMomentum(th);
-    const momA = computeFormMomentum(ta);
+    const momH = computeFormMomentum(th, m.date);
+    const momA = computeFormMomentum(ta, m.date);
     lh *= momH;
     la *= momA;
 
@@ -1973,8 +2114,11 @@ function buildCoupons(items, model, opts = {}) {
         if (best) {
             const rankScore = best.p + (BANKO_PRIMARY_KEYS.has(best.key) ? 0.05 : 0) + (it.an.quality === 'A' ? 0.04 : 0) + mbsBonus + consistencyBonus + trustBonus + 0.02;
             const modelVerified = isModelPerformanceVerified(opts.customTable || null);
+            const isSparse = (it.an.nh < 5 || it.an.na < 5);
             let confidenceLevel;
-            if (best.isValueBet) {
+            if (isSparse) {
+                confidenceLevel = 'Düşük Güven (Yetersiz Geçmiş Verisi)';
+            } else if (best.isValueBet) {
                 confidenceLevel = `Value Bet (+%${best.evPct} EV • Kalibre Edildi)`;
             } else if (modelVerified && best.p >= 0.80) {
                 confidenceLevel = 'Çok Yüksek Güven (Doğrulanmış Model)';
@@ -3572,7 +3716,13 @@ module.exports = {
     setUpstashTransportForTesting,
     executeUpstashCommandSync,
     executeUpstashCommandAsync,
-    verifyWalkForwardIntegrity
+    verifyWalkForwardIntegrity,
+    computeFormMomentum,
+    computeRestAndFatigue,
+    analyzeH2HAndCommon,
+    computeDataTrustMetrics,
+    getSortedMatchesDesc,
+    getMatchTimestamp
 };
 
 

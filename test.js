@@ -1482,6 +1482,174 @@ async function runTests() {
         assert.strictEqual(audit.missingTimingCount, 2);
     });
 
+    console.log('\n--- TEST 10: Geçmiş Maç Sıralaması, Form Momentum, Ev/Deplasman Ayrımı & Sıfır Veri Sızıntısı (engine.js) ---');
+
+    await it('10.1: Takımın son 5 ve son 10 maçı her zaman en yeni maçlardan alınmalı (kronolojik descending)', () => {
+        // 12 maçlık sentetik geçmiş: 2026-08-01'den 2026-08-12'ye kadar eskiden yeniye sıralı
+        const matchesAsc = [];
+        for (let i = 1; i <= 12; i++) {
+            const dayStr = i < 10 ? '0' + i : String(i);
+            matchesAsc.push({
+                id: `M-${i}`,
+                date: `2026-08-${dayStr}`,
+                time: '18:00',
+                home: true,
+                isHome: true,
+                opp: `Opponent-${i}`,
+                gf: i, // gol sayısı maç numarasına eşit (en yeni maç M-12'de 12 gol)
+                ga: 1,
+                ht: { h: 1, a: 0 }
+            });
+        }
+        const teamAsc = { id: 'T1', name: 'Team Alpha', n: 12, hn: 12, an: 0, last: matchesAsc };
+        const facts = engine.teamFacts(teamAsc);
+
+        // En yeni maç M-12 (12-1) en başta olmalı
+        assert.strictEqual(facts.son10Count, 10, 'Son 10 maç sayısı 10 olmalı');
+        assert.strictEqual(facts.son[0], 'E Opponent-12 12-1', 'Son maç kesinlikle en yeni maç (M-12) olmalı');
+        assert.strictEqual(facts.son[4], 'E Opponent-8 8-1', '5. maç en yeni 5. maç (M-8) olmalı (M-1 değil!)');
+
+        // last5 ortalaması en yeni 5 maçın (8, 9, 10, 11, 12 gol) ortalaması olmalı (10.0 gol)
+        assert.strictEqual(facts.last5Gf, 10.0, 'last5Gf en yeni 5 maçın ortalaması olmalı (10.0), eski maçlar sızmamalı');
+    });
+
+    await it('10.2: Ev sahibi ve deplasman performansları birbirinden temiz şekilde ayrılmalı', () => {
+        const mixedMatches = [
+            { id: 'M-1', date: '2026-08-01', home: true, isHome: true, opp: 'Opp-H1', gf: 3, ga: 0, ht: { h: 1, a: 0 } },
+            { id: 'M-2', date: '2026-08-03', home: false, isHome: false, opp: 'Opp-A1', gf: 0, ga: 2, ht: { h: 0, a: 1 } },
+            { id: 'M-3', date: '2026-08-05', home: true, isHome: true, opp: 'Opp-H2', gf: 4, ga: 1, ht: { h: 2, a: 0 } },
+            { id: 'M-4', date: '2026-08-07', home: false, isHome: false, opp: 'Opp-A2', gf: 1, ga: 1, ht: { h: 0, a: 0 } },
+            { id: 'M-5', date: '2026-08-09', home: true, isHome: true, opp: 'Opp-H3', gf: 2, ga: 0, ht: { h: 1, a: 0 } },
+            { id: 'M-6', date: '2026-08-11', home: false, isHome: false, opp: 'Opp-A3', gf: 0, ga: 3, ht: { h: 0, a: 2 } }
+        ];
+        const team = { id: 'T2', name: 'Team Beta', n: 6, hn: 3, an: 3, last: mixedMatches };
+        const facts = engine.teamFacts(team);
+
+        // Ev formu: M-5 (2-0 G), M-3 (4-1 G), M-1 (3-0 G) -> 'GGG'
+        assert.strictEqual(facts.homeForm, 'GGG', 'İç saha formu yalnızca iç saha maçlarını en yeni sırada yansıtmalı');
+        assert.strictEqual(facts.homeGf, 3.0, 'İç saha gol ortalaması (2+4+3)/3 = 3.0 olmalı');
+        assert.strictEqual(facts.homeGa, 0.33, 'İç saha gol yeme ortalaması (0+1+0)/3 = 0.33 olmalı');
+
+        // Deplasman formu: M-6 (0-3 M), M-4 (1-1 B), M-2 (0-2 M) -> 'MBM'
+        assert.strictEqual(facts.awayForm, 'MBM', 'Deplasman formu yalnızca deplasman maçlarını en yeni sırada yansıtmalı');
+        assert.strictEqual(facts.awayGf, 0.33, 'Deplasman gol ortalaması (0+1+0)/3 = 0.33 olmalı');
+        assert.strictEqual(facts.awayGa, 2.0, 'Deplasman gol yeme ortalaması (3+1+2)/3 = 2.0 olmalı');
+    });
+
+    await it('10.3: computeFormMomentum en yeni maçlara daha yüksek kronolojik ağırlık vermeli', () => {
+        // Takım A: [Mağlubiyet, Beraberlik, Galibiyet] (Eskiden yeniye sıralı: en yeni maçı kazandı -> yükselen trend)
+        const teamRising = {
+            id: 'T-Rise',
+            last: [
+                { id: 'R1', date: '2026-08-01', gf: 0, ga: 2 }, // En eski: Mağlubiyet
+                { id: 'R2', date: '2026-08-05', gf: 1, ga: 1 }, // Orta: Beraberlik
+                { id: 'R3', date: '2026-08-10', gf: 3, ga: 0 }  // En yeni: Galibiyet
+            ]
+        };
+
+        // Takım B: [Galibiyet, Beraberlik, Mağlubiyet] (Eskiden yeniye sıralı: en yeni maçı kaybetti -> düşen trend)
+        const teamFalling = {
+            id: 'T-Fall',
+            last: [
+                { id: 'F1', date: '2026-08-01', gf: 3, ga: 0 }, // En eski: Galibiyet
+                { id: 'F2', date: '2026-08-05', gf: 1, ga: 1 }, // Orta: Beraberlik
+                { id: 'F3', date: '2026-08-10', gf: 0, ga: 2 }  // En yeni: Mağlubiyet
+            ]
+        };
+
+        const momRising = engine.computeFormMomentum(teamRising);
+        const momFalling = engine.computeFormMomentum(teamFalling);
+
+        assert.strictEqual(momRising > momFalling, true, `Yükselen trenddeki takım (${momRising}) düşen trenddeki takımdan (${momFalling}) daha yüksek momentuma sahip olmalıdır`);
+        assert.strictEqual(momRising > 1.0, true, 'En son maçı galip bitiren takımın momentumu 1.0 nötr değerinden yüksek olmalı');
+        assert.strictEqual(momFalling < 1.0, true, 'En son maçı mağlup bitiren takımın momentumu 1.0 nötr değerinden düşük olmalı');
+    });
+
+    await it('10.4: H2H analizinde maçlar en yeniye göre sıralanmalı ve en yeni skorlar gösterilmeli', () => {
+        const th = {
+            id: 'TH', name: 'Home FC', last: [
+                { id: 'H1', date: '2024-05-01', oppId: 'TA', opp: 'Away FC', home: true, gf: 0, ga: 1 },
+                { id: 'H2', date: '2026-08-10', oppId: 'TA', opp: 'Away FC', home: true, gf: 3, ga: 0 }
+            ]
+        };
+        const ta = { id: 'TA', name: 'Away FC', last: [] };
+        const m = { id: 'M-TARGET', date: '2026-08-20', home: 'Home FC', away: 'Away FC' };
+
+        const h2h = engine.analyzeH2HAndCommon(th, ta, m);
+        assert.ok(h2h.h2hSummary, 'H2H özeti oluşmalı');
+        // En son maç 3-0 olduğu için skor listesinde ilk 3-0 görünmeli
+        assert.ok(h2h.h2hSummary.includes('Son skorlar: 3-0, 0-1'), `H2H özeti en yeni maç skorunu en başta göstermeli (Bulunan: ${h2h.h2hSummary})`);
+    });
+
+    await it('10.5: computeRestAndFatigue eskiden yeniye dizilerde bile en son maçı bulmalı ve doğru dinlenme hesaplamalı', () => {
+        const team = {
+            id: 'T-Rest',
+            // Eskiden yeniye sıralı dizi (en eski maç 60 gün önce, en yeni maç 4 gün önce)
+            last: [
+                { id: 'OLD', date: '2026-06-20', gf: 1, ga: 0 },
+                { id: 'MID', date: '2026-07-20', gf: 1, ga: 1 },
+                { id: 'NEW', date: '2026-08-16', gf: 2, ga: 0 }
+            ]
+        };
+        const targetDate = '2026-08-20'; // 16 Ağustos'tan 20 Ağustos'a tam 4 gün dinlenme
+        const rest = engine.computeRestAndFatigue(team, targetDate);
+
+        assert.strictEqual(rest.restDays, 4, 'Dinlenme süresi en yeni maç olan 2026-08-16 üzerinden 4 gün hesaplanmalı (60 gün değil!)');
+    });
+
+    await it('10.6: Sıfır veri sızıntısı: Gelecek maçlar veya maçın kendisi analiz ve dinlenme verisine sızmamalı', () => {
+        const teamWithFuture = {
+            id: 'T-Leak',
+            name: 'Leaker FC',
+            last: [
+                { id: 'PAST', date: '2026-08-15', home: true, opp: 'Past Opp', gf: 1, ga: 0 },
+                { id: 'CURRENT_MATCH', date: '2026-08-20', home: true, opp: 'Target Opp', gf: 5, ga: 0 }, // Maçın kendisi!
+                { id: 'FUTURE_MATCH', date: '2026-08-25', home: true, opp: 'Future Opp', gf: 9, ga: 0 }   // Gelecek maç!
+            ]
+        };
+
+        const targetDate = '2026-08-20';
+        const targetMatch = { id: 'CURRENT_MATCH', date: targetDate, home: 'Leaker FC', away: 'Other FC' };
+
+        // 1. Dinlenme analizi sızıntı kontrolü
+        const rest = engine.computeRestAndFatigue(teamWithFuture, targetDate);
+        assert.strictEqual(rest.restDays, 5, 'Dinlenme yalnızca 2026-08-15 geçmiş maçı üzerinden (5 gün) hesaplanmalı, aynı gün veya gelecek maç sızmamalı');
+
+        // 2. Takım özet analizi sızıntı kontrolü
+        const facts = engine.teamFacts(teamWithFuture, targetDate);
+        assert.strictEqual(facts.son10Count, 1, 'Yalnızca hedef tarihten önceki tek maç (PAST) dahil edilmeli');
+        assert.strictEqual(facts.gf, 1.0, 'Gelecek maçların veya maçın kendi 5 ve 9 golü ortalamaya sızmamalı');
+
+        // 3. Form momentumu sızıntı kontrolü (geçmiş maç sayısı 3ten az olduğu için 1.0 dönmeli)
+        const mom = engine.computeFormMomentum(teamWithFuture, targetDate);
+        assert.strictEqual(mom, 1.0, 'Hedef tarih öncesinde 3 maç bulunmadığı için momentum sızıntısız 1.0 dönmeli');
+    });
+
+    await it('10.7: Eksik geçmiş verisi olan takımlara (nh<5 veya na<5) yüksek güven puanı verilmemeli', () => {
+        // Yalnızca 2 geçmiş maçı olan eksik geçmişli maç
+        const sparseHomeFacts = { hn: 2, gf: 1.0, ga: 1.0 };
+        const sparseAwayFacts = { an: 2, gf: 1.0, ga: 1.0 };
+        const match = { id: 'M-SPARSE', nesineMarketsCount: 10, oddsFresh: true, oddsUpdatedAt: '19:00', inBulletin: true, state: 'pre', kickoff: '2026-10-25T20:00:00Z' };
+
+        const trustMetrics = engine.computeDataTrustMetrics(
+            match,
+            2, // nh = 2 (< 5)
+            2, // na = 2 (< 5)
+            sparseHomeFacts,
+            sparseAwayFacts,
+            null,
+            { n: 25 },
+            { restDays: 7 },
+            { restDays: 7 },
+            { hasRealCorners: false, hasRealShots: false },
+            { squad: null }
+        );
+
+        assert.ok(trustMetrics.overallScore <= 59, `Eksik geçmişli takımın güven puanı en fazla 59 olmalı (Bulunan: ${trustMetrics.overallScore})`);
+        assert.notStrictEqual(trustMetrics.overallLabel, 'Yüksek Veri Güveni', 'Eksik geçmişli takıma ASLA Yüksek Veri Güveni etiketi verilemez');
+        assert.ok(trustMetrics.sufficiencyLabel.includes('Yetersiz Geçmiş'), `Yetersizlik etiketi açıkça belirtilmeli (Bulunan: ${trustMetrics.sufficiencyLabel})`);
+    });
+
     console.log('\n================================================================');
     console.log(`  SONUÇ: ${passedTests}/${totalTests} Test Başarıyla Geçti (%100 Başarı)`);
     console.log('================================================================\n');
