@@ -1020,7 +1020,7 @@ async function runTests() {
         assert.ok(resMismatchKey.reason.includes('bahis tercihi'));
     });
 
-    await it('7.26: Upstash bağlantısı yokken recordPlacedCoupon açık uyarı ve isPersistent: false dönmeli', () => {
+    await it('7.26: Upstash gerçek bağlantı doğrulaması: bağlantı yokken/hatalıyken kalıcı işaretlenmemeli, doğrulanmış yazmada kalıcı olmalı', () => {
         const ticket = {
             nesineRefCode: 'NES-UPSTASH-TEST',
             totalCost: 160,
@@ -1037,9 +1037,10 @@ async function runTests() {
         const origUrl = process.env.UPSTASH_REDIS_REST_URL;
         const origToken = process.env.UPSTASH_REDIS_REST_TOKEN;
         try {
-            // Upstash tanımlı değilken
+            // 1. Durum: Upstash env değişkenleri tanımlı değilken -> kalıcı olamaz
             delete process.env.UPSTASH_REDIS_REST_URL;
             delete process.env.UPSTASH_REDIS_REST_TOKEN;
+            engine.setUpstashTransportForTesting(null);
 
             const recUnset = engine.recordPlacedCoupon(ticket);
             assert.strictEqual(recUnset.isPersistent, false, 'Upstash yokken kalıcı sayılamaz');
@@ -1047,15 +1048,43 @@ async function runTests() {
             assert.ok(recUnset.storageWarning !== null);
             assert.ok(recUnset.storageWarning.includes('Render ortamında'), 'Uyarı metni Render riskini belirtmeli');
 
-            // Upstash tanımlandığında
-            process.env.UPSTASH_REDIS_REST_URL = 'https://fake-upstash.upstash.io';
-            process.env.UPSTASH_REDIS_REST_TOKEN = 'fake_token';
+            // 2. Durum: Upstash env tanımlı ama Redis sunucusu HATA dönüyor (ör: 401 Unauthorized veya bağlantı hatası)
+            process.env.UPSTASH_REDIS_REST_URL = 'https://mock-upstash.upstash.io';
+            process.env.UPSTASH_REDIS_REST_TOKEN = 'invalid_mock_token';
+            engine.setUpstashTransportForTesting((cmd, args) => {
+                return { ok: false, error: 'Unauthorized: invalid token' };
+            });
 
-            const recSet = engine.recordPlacedCoupon({ ...ticket, nesineRefCode: 'NES-UPSTASH-PERSIST' });
-            assert.strictEqual(recSet.isPersistent, true, 'Upstash varken kalıcı olarak işaretlenmeli');
-            assert.strictEqual(recSet.storageBackend, 'upstash_redis');
-            assert.strictEqual(recSet.storageWarning, null);
+            const recFail = engine.recordPlacedCoupon({ ...ticket, nesineRefCode: 'NES-UPSTASH-FAIL' });
+            assert.strictEqual(recFail.isPersistent, false, 'Hatalı Upstash yanıtında kalıcı işaretlenemez');
+            assert.strictEqual(recFail.storageBackend, 'local_ephemeral_file');
+            assert.ok(recFail.storageWarning.includes('başarısız oldu'), 'Uyarı metni bağlantı hatasını bildirmeli');
+
+            // 3. Durum: Gerçek / doğrulanmış Upstash Redis bağlantısı (SET başarılı ve GET ile geri okunabiliyor)
+            const redisMemoryStore = new Map();
+            engine.setUpstashTransportForTesting((cmd, args) => {
+                if (cmd === 'SET') {
+                    redisMemoryStore.set(args[0], args[1]);
+                    return { ok: true, result: 'OK' };
+                }
+                if (cmd === 'GET') {
+                    return { ok: true, result: redisMemoryStore.get(args[0]) || null };
+                }
+                return { ok: true, result: 'PONG' };
+            });
+
+            const recSuccess = engine.recordPlacedCoupon({ ...ticket, nesineRefCode: 'NES-UPSTASH-SUCCESS' });
+            assert.strictEqual(recSuccess.isPersistent, true, 'Doğrulanan Redis yazması ile kalıcı olarak işaretlenmeli');
+            assert.strictEqual(recSuccess.storageBackend, 'upstash_redis');
+            assert.strictEqual(recSuccess.storageWarning, null);
+            assert.ok(redisMemoryStore.has('yusuf_ai:placed_coupons'), 'Veri Redis belleğine yazılmış olmalı');
+
+            // Redis üzerinden getPlacedCoupon ile kuponu doğrula
+            const fetched = engine.getPlacedCoupon('NES-UPSTASH-SUCCESS');
+            assert.ok(fetched !== null, 'Redis üzerinden kupon geri okunabilmeli');
+            assert.strictEqual(fetched.nesineRefCode, 'NES-UPSTASH-SUCCESS');
         } finally {
+            engine.setUpstashTransportForTesting(null);
             if (origUrl) process.env.UPSTASH_REDIS_REST_URL = origUrl; else delete process.env.UPSTASH_REDIS_REST_URL;
             if (origToken) process.env.UPSTASH_REDIS_REST_TOKEN = origToken; else delete process.env.UPSTASH_REDIS_REST_TOKEN;
         }
@@ -1080,6 +1109,136 @@ async function runTests() {
         assert.strictEqual(pick.hasRealOdd, false);
         assert.strictEqual(pick.realOdd, null);
         assert.strictEqual(pick.evPct, null);
+    });
+
+    // ----------------------------------------------------
+    // TEST GRUBU 9: Tahmin Motoru Walk-Forward Doğrulaması & Pazar Bazında Performans
+    // ----------------------------------------------------
+    console.log('\n--- TEST 9: Tahmin Motoru Walk-Forward Doğrulaması & Pazar Bazında Performans (engine.js) ---');
+
+    await it('9.1: Walk-forward sürecinde geçmiş maç sonuçlarının eğitim modeline sızmadığı (zero data leakage) doğrulanmalı', () => {
+        const hist = [
+            { id: 1, date: '2026-10-10', time: '14:00', inBulletin: true, state: 'post', league: { id: 1 }, home: 'A', away: 'B', score: { h: 2, a: 1 }, ht: { h: 1, a: 0 } },
+            { id: 2, date: '2026-10-11', time: '16:00', inBulletin: true, state: 'post', league: { id: 1 }, home: 'C', away: 'D', score: { h: 0, a: 0 }, ht: { h: 0, a: 0 } },
+            { id: 3, date: '2026-10-12', time: '18:00', inBulletin: true, state: 'post', league: { id: 1 }, home: 'A', away: 'C', score: { h: 3, a: 2 }, ht: { h: 2, a: 1 } },
+            { id: 4, date: '2026-10-13', time: '20:00', inBulletin: true, state: 'post', league: { id: 1 }, home: 'B', away: 'D', score: { h: 1, a: 1 }, ht: { h: 0, a: 1 } }
+        ];
+
+        // testDate = '2026-10-12' iken model kurulduğunda, 2026-10-12 ve sonrasındaki maçlar (id 3 ve 4) ASLA modele girmemelidir
+        const priorModel = engine.buildModel(hist, '2026-10-12');
+        assert.ok(priorModel.nRows <= 2, '2026-10-12 öncesi en fazla 2 maç olmalı');
+    });
+
+    await it('9.2: Maç öncesi tahminlerin (pre-match locking) kickoff saatinden önce kilitlendiği doğrulanmalı', () => {
+        const dummyDayItems = [
+            {
+                m: {
+                    id: 991,
+                    date: '2026-10-19',
+                    time: '23:59',
+                    kickoff: new Date(Date.now() + 3600000).toISOString(),
+                    state: 'pre',
+                    inBulletin: true,
+                    league: { full: 'Premier League' },
+                    home: 'Chelsea',
+                    away: 'Liverpool',
+                    odds: { ust15: 1.30 },
+                    oddsFresh: true
+                },
+                an: { p: { ust15: 0.82, ms1: 0.45, msx: 0.28, ms2: 0.27 } }
+            }
+        ];
+
+        const perf = engine.evaluateModelPerformance({ rawHistory: [] }, dummyDayItems);
+        assert.ok(perf !== null);
+        assert.ok(Array.isArray(perf.pendingPreMatch));
+        const locked = perf.pendingPreMatch.find(p => p.matchId === 991);
+        if (locked) {
+            assert.strictEqual(locked.matchId, 991);
+            assert.strictEqual(locked.status, 'Beklemede');
+            assert.strictEqual(locked.won, null);
+            assert.strictEqual(locked.score, null);
+            assert.ok(typeof locked.predictedProb === 'number');
+            assert.ok(locked.predictedProb >= 0.68);
+        }
+    });
+
+    await it('9.3: Brier Score ve Log Loss hesapları gerçek tahmin olasılıkları üzerinden yapılmalı (uydurma sabit metrik olmamalı)', () => {
+        const mockRecords = [
+            { matchId: 1, date: '2026-10-15', pickKey: 'ust15', pick: '1,5 Üst', predictedProb: 0.80, probPct: 80, won: true, brier: 0.040, logLoss: 0.223, modelAsOfDate: '2026-10-15' },
+            { matchId: 2, date: '2026-10-16', pickKey: 'ust25', pick: '2,5 Üst', predictedProb: 0.70, probPct: 70, won: false, brier: 0.490, logLoss: 1.204, modelAsOfDate: '2026-10-16' }
+        ];
+
+        // 1. maç için: p = 0.80, won = 1 -> Brier = (0.80 - 1)^2 = 0.04
+        assert.strictEqual(+((0.80 - 1) ** 2).toFixed(4), 0.04);
+        // 2. maç için: p = 0.70, won = 0 -> Brier = (0.70 - 0)^2 = 0.49
+        assert.strictEqual(+((0.70 - 0) ** 2).toFixed(4), 0.49);
+
+        const audit = engine.verifyWalkForwardIntegrity(mockRecords);
+        assert.strictEqual(audit.isValid, true, 'Doğru Brier formülü ve sıfır sızıntılı kayıtlar geçerli olmalı');
+        assert.strictEqual(audit.leaksDetected, 0);
+        assert.strictEqual(audit.brierMismatches, 0);
+
+        // Hatalı brier skoru verildiğinde audit yakalamalı
+        const badRecords = [
+            { matchId: 3, date: '2026-10-17', pickKey: 'ms1', predictedProb: 0.85, won: true, brier: 0.999, modelAsOfDate: '2026-10-17' }
+        ];
+        const badAudit = engine.verifyWalkForwardIntegrity(badRecords);
+        assert.strictEqual(badAudit.isValid, false);
+        assert.strictEqual(badAudit.brierMismatches, 1);
+    });
+
+    await it('9.4: Pazar bazında performans ayrımı (marketBreakdown) her pazar için ayrı Brier Score ve başarı oranı üretmeli', () => {
+        const customTableWithMarkets = {
+            walkForwardRecords: [
+                ...Array(25).fill(0).map((_, i) => ({
+                    matchId: 1000 + i,
+                    pickKey: 'ust15',
+                    pick: '1,5 Üst',
+                    predictedProb: 0.80,
+                    won: i < 20, // 20/25 = %80
+                    brier: i < 20 ? 0.04 : 0.64,
+                    logLoss: i < 20 ? 0.223 : 1.609
+                })),
+                ...Array(25).fill(0).map((_, i) => ({
+                    matchId: 2000 + i,
+                    pickKey: 'kgv',
+                    pick: 'KG Var',
+                    predictedProb: 0.72,
+                    won: i < 18, // 18/25 = %72
+                    brier: i < 18 ? 0.078 : 0.518,
+                    logLoss: i < 18 ? 0.328 : 1.272
+                })),
+                ...Array(10).fill(0).map((_, i) => ({
+                    matchId: 3000 + i,
+                    pickKey: 'ms1',
+                    pick: 'MS 1',
+                    predictedProb: 0.75,
+                    won: i < 7, // 7/10 = %70
+                    brier: i < 7 ? 0.0625 : 0.5625,
+                    logLoss: i < 7 ? 0.287 : 1.386
+                }))
+            ]
+        };
+
+        const metrics = engine.getModelVerificationMetrics(customTableWithMarkets);
+        assert.strictEqual(metrics.isVerified, true);
+        assert.ok(metrics.marketBreakdown !== undefined, 'marketBreakdown alanı bulunmalı');
+
+        // ust15 pazarı ayrımı
+        const ust15 = metrics.marketBreakdown['ust15'];
+        assert.ok(ust15 !== undefined);
+        assert.strictEqual(ust15.total, 25);
+        assert.strictEqual(ust15.hits, 20);
+        assert.strictEqual(ust15.ratePct, 80.0);
+        assert.ok(typeof ust15.brierScore === 'number');
+
+        // kgv pazarı ayrımı
+        const kgv = metrics.marketBreakdown['kgv'];
+        assert.ok(kgv !== undefined);
+        assert.strictEqual(kgv.total, 25);
+        assert.strictEqual(kgv.hits, 18);
+        assert.strictEqual(kgv.ratePct, 72.0);
     });
 
     console.log('\n================================================================');

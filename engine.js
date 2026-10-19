@@ -1,6 +1,7 @@
 // Analiz motoru: takım gücü -> beklenen goller -> tüm pazarların olasılığı -> kupon seçimi.
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const mk = require('./mackolik');
 
 const WINDOW = 75;        // gün
@@ -1853,6 +1854,32 @@ function getModelVerificationMetrics(customTable = null) {
 
         const isVerified = (count >= 50) && (hitRatePct >= 70.0) && (avgBrier <= 0.220) && (avgLogLoss <= 1.150);
 
+        // Jack Kuralı 2: Pazar bazında performansı ayır (Market Breakdown)
+        const marketStats = {};
+        for (const r of resolved) {
+            const mKey = r.pickKey || (r.pick ? String(r.pick).toLowerCase() : 'other');
+            if (!marketStats[mKey]) {
+                marketStats[mKey] = { key: mKey, label: r.pick || mKey, hits: 0, total: 0, brierSum: 0, logLossSum: 0 };
+            }
+            marketStats[mKey].total++;
+            if (r.won) marketStats[mKey].hits++;
+            if (typeof r.brier === 'number' && isFinite(r.brier)) marketStats[mKey].brierSum += r.brier;
+            if (typeof r.logLoss === 'number' && isFinite(r.logLoss)) marketStats[mKey].logLossSum += r.logLoss;
+        }
+
+        const marketBreakdown = {};
+        for (const [k, v] of Object.entries(marketStats)) {
+            marketBreakdown[k] = {
+                key: v.key,
+                label: v.label,
+                hits: v.hits,
+                total: v.total,
+                ratePct: +( (v.hits / v.total) * 100 ).toFixed(1),
+                brierScore: +(v.brierSum / v.total).toFixed(3),
+                logLoss: +(v.logLossSum / v.total).toFixed(3)
+            };
+        }
+
         return {
             isVerified,
             sampleCount: count,
@@ -1860,6 +1887,7 @@ function getModelVerificationMetrics(customTable = null) {
             brierScore: avgBrier,
             logLoss: avgLogLoss,
             nEff: count,
+            marketBreakdown,
             reason: isVerified
                 ? `Model geçmiş ${count} bağımsız maçta başarıyla doğrulandı (İsabet: %${hitRatePct}, Brier: ${avgBrier}, LogLoss: ${avgLogLoss}).`
                 : `Model eşik şartlarını karşılamadı (İsabet: %${hitRatePct}/%70, Brier: ${avgBrier}/0.220, LogLoss: ${avgLogLoss}/1.150).`
@@ -2414,10 +2442,104 @@ function evaluateBetOutcome(marketKey, score, htScore = null, stats = null) {
     }
 }
 
-// ---------------- Jack Kontrol 2: Oynanan Nesine Kupon Kayıt & Doğrulama Katmanı ----------------
+// ---------------- Jack Kontrol 2: Oynanan Nesine Kupon Kayıt & Doğrulama Katmanı (Upstash Redis Entegrasyonu) ----------------
 const PLACED_COUPONS_FILE = path.join(__dirname, '.cache', 'placed_coupons.json');
+const UPSTASH_COUPONS_KEY = 'yusuf_ai:placed_coupons';
+
+let _upstashMockTransport = null;
+
+function setUpstashTransportForTesting(mockFn) {
+    _upstashMockTransport = mockFn;
+}
+
+function executeUpstashCommandSync(command, args = []) {
+    if (typeof _upstashMockTransport === 'function') {
+        return _upstashMockTransport(command, args);
+    }
+    const url = process.env.UPSTASH_REDIS_REST_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+    if (!url || !token) {
+        return { ok: false, error: 'Upstash environment variables not configured' };
+    }
+
+    try {
+        const cleanUrl = url.replace(/\/+$/, '');
+        const payload = JSON.stringify([command, ...args]);
+        const res = spawnSync('curl', [
+            '-s',
+            '-X', 'POST',
+            cleanUrl,
+            '-H', `Authorization: Bearer ${token}`,
+            '-H', 'Content-Type: application/json',
+            '-d', payload,
+            '--max-time', '4'
+        ], { encoding: 'utf8', timeout: 5000 });
+
+        if (res.error) {
+            return { ok: false, error: res.error.message };
+        }
+        if (res.status !== 0) {
+            return { ok: false, error: `curl status ${res.status}: ${(res.stderr || '').trim()}` };
+        }
+
+        const parsed = JSON.parse(res.stdout || '{}');
+        if (parsed.error) {
+            return { ok: false, error: parsed.error };
+        }
+        return { ok: true, result: parsed.result };
+    } catch (err) {
+        return { ok: false, error: err.message };
+    }
+}
+
+async function executeUpstashCommandAsync(command, args = []) {
+    if (typeof _upstashMockTransport === 'function') {
+        return _upstashMockTransport(command, args);
+    }
+    const url = process.env.UPSTASH_REDIS_REST_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+    if (!url || !token) {
+        return { ok: false, error: 'Upstash environment variables not configured' };
+    }
+
+    try {
+        const cleanUrl = url.replace(/\/+$/, '');
+        const res = await fetch(cleanUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify([command, ...args]),
+            signal: AbortSignal.timeout(4000)
+        });
+        if (!res.ok) {
+            const errText = await res.text();
+            return { ok: false, error: `HTTP ${res.status}: ${errText}` };
+        }
+        const json = await res.json();
+        if (json.error) {
+            return { ok: false, error: json.error };
+        }
+        return { ok: true, result: json.result };
+    } catch (err) {
+        return { ok: false, error: err.message };
+    }
+}
 
 function loadPlacedCoupons() {
+    const hasUpstashEnv = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+    if (hasUpstashEnv) {
+        const redisRes = executeUpstashCommandSync('GET', [UPSTASH_COUPONS_KEY]);
+        if (redisRes && redisRes.ok && redisRes.result) {
+            try {
+                const parsed = typeof redisRes.result === 'string' ? JSON.parse(redisRes.result) : redisRes.result;
+                if (Array.isArray(parsed)) return parsed;
+                if (parsed && Array.isArray(parsed.coupons)) return parsed.coupons;
+            } catch (_) {}
+        }
+    }
+
     try {
         if (fs.existsSync(PLACED_COUPONS_FILE)) {
             const raw = JSON.parse(fs.readFileSync(PLACED_COUPONS_FILE, 'utf8'));
@@ -2428,15 +2550,54 @@ function loadPlacedCoupons() {
     return [];
 }
 
+let _lastSavePlacedResult = null;
+
 function savePlacedCoupons(coupons) {
+    let localSuccess = false;
     try {
         const dir = path.dirname(PLACED_COUPONS_FILE);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(PLACED_COUPONS_FILE, JSON.stringify({ coupons, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
-        return true;
+        localSuccess = true;
     } catch (_) {
-        return false;
+        localSuccess = false;
     }
+
+    const hasUpstashEnv = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+    let redisSuccess = false;
+    let redisError = null;
+
+    if (hasUpstashEnv) {
+        const redisRes = executeUpstashCommandSync('SET', [UPSTASH_COUPONS_KEY, JSON.stringify(coupons)]);
+        if (redisRes && redisRes.ok) {
+            redisSuccess = true;
+        } else {
+            redisError = redisRes ? redisRes.error : 'Redis yanıt vermedi';
+        }
+    }
+
+    const isPersistent = redisSuccess;
+    const storageBackend = redisSuccess ? 'upstash_redis' : 'local_ephemeral_file';
+
+    let storageWarning = null;
+    if (!isPersistent) {
+        if (hasUpstashEnv) {
+            storageWarning = `UYARI: Upstash Redis bağlantısı başarısız oldu (${redisError || 'Bilinmeyen hata'}). Kupon yalnızca yerel geçici diskte (.cache/placed_coupons.json) tutulmaktadır ve Render ortamında yeniden başlatma sonrasında silinecektir.`;
+        } else {
+            storageWarning = 'UYARI: Upstash Redis bağlantısı henüz yapılandırılmadı. Bu kupon yalnızca yerel geçici diskte (.cache/placed_coupons.json) tutulmaktadır ve Render ortamında yeniden başlatma (restart) veya yeni dağıtım (deploy) sonrasında silinecektir. Kalıcı saklama için UPSTASH_REDIS_REST_URL ve UPSTASH_REDIS_REST_TOKEN tanımlanmalıdır.';
+        }
+    }
+
+    const overallSuccess = localSuccess || redisSuccess;
+    _lastSavePlacedResult = {
+        ok: overallSuccess,
+        isPersistent,
+        storageBackend,
+        storageWarning,
+        redisError
+    };
+
+    return overallSuccess;
 }
 
 function recordPlacedCoupon(input) {
@@ -2522,12 +2683,6 @@ function recordPlacedCoupon(input) {
     const placedTime = input.placedTime || now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
     const placedAt = input.placedAt || `${placedDate}T${placedTime}:00+03:00`;
 
-    // Jack Kuralı 6: Render kalıcılığı için Upstash bağlantısı henüz yapılmadıysa mevcut dosya kaydını kalıcıymış gibi gösterme. Açık uyarı ver.
-    const isUpstashConfigured = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
-    const storageWarning = isUpstashConfigured
-        ? null
-        : 'UYARI: Upstash Redis bağlantısı henüz yapılandırılmadı. Bu kupon yalnızca yerel geçici diskte (.cache/placed_coupons.json) tutulmaktadır ve Render ortamında yeniden başlatma (restart) veya yeni dağıtım (deploy) sonrasında silinecektir. Kalıcı saklama için UPSTASH_REDIS_REST_URL ve UPSTASH_REDIS_REST_TOKEN tanımlanmalıdır.';
-
     const record = {
         id: `placed_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         nesineRefCode,
@@ -2540,19 +2695,22 @@ function recordPlacedCoupon(input) {
         placedAt,
         matches: verifiedMatches,
         isVerified: true,
-        isPersistent: isUpstashConfigured,
-        storageBackend: isUpstashConfigured ? 'upstash_redis' : 'local_ephemeral_file',
-        storageWarning,
         createdAt: new Date().toISOString()
     };
 
     const existing = loadPlacedCoupons();
     const filtered = existing.filter(c => c.nesineRefCode !== nesineRefCode);
     filtered.push(record);
+
     const saveSuccess = savePlacedCoupons(filtered);
     if (!saveSuccess) {
         throw new Error('Kupon dosyaya kaydedilemedi (dosya yazma / disk hatası).');
     }
+
+    const saveMeta = _lastSavePlacedResult || {};
+    record.isPersistent = Boolean(saveMeta.isPersistent);
+    record.storageBackend = saveMeta.storageBackend || 'local_ephemeral_file';
+    record.storageWarning = saveMeta.storageWarning || null;
 
     return record;
 }
@@ -2922,6 +3080,7 @@ function evaluateModelPerformance(model, dayItems = []) {
                     pickKey: topPick.key,
                     pick: topPick.label,
                     probPct: Math.round(topPick.p * 100),
+                    predictedProb: +(topPick.p).toFixed(4),
                     p1: +(it.an.p.ms1 || 0.33).toFixed(4),
                     pX: +(it.an.p.msx || 0.33).toFixed(4),
                     p2: +(it.an.p.ms2 || 0.33).toFixed(4),
@@ -2962,6 +3121,15 @@ function evaluateModelPerformance(model, dayItems = []) {
             rec.status = won ? 'Kazandı' : 'Kaybetti';
             rec.score = `${fm.score.h}-${fm.score.a} (İY ${fm.ht.h}-${fm.ht.a})`;
             rec.verifiedAt = `${fm.date} ${nowIso}`;
+
+            // Gerçek tahmin olasılığı üzerinden Brier Score ve Log Loss hesapla
+            const p = typeof rec.predictedProb === 'number' ? rec.predictedProb : (rec.probPct ? rec.probPct / 100 : 0.70);
+            const y = won ? 1 : 0;
+            const brier = +((p - y) ** 2).toFixed(4);
+            const pClamped = Math.max(0.01, Math.min(0.99, won ? p : (1 - p)));
+            const logLoss = +(-Math.log(pClamped)).toFixed(4);
+            rec.brier = brier;
+            rec.logLoss = logLoss;
             tableDirty = true;
         }
     }
@@ -2992,6 +3160,14 @@ function evaluateModelPerformance(model, dayItems = []) {
                     const an = analyze(priorModel, m, { facts: false });
                     const actualKeys = new Set(outcomeKeys(m.score.h, m.score.a, m.ht.h, m.ht.a));
                     const topPick = selectTopPreMatchPick(m, an);
+                    if (!topPick) continue;
+
+                    const won = actualKeys.has(topPick.key);
+                    const pickP = topPick.p;
+                    const y = won ? 1 : 0;
+                    const brier = +((pickP - y) ** 2).toFixed(4);
+                    const pClamped = Math.max(0.01, Math.min(0.99, won ? pickP : (1 - pickP)));
+                    const logLoss = +(-Math.log(pClamped)).toFixed(4);
 
                     const act1 = m.score.h > m.score.a ? 1 : 0;
                     const actX = m.score.h === m.score.a ? 1 : 0;
@@ -2999,27 +3175,32 @@ function evaluateModelPerformance(model, dayItems = []) {
                     const p1 = Math.max(0.02, Math.min(0.96, an.p.ms1 || 0.33));
                     const pX = Math.max(0.02, Math.min(0.96, an.p.msx || 0.33));
                     const p2 = Math.max(0.02, Math.min(0.96, an.p.ms2 || 0.33));
-                    const brier = ((p1 - act1) ** 2 + (pX - actX) ** 2 + (p2 - act2) ** 2) / 3;
-                    const pActual = act1 ? p1 : actX ? pX : p2;
-                    const logLoss = -Math.log(pActual);
+                    const brier1x2 = +(((p1 - act1) ** 2 + (pX - actX) ** 2 + (p2 - act2) ** 2) / 3).toFixed(4);
+                    const pActual1x2 = act1 ? p1 : actX ? pX : p2;
+                    const logLoss1x2 = +(-Math.log(pActual1x2)).toFixed(4);
 
                     newWf.push({
                         matchId: m.id,
                         date: m.date,
                         time: m.time,
+                        kickoff: m.kickoff || `${m.date}T${m.time || '00:00'}:00Z`,
                         league: m.league?.full || 'Diğer',
                         match: `${m.home} - ${m.away}`,
                         score: `${m.score.h}-${m.score.a} (İY ${m.ht.h}-${m.ht.a})`,
                         brier,
                         logLoss,
-                        pickKey: topPick ? topPick.key : null,
-                        pick: topPick ? topPick.label : null,
-                        probPct: topPick ? Math.round(topPick.p * 100) : null,
-                        realOdd: topPick ? topPick.realOdd : null,
-                        evPct: topPick ? topPick.evPct : null,
-                        won: topPick ? actualKeys.has(topPick.key) : null,
-                        status: topPick ? (actualKeys.has(topPick.key) ? 'Kazandı' : 'Kaybetti') : null,
-                        testMethod: `Kronolojik Out-of-Sample (< ${testDate} verisi)`
+                        brier1x2,
+                        logLoss1x2,
+                        pickKey: topPick.key,
+                        pick: topPick.label,
+                        predictedProb: +pickP.toFixed(4),
+                        probPct: Math.round(pickP * 100),
+                        realOdd: topPick.realOdd,
+                        evPct: topPick.evPct,
+                        won,
+                        status: won ? 'Kazandı' : 'Kaybetti',
+                        testMethod: `Kronolojik Out-of-Sample (< ${testDate} verisi)`,
+                        modelAsOfDate: testDate
                     });
                 }
             }
@@ -3033,6 +3214,14 @@ function evaluateModelPerformance(model, dayItems = []) {
                 const an = it.an || analyze(model, m, { facts: false });
                 const actualKeys = new Set(outcomeKeys(m.score.h, m.score.a, m.ht.h, m.ht.a));
                 const topPick = selectTopPreMatchPick(m, an);
+                if (!topPick) continue;
+
+                const won = actualKeys.has(topPick.key);
+                const pickP = topPick.p;
+                const y = won ? 1 : 0;
+                const brier = +((pickP - y) ** 2).toFixed(4);
+                const pClamped = Math.max(0.01, Math.min(0.99, won ? pickP : (1 - pickP)));
+                const logLoss = +(-Math.log(pClamped)).toFixed(4);
 
                 const act1 = m.score.h > m.score.a ? 1 : 0;
                 const actX = m.score.h === m.score.a ? 1 : 0;
@@ -3040,27 +3229,32 @@ function evaluateModelPerformance(model, dayItems = []) {
                 const p1 = Math.max(0.02, Math.min(0.96, an.p.ms1 || 0.33));
                 const pX = Math.max(0.02, Math.min(0.96, an.p.msx || 0.33));
                 const p2 = Math.max(0.02, Math.min(0.96, an.p.ms2 || 0.33));
-                const brier = ((p1 - act1) ** 2 + (pX - actX) ** 2 + (p2 - act2) ** 2) / 3;
-                const pActual = act1 ? p1 : actX ? pX : p2;
-                const logLoss = -Math.log(pActual);
+                const brier1x2 = +(((p1 - act1) ** 2 + (pX - actX) ** 2 + (p2 - act2) ** 2) / 3).toFixed(4);
+                const pActual1x2 = act1 ? p1 : actX ? pX : p2;
+                const logLoss1x2 = +(-Math.log(pActual1x2)).toFixed(4);
 
                 newWf.push({
                     matchId: m.id,
                     date: m.date,
                     time: m.time,
+                    kickoff: m.kickoff || `${m.date}T${m.time || '00:00'}:00Z`,
                     league: m.league?.full || 'Diğer',
                     match: `${m.home} - ${m.away}`,
                     score: `${m.score.h}-${m.score.a} (İY ${m.ht.h}-${m.ht.a})`,
                     brier,
                     logLoss,
-                    pickKey: topPick ? topPick.key : null,
-                    pick: topPick ? topPick.label : null,
-                    probPct: topPick ? Math.round(topPick.p * 100) : null,
-                    realOdd: topPick ? topPick.realOdd : null,
-                    evPct: topPick ? topPick.evPct : null,
-                    won: topPick ? actualKeys.has(topPick.key) : null,
-                    status: topPick ? (actualKeys.has(topPick.key) ? 'Kazandı' : 'Kaybetti') : null,
-                    testMethod: `Maç Öncesi Model (< ${m.date} verisi)`
+                    brier1x2,
+                    logLoss1x2,
+                    pickKey: topPick.key,
+                    pick: topPick.label,
+                    predictedProb: +pickP.toFixed(4),
+                    probPct: Math.round(pickP * 100),
+                    realOdd: topPick.realOdd,
+                    evPct: topPick.evPct,
+                    won,
+                    status: won ? 'Kazandı' : 'Kaybetti',
+                    testMethod: `Maç Öncesi Model (< ${m.date} verisi)`,
+                    modelAsOfDate: m.date
                 });
             }
 
@@ -3079,12 +3273,12 @@ function evaluateModelPerformance(model, dayItems = []) {
     let brierSum = 0, logLossSum = 0, count = 0;
     let bankoHits = 0, bankoTotal = 0;
     const marketStats = {
-        ust15: { label: '1,5 Üst', hits: 0, total: 0 },
-        iyust05: { label: 'İY 0,5 Üst', hits: 0, total: 0 },
-        ms_fav: { label: 'MS Favori (1/2)', hits: 0, total: 0 },
-        kgv: { label: 'KG Var', hits: 0, total: 0 },
-        ust25: { label: '2,5 Üst', hits: 0, total: 0 },
-        dc: { label: 'Çifte Şans', hits: 0, total: 0 }
+        ust15: { key: 'ust15', label: '1,5 Üst', hits: 0, total: 0, brierSum: 0, logLossSum: 0, probSum: 0 },
+        iyust05: { key: 'iyust05', label: 'İY 0,5 Üst', hits: 0, total: 0, brierSum: 0, logLossSum: 0, probSum: 0 },
+        ms_fav: { key: 'ms_fav', label: 'MS Favori (1/2)', hits: 0, total: 0, brierSum: 0, logLossSum: 0, probSum: 0 },
+        kgv: { key: 'kgv', label: 'KG Var', hits: 0, total: 0, brierSum: 0, logLossSum: 0, probSum: 0 },
+        ust25: { key: 'ust25', label: '2,5 Üst', hits: 0, total: 0, brierSum: 0, logLossSum: 0, probSum: 0 },
+        dc: { key: 'dc', label: 'Çifte Şans', hits: 0, total: 0, brierSum: 0, logLossSum: 0, probSum: 0 }
     };
     const leagueMap = new Map();
 
@@ -3102,8 +3296,13 @@ function evaluateModelPerformance(model, dayItems = []) {
                 : (rec.pickKey === 'dc1x' || rec.pickKey === 'dcx2') ? 'dc'
                 : rec.pickKey;
             if (marketStats[mktKey]) {
-                marketStats[mktKey].total++;
-                if (rec.won) marketStats[mktKey].hits++;
+                const mst = marketStats[mktKey];
+                mst.total++;
+                if (rec.won) mst.hits++;
+                if (typeof rec.brier === 'number') mst.brierSum += rec.brier;
+                if (typeof rec.logLoss === 'number') mst.logLossSum += rec.logLoss;
+                const p = typeof rec.predictedProb === 'number' ? rec.predictedProb : (rec.probPct ? rec.probPct / 100 : 0.70);
+                mst.probSum += p;
             }
 
             const lgName = rec.league || 'Diğer';
@@ -3120,14 +3319,19 @@ function evaluateModelPerformance(model, dayItems = []) {
     const logLoss = hasSufficientData ? +(logLossSum / count).toFixed(3) : null;
     const hitRatePct = hasSufficientData ? Math.round((bankoHits / bankoTotal) * 100) : null;
 
+    // Jack Kuralı 2: Pazar bazında performansı ayır
     const marketsReport = hasSufficientData
         ? Object.values(marketStats)
-            .filter(x => x.total >= 3)
+            .filter(x => x.total >= 1)
             .map(x => ({
+                key: x.key,
                 label: x.label,
                 hits: x.hits,
                 total: x.total,
-                ratePct: Math.round((x.hits / x.total) * 100)
+                ratePct: Math.round((x.hits / x.total) * 100),
+                brierScore: +(x.brierSum / x.total).toFixed(3),
+                logLoss: +(x.logLossSum / x.total).toFixed(3),
+                avgProbPct: Math.round((x.probSum / x.total) * 100)
             }))
         : [];
 
@@ -3172,10 +3376,55 @@ function evaluateModelPerformance(model, dayItems = []) {
         hitRatePct,
         bankoHits,
         bankoTotal,
+        marketBreakdown: marketStats,
         marketsReport,
         leaguesReport,
         verifiedMatches,
         pendingPreMatch
+    };
+}
+
+// Jack Kuralı 2: Walk-Forward Denetim & Veri Sızıntısı Doğrulayıcı
+function verifyWalkForwardIntegrity(records = []) {
+    let leaksDetected = 0;
+    let brierMismatches = 0;
+    let invalidProbabilities = 0;
+    let timingViolations = 0;
+
+    for (const rec of records) {
+        // 1. Veri sızıntısı kontrolü: modelAsOfDate > rec.date olamaz!
+        if (rec.modelAsOfDate && rec.date && rec.modelAsOfDate > rec.date) {
+            leaksDetected++;
+        }
+        // 2. Pre-match zamanlama kontrolü: recordedBeforeKickoffAt kickoff'tan sonra olamaz
+        if (rec.recordedBeforeKickoffAt && rec.kickoff) {
+            const recTime = new Date(rec.recordedBeforeKickoffAt).getTime();
+            const kickTime = new Date(rec.kickoff).getTime();
+            if (!isNaN(recTime) && !isNaN(kickTime) && recTime > kickTime) {
+                timingViolations++;
+            }
+        }
+        // 3. Olasılık sınır kontrolü [0.01, 0.99]
+        const p = typeof rec.predictedProb === 'number' ? rec.predictedProb : (rec.probPct ? rec.probPct / 100 : null);
+        if (p === null || p <= 0 || p >= 1) {
+            invalidProbabilities++;
+        }
+        // 4. Brier Score formül doğrulaması: brier === (p - y)^2
+        if (typeof p === 'number' && typeof rec.won === 'boolean' && typeof rec.brier === 'number') {
+            const expectedBrier = (p - (rec.won ? 1 : 0)) ** 2;
+            if (Math.abs(expectedBrier - rec.brier) > 0.01) {
+                brierMismatches++;
+            }
+        }
+    }
+
+    return {
+        isValid: leaksDetected === 0 && brierMismatches === 0 && invalidProbabilities === 0 && timingViolations === 0,
+        totalChecked: records.length,
+        leaksDetected,
+        brierMismatches,
+        invalidProbabilities,
+        timingViolations
     };
 }
 
@@ -3203,7 +3452,11 @@ module.exports = {
     recordPlacedCoupon,
     getPlacedCoupon,
     loadPlacedCoupons,
-    savePlacedCoupons
+    savePlacedCoupons,
+    setUpstashTransportForTesting,
+    executeUpstashCommandSync,
+    executeUpstashCommandAsync,
+    verifyWalkForwardIntegrity
 };
 
 
