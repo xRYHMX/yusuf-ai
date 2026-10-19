@@ -308,12 +308,16 @@ async function getMatchDetail(matchId, date = mk.trToday()) {
         };
     }
 
+    const commentary = engine.generateMatchCommentary(m, an);
+
     return {
         match: m,
         nesineStatus: mk.getNesineStatus(),
+        commentary,
         analysis: {
             quality: an.quality,
             dataTrust: an.dataTrust || null,
+            commentary,
             expectedGoals: {
                 home: +an.lh.toFixed(2),
                 away: +an.la.toFixed(2),

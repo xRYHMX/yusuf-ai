@@ -38,42 +38,133 @@ function fitLambda(p1, pX, p2, pO, lh0, la0) {
 
 // ---------------- Kronolojik Zaman Damgası & Sıralama Yardımcıları ----------------
 function getMatchTimestamp(g) {
-    if (!g) return 0;
+    if (!g) return null;
+    if (typeof g === 'number' && !isNaN(g)) return g;
+    if (typeof g === 'string') {
+        if (g.includes('T')) {
+            const ms = new Date(g).getTime();
+            return isNaN(ms) ? null : ms;
+        }
+        const mDateMatch = g.match(/^\d{4}-\d{2}-\d{2}/);
+        if (mDateMatch) {
+            const ms = new Date(mDateMatch[0] + 'T12:00:00Z').getTime();
+            return isNaN(ms) ? null : ms;
+        }
+    }
     if (g.kickoff) {
         const ms = new Date(g.kickoff).getTime();
         if (!isNaN(ms)) return ms;
     }
-    const d = g.date || '1970-01-01';
-    const t = g.time ? (g.time.length === 5 ? g.time + ':00' : g.time) : '12:00:00';
-    const ms = new Date(`${d}T${t}Z`).getTime();
-    return isNaN(ms) ? new Date(d + 'T12:00:00Z').getTime() : ms;
+    const d = g.date;
+    if (!d) return null;
+    const t = g.time ? (g.time.length === 5 ? g.time + ':00' : g.time) : null;
+    if (t) {
+        const ms = new Date(`${d}T${t}Z`).getTime();
+        if (!isNaN(ms)) return ms;
+    }
+    const ms = new Date(`${d}T12:00:00Z`).getTime();
+    return isNaN(ms) ? null : ms;
+}
+
+// Bir geçmiş maçın, hedef maçtan KESİNLİKLE ÖNCE oynanıp tamamlandığını doğrular
+function isMatchStrictlyPrior(pastMatch, targetMatchOrCutoff) {
+    if (!pastMatch) return false;
+    if (!targetMatchOrCutoff) return true; // Hedef belirtilmemişse filtre uygulanmaz
+
+    // 1. Hedef maçın kendisi ASLA geçmiş veri olamaz!
+    if (typeof targetMatchOrCutoff === 'object' && targetMatchOrCutoff.id && pastMatch.id) {
+        if (String(pastMatch.id) === String(targetMatchOrCutoff.id)) return false;
+    }
+
+    // Hedef zamanı belirle
+    let targetKickoffMs = null;
+    let targetDateStr = null;
+
+    if (typeof targetMatchOrCutoff === 'number') {
+        targetKickoffMs = targetMatchOrCutoff;
+    } else if (typeof targetMatchOrCutoff === 'string') {
+        if (targetMatchOrCutoff.includes('T')) {
+            const ms = new Date(targetMatchOrCutoff).getTime();
+            if (!isNaN(ms)) targetKickoffMs = ms;
+        }
+        const mDateMatch = targetMatchOrCutoff.match(/^\d{4}-\d{2}-\d{2}/);
+        if (mDateMatch) targetDateStr = mDateMatch[0];
+    } else if (typeof targetMatchOrCutoff === 'object') {
+        targetDateStr = targetMatchOrCutoff.date || null;
+        if (targetMatchOrCutoff.kickoff) {
+            const ms = new Date(targetMatchOrCutoff.kickoff).getTime();
+            if (!isNaN(ms)) targetKickoffMs = ms;
+        }
+        if (!targetKickoffMs && targetMatchOrCutoff.date && targetMatchOrCutoff.time) {
+            const t = targetMatchOrCutoff.time.length === 5 ? targetMatchOrCutoff.time + ':00' : targetMatchOrCutoff.time;
+            const ms = new Date(`${targetMatchOrCutoff.date}T${t}Z`).getTime();
+            if (!isNaN(ms)) targetKickoffMs = ms;
+        }
+    }
+
+    // Geçmiş maçın zamanını belirle
+    let pastKickoffMs = null;
+    if (pastMatch.kickoff) {
+        const ms = new Date(pastMatch.kickoff).getTime();
+        if (!isNaN(ms)) pastKickoffMs = ms;
+    }
+    if (!pastKickoffMs && pastMatch.date && pastMatch.time) {
+        const t = pastMatch.time.length === 5 ? pastMatch.time + ':00' : pastMatch.time;
+        const ms = new Date(`${pastMatch.date}T${t}Z`).getTime();
+        if (!isNaN(ms)) pastKickoffMs = ms;
+    }
+    const pastDateStr = pastMatch.date || null;
+
+    // KURAL 1: Hem geçmiş maçın hem de hedef maçın gerçek başlama saati/kickoff zamanı varsa:
+    if (targetKickoffMs !== null && pastKickoffMs !== null) {
+        // Hedef maçtan önce başlamış olan maç kesinlikle geçmiş maçtır (aynı gün olsa dahi dahil edilir)
+        return pastKickoffMs < targetKickoffMs;
+    }
+
+    // KURAL 2: Kickoff bilgisi eksik veya geçersizse GÜVENLİ DAVRAN:
+    // Hedef maçın kickoff saati bilinmiyorsa, aynı günkü maçların hedef maçtan önce mi sonra mı olduğu bilinemez.
+    // Gelecekteki verilerin sızmaması için aynı gün ve sonraki tüm maçlar dışlanır (yalnızca pastDate < targetDate)
+    if (targetDateStr && pastDateStr) {
+        if (pastDateStr < targetDateStr) return true;
+        return false;
+    }
+
+    if (targetKickoffMs !== null && pastDateStr) {
+        const pastDayEndMs = new Date(pastDateStr + 'T23:59:59Z').getTime();
+        if (pastDayEndMs < targetKickoffMs) return true;
+        return false;
+    }
+
+    return false;
 }
 
 function getSortedMatchesDesc(list) {
     if (!Array.isArray(list) || list.length === 0) return [];
     return list.slice().sort((a, b) => {
-        const tA = getMatchTimestamp(a);
-        const tB = getMatchTimestamp(b);
+        const tA = getMatchTimestamp(a) || 0;
+        const tB = getMatchTimestamp(b) || 0;
         if (tA !== tB) return tB - tA; // En yeni maç en başta (index 0)
         return String(b.id || '').localeCompare(String(a.id || ''));
     });
 }
 
-// ---------------- Model kurulumu (yalnızca asOf tarihinden ÖNCEKİ maçlarla) ----------------
+// ---------------- Model kurulumu (yalnızca asOf / kickoff öncesindeki maçlarla) ----------------
 function buildModel(hist, asOf, opts = {}) {
-    const asOfT = new Date(asOf + 'T00:00:00Z').getTime();
-    const maxKickoffMs = opts.maxKickoff ? new Date(opts.maxKickoff).getTime() : null;
+    const asOfStr = String(asOf || '');
+    const asOfT = new Date(asOfStr.includes('T') ? asOfStr : asOfStr + 'T00:00:00Z').getTime();
+    const maxKickoffMs = opts.maxKickoff ? new Date(opts.maxKickoff).getTime() : (asOfStr.includes('T') ? asOfT : null);
     const rows = [];
     for (const m of hist) {
         if (m.state !== 'post' || !m.score || !m.ht) continue;
-        // Kesin kural: Yalnızca test/tahmin tarihinden ÖNCEKİ maçları kullan (veri sızıntısını engelle)
+        // Kesin kural: Yalnızca test/tahmin tarih ve saatinden ÖNCEKİ maçları kullan (veri sızıntısını engelle)
         if (maxKickoffMs !== null) {
-            const kMs = new Date(m.kickoff || (m.date + 'T00:00:00Z')).getTime();
-            if (!(kMs < maxKickoffMs)) continue;
-        } else if (m.date >= asOf) {
+            const kMs = getMatchTimestamp(m);
+            if (!kMs || !(kMs < maxKickoffMs)) continue;
+        } else if (m.date >= asOfStr.slice(0, 10)) {
             continue;
         }
-        const days = (asOfT - new Date(m.date + 'T00:00:00Z').getTime()) / 86400000;
+        const mTimeMs = getMatchTimestamp(m) || new Date(m.date + 'T00:00:00Z').getTime();
+        const days = (asOfT - mTimeMs) / 86400000;
         if (days > WINDOW || days < 0) continue;
         rows.push({ m, w: Math.pow(0.5, days / HALF_LIFE) });
     }
@@ -419,12 +510,11 @@ function computeMarkets(lh, la, sh, sa, rho = -0.08) {
 }
 
 // ---------------- Derin Takım Özeti (Son 10 Maç, Son 5 Maç, Ev/Dep Karnesi, 1Y/2Y Dağılımı & İstikrar) ----------------
-function teamFacts(t, matchDateIso = null) {
+function teamFacts(t, targetMatchOrCutoff = null) {
     if (!t) return null;
-    const targetMs = matchDateIso ? new Date(matchDateIso + 'T12:00:00Z').getTime() : null;
     let pool = Array.isArray(t.last) ? t.last : [];
-    if (targetMs !== null) {
-        pool = pool.filter(g => getMatchTimestamp(g) < targetMs);
+    if (targetMatchOrCutoff !== null) {
+        pool = pool.filter(g => isMatchStrictlyPrior(g, targetMatchOrCutoff));
     }
     const sorted = getSortedMatchesDesc(pool);
     const last = sorted.slice(0, 10);
@@ -433,8 +523,8 @@ function teamFacts(t, matchDateIso = null) {
     let homePool = (t.homeLast && Array.isArray(t.homeLast) && t.homeLast.length > 0)
         ? t.homeLast
         : sorted.filter(x => x.home || x.isHome);
-    if (targetMs !== null) {
-        homePool = homePool.filter(g => getMatchTimestamp(g) < targetMs);
+    if (targetMatchOrCutoff !== null) {
+        homePool = homePool.filter(g => isMatchStrictlyPrior(g, targetMatchOrCutoff));
     }
     const homeMatches = getSortedMatchesDesc(homePool);
     const homeGames = homeMatches.slice(0, 6);
@@ -442,8 +532,8 @@ function teamFacts(t, matchDateIso = null) {
     let awayPool = (t.awayLast && Array.isArray(t.awayLast) && t.awayLast.length > 0)
         ? t.awayLast
         : sorted.filter(x => !x.home && !x.isHome);
-    if (targetMs !== null) {
-        awayPool = awayPool.filter(g => getMatchTimestamp(g) < targetMs);
+    if (targetMatchOrCutoff !== null) {
+        awayPool = awayPool.filter(g => isMatchStrictlyPrior(g, targetMatchOrCutoff));
     }
     const awayMatches = getSortedMatchesDesc(awayPool);
     const awayGames = awayMatches.slice(0, 6);
@@ -524,51 +614,80 @@ function teamFacts(t, matchDateIso = null) {
 }
 
 // ---------------- Fikstür Yorgunluğu & Dinlenme Günü Analizi ----------------
-function computeRestAndFatigue(t, matchDateIso) {
-    if (!t || !t.last || !t.last.length || !matchDateIso) {
-        return { restDays: null, gamesLast10d: 0, isFatigued: false, isFresh: false, attMod: 1.0, dfnMod: 1.0, shMod: 0, label: 'Normal Fikstür' };
+function computeRestAndFatigue(t, targetMatchOrCutoff) {
+    if (!t || !t.last || !t.last.length || !targetMatchOrCutoff) {
+        return { restDays: null, restHours: null, gamesLast10d: 0, isFatigued: false, isFresh: false, attMod: 1.0, dfnMod: 1.0, shMod: 0, label: 'Normal Fikstür' };
     }
-    const targetMs = new Date(matchDateIso + 'T12:00:00Z').getTime();
 
-    // Yalnızca hedef maç tarihinden kesinlikle ÖNCEKİ maçları al (gelecek maç sızıntısı engellenir)
-    const validMatches = getSortedMatchesDesc(t.last.filter(g => {
-        const ms = getMatchTimestamp(g);
-        return ms < targetMs;
-    }));
+    // Hedef maçtan kesinlikle ÖNCE oynanmış maçları al (aynı gün önceki maçlar dahil, gelecek veya maçın kendisi hariç)
+    const validMatches = getSortedMatchesDesc(t.last.filter(g => isMatchStrictlyPrior(g, targetMatchOrCutoff)));
 
     if (!validMatches.length) {
-        return { restDays: null, gamesLast10d: 0, isFatigued: false, isFresh: false, attMod: 1.0, dfnMod: 1.0, shMod: 0, label: 'Normal Fikstür' };
+        return { restDays: null, restHours: null, gamesLast10d: 0, isFatigued: false, isFresh: false, attMod: 1.0, dfnMod: 1.0, shMod: 0, label: 'Normal Fikstür' };
     }
 
-    const lastMs = getMatchTimestamp(validMatches[0]);
-    const restDays = Math.max(1, Math.round((targetMs - lastMs) / 86400000));
+    const targetKickoffMs = getMatchTimestamp(targetMatchOrCutoff);
+    const lastMatch = validMatches[0];
+    const lastKickoffMs = getMatchTimestamp(lastMatch);
+
+    let restHours = null;
+    let restDays = null;
+
+    if (targetKickoffMs && lastKickoffMs && targetKickoffMs > lastKickoffMs) {
+        const diffMs = targetKickoffMs - lastKickoffMs;
+        restHours = +(diffMs / 3600000).toFixed(1);
+        restDays = Math.max(0, Math.round(diffMs / 86400000));
+    } else {
+        const dTargetStr = (typeof targetMatchOrCutoff === 'object' ? targetMatchOrCutoff.date : targetMatchOrCutoff) || '1970-01-01';
+        const dTarget = new Date(dTargetStr.slice(0, 10) + 'T12:00:00Z').getTime();
+        const dLast = new Date(lastMatch.date + 'T12:00:00Z').getTime();
+        restDays = Math.max(1, Math.round((dTarget - dLast) / 86400000));
+        restHours = restDays * 24;
+    }
 
     let gamesLast10d = 0;
-    for (const g of validMatches) {
-        const d = Math.round((targetMs - getMatchTimestamp(g)) / 86400000);
-        if (d > 0 && d <= 10) gamesLast10d++;
+    if (targetKickoffMs) {
+        for (const g of validMatches) {
+            const gMs = getMatchTimestamp(g);
+            if (gMs) {
+                const diffMs = targetKickoffMs - gMs;
+                const d = diffMs / 86400000;
+                if (d > 0 && d <= 10) gamesLast10d++;
+            }
+        }
+    } else {
+        const dTargetStr = (typeof targetMatchOrCutoff === 'object' ? targetMatchOrCutoff.date : targetMatchOrCutoff) || '1970-01-01';
+        const dTarget = new Date(dTargetStr.slice(0, 10) + 'T12:00:00Z').getTime();
+        for (const g of validMatches) {
+            const d = Math.round((dTarget - new Date(g.date + 'T12:00:00Z').getTime()) / 86400000);
+            if (d > 0 && d <= 10) gamesLast10d++;
+        }
     }
 
     let attMod = 1.0, dfnMod = 1.0, shMod = 0;
     let isFatigued = false, isFresh = false;
-    let label = `${restDays} gün dinlenme`;
+    let label = restHours !== null && restHours < 48
+        ? `${restHours} saat dinlenme`
+        : `${restDays} gün dinlenme`;
 
-    if (restDays <= 3 || gamesLast10d >= 3) {
+    if ((restDays !== null && restDays <= 3) || (restHours !== null && restHours < 76) || gamesLast10d >= 3) {
         isFatigued = true;
-        attMod = restDays <= 2 ? 0.94 : 0.965;
-        dfnMod = restDays <= 2 ? 1.07 : 1.045; // Yorgun savunma özellikle 2. yarıda daha çok pozisyon verir
+        attMod = (restHours !== null && restHours < 48) || restDays <= 2 ? 0.94 : 0.965;
+        dfnMod = (restHours !== null && restHours < 48) || restDays <= 2 ? 1.07 : 1.045; // Yorgun savunma özellikle 2. yarıda daha çok pozisyon verir
         shMod = -0.025; // Gollerin 2. yarıya kayması
         label = gamesLast10d >= 3
-            ? `⚠️ Sıkışık Fikstür (10 günde ${gamesLast10d} maç, son maç ${restDays}g önce)`
-            : `⚠️ Yorgunluk Riski (Son maç ${restDays} gün önce)`;
+            ? `⚠️ Sıkışık Fikstür (10 günde ${gamesLast10d} maç, son maç ${label} önce)`
+            : (restHours !== null && restHours < 48)
+                ? `⚠️ Aşırı Yorgunluk Riski (Son maç yalnızca ${restHours} saat önce)`
+                : `⚠️ Yorgunluk Riski (Son maç ${restDays} gün önce)`;
     } else if (restDays >= 6 && restDays <= 9 && gamesLast10d <= 1) {
         isFresh = true;
         attMod = 1.02;
         dfnMod = 0.985;
-        label = `🔋 Dinç Kadro (${restDays} gün dinlenme)`;
+        label = `🔋 Dinç Kadro (${label})`;
     }
 
-    return { restDays, gamesLast10d, isFatigued, isFresh, attMod, dfnMod, shMod, label };
+    return { restDays, restHours, gamesLast10d, isFatigued, isFresh, attMod, dfnMod, shMod, label };
 }
 
 // ---------------- Takım Taktik Kimliği (Tactical DNA) & Eşleşme Çarpışması ----------------
@@ -837,8 +956,7 @@ function analyzeH2HAndCommon(th, ta, m, intel) {
     if (th && ta && Array.isArray(th.last)) {
         for (const g of th.last) {
             // Gelecek maç veya maçın kendisi sızamaz!
-            if (m && (g.id === m.id || (matchKickoffMs && getMatchTimestamp(g) >= matchKickoffMs))) continue;
-            if (matchDateStr && g.date >= matchDateStr) continue;
+            if (m && !isMatchStrictlyPrior(g, m)) continue;
 
             if (g.oppId === ta.id) {
                 seenDates.add(g.date);
@@ -859,8 +977,7 @@ function analyzeH2HAndCommon(th, ta, m, intel) {
 
     if (intel && Array.isArray(intel.espnH2H)) {
         for (const eh of intel.espnH2H) {
-            if (m && (eh.id === m.id || (matchKickoffMs && getMatchTimestamp(eh) >= matchKickoffMs))) continue;
-            if (matchDateStr && eh.date >= matchDateStr) continue;
+            if (m && !isMatchStrictlyPrior(eh, m)) continue;
             if (seenDates.has(eh.date)) continue;
             seenDates.add(eh.date);
             const isThHome = eh.home && m.home && eh.home.toLowerCase().slice(0, 4) === m.home.toLowerCase().slice(0, 4);
@@ -909,8 +1026,8 @@ function analyzeH2HAndCommon(th, ta, m, intel) {
     // 2. Ortak Rakipler (Common Opponents)
     let commonModH = 1.0, commonModA = 1.0, commonSummary = null;
     if (th && ta && th.last && th.last.length && ta.last && ta.last.length) {
-        const validTh = getSortedMatchesDesc(th.last.filter(g => (!matchDateStr || g.date < matchDateStr) && (!m || g.id !== m.id)));
-        const validTa = getSortedMatchesDesc(ta.last.filter(g => (!matchDateStr || g.date < matchDateStr) && (!m || g.id !== m.id)));
+        const validTh = getSortedMatchesDesc(th.last.filter(g => isMatchStrictlyPrior(g, m)));
+        const validTa = getSortedMatchesDesc(ta.last.filter(g => isMatchStrictlyPrior(g, m)));
 
         const mapH = new Map();
         for (const g of validTh) {
@@ -961,13 +1078,12 @@ function analyzeH2HAndCommon(th, ta, m, intel) {
 }
 
 // Son 5 maçlık form ivmesi (Momentum çarpanı) - Kronolojik Ağırlıklı (Recency-Weighted)
-function computeFormMomentum(t, matchDateIso = null) {
+function computeFormMomentum(t, targetMatchOrCutoff = null) {
     if (!t || !t.last || !Array.isArray(t.last) || t.last.length < 3) return 1.0;
 
-    const targetMs = matchDateIso ? new Date(matchDateIso + 'T12:00:00Z').getTime() : null;
     let pool = t.last;
-    if (targetMs !== null) {
-        pool = pool.filter(g => getMatchTimestamp(g) < targetMs);
+    if (targetMatchOrCutoff !== null) {
+        pool = pool.filter(g => isMatchStrictlyPrior(g, targetMatchOrCutoff));
         if (pool.length < 3) return 1.0;
     }
 
@@ -1267,8 +1383,8 @@ function analyze(model, m, opts = {}) {
     const L = model.lgStat(m.league.id), g = model.glob;
     const nh = th ? th.n : 0, na = ta ? ta.n : 0;
 
-    const homeFacts = teamFacts(th, m.date);
-    const awayFacts = teamFacts(ta, m.date);
+    const homeFacts = teamFacts(th, m);
+    const awayFacts = teamFacts(ta, m);
 
     // 1. Katman: Genel + Ev/Deplasman Ayrı Hücum ve Savunma Güçleri (Lig Bazlı Ev Sahibi Avantajı Dahil)
     const K_GEN = 4, K_SPLIT = 3;
@@ -1291,8 +1407,8 @@ function analyze(model, m, opts = {}) {
     let la = L.muA * effAttA * effDfnH;
 
     // 2. Katman: Son 5 Maç Form İvmesi (Momentum)
-    const momH = computeFormMomentum(th, m.date);
-    const momA = computeFormMomentum(ta, m.date);
+    const momH = computeFormMomentum(th, m);
+    const momA = computeFormMomentum(ta, m);
     lh *= momH;
     la *= momA;
 
@@ -1302,8 +1418,8 @@ function analyze(model, m, opts = {}) {
     la *= h2hCommon.h2hModA * h2hCommon.commonModA;
 
     // 4. Katman: Fikstür Yorgunluğu ve Dinlenme Günleri (Rest Days & Congestion)
-    const restH = computeRestAndFatigue(th, m.date);
-    const restA = computeRestAndFatigue(ta, m.date);
+    const restH = computeRestAndFatigue(th, m);
+    const restA = computeRestAndFatigue(ta, m);
     lh *= restH.attMod * restA.dfnMod;
     la *= restA.attMod * restH.dfnMod;
 
@@ -3688,6 +3804,405 @@ function verifyWalkForwardIntegrity(records = []) {
     };
 }
 
+// ---------------- Yusuf AI – Veriye Dayalı Analiz + Bağımsız Futbol Yorumu ----------------
+function generateMatchCommentary(m, an, opts = {}) {
+    if (!m) m = { home: 'Ev Sahibi', away: 'Deplasman', league: { full: 'Lig' } };
+    if (!an) an = { lh: 1.35, la: 1.10, p: { ms1: 0.45, msx: 0.28, ms2: 0.27, ust25: 0.50, alt25: 0.50, kgv: 0.52, kgy: 0.48, dc1x: 0.73, dcx2: 0.55 }, topScores: [{ s: '1-1', p: 0.12 }] };
+
+    const hf = an.facts?.home || null;
+    const af = an.facts?.away || null;
+    const homeName = m.home || 'Ev Sahibi';
+    const awayName = m.away || 'Deplasman';
+    const leagueName = m.league?.full || m.league?.name || 'Lig';
+
+    const pMs1 = Math.round((an.p?.ms1 || 0.40) * 100);
+    const pMsX = Math.round((an.p?.msx || 0.30) * 100);
+    const pMs2 = Math.round((an.p?.ms2 || 0.30) * 100);
+    const pUst25 = Math.round((an.p?.ust25 || 0.50) * 100);
+    const pAlt25 = Math.round((an.p?.alt25 || 0.50) * 100);
+    const pKgv = Math.round((an.p?.kgv || 0.50) * 100);
+    const pKgy = Math.round((an.p?.kgy || 0.50) * 100);
+    const pDc1x = Math.round((an.p?.dc1x || 0.70) * 100);
+    const pDcx2 = Math.round((an.p?.dcx2 || 0.60) * 100);
+
+    const lhVal = typeof an.lh === 'number' ? an.lh : 1.35;
+    const laVal = typeof an.la === 'number' ? an.la : 1.10;
+    const totalXg = +(lhVal + laVal).toFixed(2);
+
+    // 1. Veriye Dayalı Analiz Özeti (Matematiksel İstatistik Katmanı)
+    const hasSquadData = Boolean(an.squad && (
+        (Array.isArray(an.squad.homeMissing) && an.squad.homeMissing.length > 0) ||
+        (Array.isArray(an.squad.awayMissing) && an.squad.awayMissing.length > 0) ||
+        an.squad.isOfficial
+    ));
+
+    const squadStatus = hasSquadData
+        ? 'Resmi/Doğrulanmış kadro ve eksik verisi mevcut'
+        : 'Resmi sakatlık ve ceza verisi doğrulanmadı / güvenilir veri yok (uydurma sakatlık girilmez)';
+
+    const hasFreshOdds = Boolean(m.oddsFresh && m.odds && Object.keys(m.odds).length > 0);
+    const oddsStatus = hasFreshOdds
+        ? `Güncel Nesine Oranları (Son Veri: ${m.oddsUpdatedAt || 'Bilinmiyor'})`
+        : 'Güncel piyasa oranı bültende bulunamadı / oran verisi bekleniyor';
+
+    const statisticalSummary = {
+        matchInfo: {
+            home: homeName,
+            away: awayName,
+            league: leagueName,
+            kickoff: m.kickoff || null,
+            date: m.date || null,
+            time: m.time || null
+        },
+        expectedGoals: {
+            home: +lhVal.toFixed(2),
+            away: +laVal.toFixed(2),
+            total: totalXg
+        },
+        formAndPoints: {
+            home: {
+                last5: hf?.formStr || '-',
+                last10: hf?.form10Str || '-',
+                ppgLast10: hf?.last10Pts ?? null,
+                momentum: +(an.momH || 1.0).toFixed(2),
+                recentResults: hf?.son || []
+            },
+            away: {
+                last5: af?.formStr || '-',
+                last10: af?.form10Str || '-',
+                ppgLast10: af?.last10Pts ?? null,
+                momentum: +(an.momA || 1.0).toFixed(2),
+                recentResults: af?.son || []
+            }
+        },
+        splits: {
+            homeAtHome: {
+                matchesPlayed: hf?.hn ?? null,
+                goalsForAvg: hf?.homeGf ?? hf?.gf ?? null,
+                goalsAgainstAvg: hf?.homeGa ?? hf?.ga ?? null,
+                form: hf?.homeForm || '-'
+            },
+            awayAtAway: {
+                matchesPlayed: af?.an ?? null,
+                goalsForAvg: af?.awayGf ?? af?.gf ?? null,
+                goalsAgainstAvg: af?.awayGa ?? af?.ga ?? null,
+                form: af?.awayForm || '-'
+            }
+        },
+        goalDistributions: {
+            over25Pct: pUst25,
+            under25Pct: pAlt25,
+            bttsPct: pKgv,
+            htGoalSharePct: {
+                home: hf?.htGoalSharePct ?? 45,
+                away: af?.htGoalSharePct ?? 45
+            },
+            topScores: (an.topScores || []).slice(0, 3).map(s => `${s.s} (%${Math.round(s.p * 100)})`)
+        },
+        h2h: an.h2hSummary || 'Aralarında son dönemde kayıtlı maç bulunmuyor',
+        commonOpponents: an.commonSummary || 'Ortak rakip karşılaştırması için yeterli veri yok',
+        restAndFatigue: {
+            home: {
+                restHours: an.restH?.restHours ?? null,
+                restDays: an.restH?.restDays ?? null,
+                isFatigued: Boolean(an.restH?.isFatigued),
+                label: an.restH?.label || 'Normal Fikstür'
+            },
+            away: {
+                restHours: an.restA?.restHours ?? null,
+                restDays: an.restA?.restDays ?? null,
+                isFatigued: Boolean(an.restA?.isFatigued),
+                label: an.restA?.label || 'Normal Fikstür'
+            }
+        },
+        squadAndInjuries: {
+            hasVerifiedData: hasSquadData,
+            status: squadStatus,
+            homeMissing: an.squad?.homeMissing || [],
+            awayMissing: an.squad?.awayMissing || [],
+            lineupType: an.squad?.lineupType || 'Veri Yok'
+        },
+        marketOdds: {
+            available: hasFreshOdds,
+            status: oddsStatus,
+            oddsUpdatedAt: m.oddsFresh ? m.oddsUpdatedAt : null,
+            odds: m.odds || null
+        },
+        dataTrust: an.dataTrust || null
+    };
+
+    // En mantıklı tercihi ve matematiksel dayanağını belirle
+    const candidates = [
+        { key: 'ms1', p: an.p?.ms1 || 0.40, label: LABEL.ms1 || 'MS 1' },
+        { key: 'ms2', p: an.p?.ms2 || 0.30, label: LABEL.ms2 || 'MS 2' },
+        { key: 'dc1x', p: an.p?.dc1x || 0.70, label: LABEL.dc1x || 'Çifte Şans 1-X' },
+        { key: 'dcx2', p: an.p?.dcx2 || 0.60, label: LABEL.dcx2 || 'Çifte Şans X-2' },
+        { key: 'ust25', p: an.p?.ust25 || 0.50, label: LABEL.ust25 || '2,5 Üst' },
+        { key: 'alt25', p: an.p?.alt25 || 0.50, label: LABEL.alt25 || '2,5 Alt' },
+        { key: 'kgv', p: an.p?.kgv || 0.50, label: LABEL.kgv || 'KG Var' },
+        { key: 'kgy', p: an.p?.kgy || 0.50, label: LABEL.kgy || 'KG Yok' }
+    ];
+
+    let bestCandidate = candidates[0];
+    let bestScore = -1;
+    for (const c of candidates) {
+        const odd = (hasFreshOdds && m.odds && typeof m.odds[c.key] === 'number') ? m.odds[c.key] : null;
+        const ev = odd ? (c.p * odd - 1) : 0;
+        let score = c.p * 100;
+        if (ev > 0.05) score += ev * 35;
+        if (c.p >= 0.55) score += 15;
+        if (score > bestScore) {
+            bestScore = score;
+            bestCandidate = { ...c, odd, ev: odd ? +(ev * 100).toFixed(1) : null };
+        }
+    }
+
+    const pickProbPct = Math.round(bestCandidate.p * 100);
+    const mathRationale = bestCandidate.odd
+        ? `Modelimiz bu seçenek için %${pickProbPct} olasılık ve ${lhVal.toFixed(2)}-${laVal.toFixed(2)} xG projeksiyonu tespit etti. Piyasa ${bestCandidate.odd.toFixed(2)} oranı açarak ${bestCandidate.ev >= 0 ? '+' : ''}%${bestCandidate.ev} matematiksel beklenen değer (EV) sunuyor.`
+        : `Modelimiz bu tercih için %${pickProbPct} gerçekleşme olasılığı ve ${lhVal.toFixed(2)}-${laVal.toFixed(2)} xG projeksiyonu ile istatistiksel üstünlük saptadı.`;
+
+    // Risk ve Güven seviyeleri
+    const minSample = Math.min(an.nh || 0, an.na || 0);
+    let riskLevel = 'Orta Risk';
+    if (minSample < 5 || (an.dataTrust && an.dataTrust.sufficiencyScore < 50)) {
+        riskLevel = 'Yüksek Risk';
+    } else if (pickProbPct >= 65 && (!an.dataTrust || an.dataTrust.overallScore >= 65) && !an.restH?.isFatigued && !an.restA?.isFatigued) {
+        riskLevel = 'Düşük Risk';
+    } else if (pickProbPct < 48) {
+        riskLevel = 'Yüksek Risk';
+    }
+
+    let confidenceLevel = 'Orta Güven';
+    if (minSample < 5 || (an.dataTrust && an.dataTrust.sufficiencyScore < 50)) {
+        confidenceLevel = 'Düşük Güven (Sınırlı Veri)';
+    } else if (an.dataTrust && an.dataTrust.overallScore >= 75) {
+        confidenceLevel = 'Yüksek Güven';
+    }
+
+    // 2. Yusuf AI'ın Bağımsız Futbol Yorumu (6 Soruya Net Yanıtlar)
+    // Soru 1: Maçın genel gidişatı ve temposu nasıl bekleniyor?
+    let flowAndTempo = '';
+    if (totalXg >= 2.90) {
+        flowAndTempo = `Karşılaşmada yüksek tempolu, hücum hatlarının savunma arkasına sarkacağı ve geçiş oyunlarının belirleyici olacağı açık bir mücadele bekleniyor. Modelin toplam xG beklentisi ${totalXg} olup, her iki takımın son maçlardaki üretkenliği maçın erken dakikalarda hareketleneceğine işaret ediyor.`;
+    } else if (totalXg <= 2.20) {
+        flowAndTempo = `Taktiksel disiplinin ön planda olduğu, orta saha bloklarının birbirini kilitlediği ve düşük riskle oynanacak kontrollü bir maç temposu bekleniyor. Toplam xG beklentisinin ${totalXg} seviyesinde kalması, ilk golü atan tarafın skoru korumaya çekileceğini gösteriyor.`;
+    } else {
+        flowAndTempo = `Dengeli ve temkinli bir ilk yarı temposunun ardından 2. yarıda risklerin artacağı bir oyun bekleniyor. Toplam ${totalXg} xG projeksiyonu, maçın tek farklı galibiyet veya karşılıklı 1-2 gol sınırında seyredeceğine işaret ediyor.`;
+    }
+    if (an.tactical?.clashSummary) {
+        flowAndTempo += ` Taktik eşleşmede: ${an.tactical.clashSummary}.`;
+    }
+
+    // Soru 2: Hangi takım neden avantajlı?
+    let teamAdvantage = '';
+    if (lhVal >= laVal + 0.35) {
+        teamAdvantage = `${homeName}, iç saha baskısı, seyirci desteği ve ${lhVal.toFixed(2)} gol beklentisiyle sahaya avantajlı çıkan taraf.`;
+        if (hf?.homeGf !== null && hf?.homeGf !== undefined) {
+            teamAdvantage += ` Evinde maç başı ${hf.homeGf} gol ortalaması yakalayan ev sahibi, son 10 maçlık periyotta ${hf.last10Pts || '-'} puan ortalamasıyla daha istikrarlı bir grafik çiziyor.`;
+        }
+        if (an.restH?.restHours && an.restA?.restHours && an.restH.restHours > an.restA.restHours + 24) {
+            teamAdvantage += ` Ayrıca ${homeName} dinlenme süresi bakımından rakibine göre daha dinç (${an.restH.label}).`;
+        }
+    } else if (laVal >= lhVal + 0.35) {
+        teamAdvantage = `${awayName}, form ivmesi (${(an.momA || 1.0).toFixed(2)} çarpan) ve ${laVal.toFixed(2)} xG üretkenliğiyle deplasmanda olmasına rağmen avantajı elinde tutuyor.`;
+        if (af?.awayGf !== null && af?.awayGf !== undefined) {
+            teamAdvantage += ` Dış sahada maç başı ${af.awayGf} gol bulan konuk ekip, ev sahibinin savunma zaaflarını değerlendirmeye aday.`;
+        }
+    } else {
+        teamAdvantage = `İki takım arasında belirgin bir güç farkı bulunmuyor; kadro kaliteleri ve form momentumları birbirine oldukça yakın (${homeName} ${(an.momH || 1.0).toFixed(2)}x vs ${awayName} ${(an.momA || 1.0).toFixed(2)}x). Maçın kaderini duran toplar veya bireysel savunma hataları belirleyecek.`;
+    }
+
+    // Soru 3: İstatistikler ile piyasa oranları arasında çelişki var mı?
+    let statsVsMarket = '';
+    if (hasFreshOdds) {
+        const marketOdd = bestCandidate.odd;
+        if (marketOdd) {
+            const impliedProb = Math.round((1 / marketOdd) * 100);
+            if (bestCandidate.ev && bestCandidate.ev > 4.0) {
+                statsVsMarket = `İstatistiksel model ile piyasa oranları arasında kayda değer bir arbitraj (Value Bet) tespit edildi. Piyasa ${bestCandidate.label} tercihine ${marketOdd.toFixed(2)} oran açarak yalnızca %${impliedProb} şans tanırken, modelimizin bağımsız hesaplaması %${pickProbPct} olasılık gösteriyor (%${bestCandidate.ev} EV avantajı).`;
+            } else {
+                statsVsMarket = `Piyasa oranları ile modelin olasılık hesapları büyük oranda paralellik gösteriyor. Piyasanın ${marketOdd.toFixed(2)} oranı (%${impliedProb} ima edilen olasılık) modelin %${pickProbPct} projeksiyonu ile dengede; fahiş bir oran sapması bulunmuyor.`;
+            }
+        } else {
+            statsVsMarket = `Piyasa temel 1-X-2 oranlarında dengeli görünürken, yan pazarlarda model beklentisine kıyasla ufak değer fırsatları barındırıyor.`;
+        }
+    } else {
+        statsVsMarket = `Piyasada oranlar henüz kesinleşmediği veya bültende taze veri bulunmadığı için oran-olasılık makası matematiksel olarak teyit edilemedi; analiz saf maç içi ve geçmiş form metrikleriyle yürütülüyor.`;
+    }
+
+    // Soru 4: Beraberlik veya sürpriz ihtimali ne durumda?
+    let drawAndSurprise = '';
+    if (pMsX >= 28) {
+        drawAndSurprise = `Beraberlik ihtimali %${pMsX} ile yabana atılmayacak bir seviyede. İki takımın kilit açma zorluğu ve skor koruma refleksleri, maçın 1-1 veya 0-0 gibi skorlara kilitlenme riskini artırıyor.`;
+    } else {
+        drawAndSurprise = `Beraberlik olasılığı %${pMsX} seviyesinde kalarak ikincil planda kalıyor; oyunun iki taraftan birinin lehine çözülmesi daha olası.`;
+    }
+    const underdog = pMs1 < pMs2 ? { name: homeName, p: pMs1, label: 'Ev Sahibi Sürprizi' } : { name: awayName, p: pMs2, label: 'Deplasman Sürprizi' };
+    if (underdog.p >= 25 && underdog.p <= 38) {
+        drawAndSurprise += ` Sürpriz arayanlar için ${underdog.name} lehine açılan yüksek oran (%${underdog.p} olasılık) değerlendirilebilir bir risk faktörü taşıyor.`;
+    }
+
+    // Soru 5: Maç için en mantıklı tercih nedir ve matematiksel dayanağı nedir?
+    const bestPickEditorial = `Bu karşılaşma için en rasyonel tercih "${bestCandidate.label}". Matematiksel gerekçe: ${mathRationale} En olası skor projeksiyonları: ${(an.topScores || []).slice(0, 2).map(x => x.s).join(' ve ')}.`;
+
+    // Soru 6: Karşılaşmanın ana risk faktörü nedir?
+    let primaryRisk = '';
+    if (an.restH?.isFatigued || an.restA?.isFatigued) {
+        const fatiguedTeam = an.restH?.isFatigued ? homeName : awayName;
+        const fatigueRest = an.restH?.isFatigued ? (an.restH.restHours ? `${an.restH.restHours} saat` : `${an.restH.restDays} gün`) : (an.restA.restHours ? `${an.restA.restHours} saat` : `${an.restA.restDays} gün`);
+        primaryRisk = `Ana risk unsuru fikstür yorgunluğudur. ${fatiguedTeam} son maçından sonra yalnızca ${fatigueRest} dinlenebilmiştir; maçın son 30 dakikasında yaşanabilecek fiziksel düşüş ve savunma hataları oyun planını bozabilir.`;
+    } else if (minSample < 5) {
+        primaryRisk = `Ana risk faktörü geçmiş veri hacminin sınırlı olmasıdır (Minimum takım örneklemi: ${minSample} maç). Veri derinliği azaldıkça istatistiksel varyans artar; bu nedenle kupon payı ölçülü tutulmalıdır.`;
+    } else if (hf && hf.cleanSheetPct <= 20 && af && af.cleanSheetPct <= 20) {
+        primaryRisk = `Ana risk faktörü her iki takımın da kalesini gole kapatma oranının çok düşük olmasıdır (%${hf.cleanSheetPct} ve %${af.cleanSheetPct}). Erken yenilebilecek bir şok gol tüm oyun dengesini tersyüz edebilir.`;
+    } else {
+        primaryRisk = `Ana risk faktörü ilk yarıda gelebilecek erken kırmızı kart veya duran top golünün taktik disiplini erken bozma ihtimalidir.`;
+    }
+    if (!hasSquadData) {
+        primaryRisk += ` Ayrıca resmi sakatlık ve kadro listesi henüz teyit edilmemiştir; son dakika ilk 11 değişiklikleri dikkate alınmalıdır.`;
+    }
+
+    // Tam metin (Markdown birleşik görünüm)
+    const fullText = `### ⚽ Yusuf AI Maç Yorumu: ${homeName} vs ${awayName}
+**1. Maçın Genel Gidişatı ve Temposu:**
+${flowAndTempo}
+
+**2. Takım Avantajı ve Gerekçesi:**
+${teamAdvantage}
+
+**3. İstatistikler ile Piyasa Oranları Arasındaki Durum:**
+${statsVsMarket}
+
+**4. Beraberlik ve Sürpriz İhtimali:**
+${drawAndSurprise}
+
+**5. En Mantıklı Tercih ve Matematiksel Dayanak:**
+${bestPickEditorial}
+
+**6. Karşılaşmanın Ana Risk Faktörü:**
+${primaryRisk}`;
+
+    const yusufAiEditorial = {
+        question1_flowAndTempo: flowAndTempo,
+        question2_teamAdvantage: teamAdvantage,
+        question3_statsVsOdds: statsVsMarket,
+        question4_drawAndSurprise: drawAndSurprise,
+        question5_bestPick: bestPickEditorial,
+        question6_riskFactor: primaryRisk,
+        fullText
+    };
+
+    // 3. Nihai Değerlendirme (4-5 Zorunlu Alan)
+    const finalAssessment = {
+        statisticalOutcome: `xG: ${lhVal.toFixed(2)} - ${laVal.toFixed(2)} | Model: MS1 %${pMs1}, MSX %${pMsX}, MS2 %${pMs2} | 2.5Üst %${pUst25}, KGVar %${pKgv}`,
+        yusufAiVerdict: `${homeName} - ${awayName} mücadelesinde matematiksel veriler "${bestCandidate.label}" tercihini (%${pickProbPct} olasılık) öne çıkarıyor. ${riskLevel} kategorisinde bir eşleşme.`,
+        bestPick: {
+            selection: bestCandidate.label,
+            marketKey: bestCandidate.key,
+            probabilityPct: pickProbPct,
+            odd: bestCandidate.odd || null,
+            valueBet: Boolean(bestCandidate.ev && bestCandidate.ev > 3.0),
+            rationale: mathRationale
+        },
+        riskLevel,
+        confidenceLevel
+    };
+
+    return {
+        statisticalSummary,
+        yusufAiEditorial,
+        finalAssessment
+    };
+}
+
+async function generateAiCommentaryAsync(m, an, opts = {}) {
+    const base = generateMatchCommentary(m, an, opts);
+    const activeKey = (opts.apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || '').trim();
+
+    if (!activeKey || opts.forceDeterministic === true) {
+        return base;
+    }
+
+    try {
+        const isGemini = activeKey.startsWith('AIza') || activeKey.startsWith('AQ.');
+        const isOpenRouter = activeKey.startsWith('sk-or-');
+        const isOpenAi = activeKey.startsWith('sk-') && !isOpenRouter;
+        const isGroq = activeKey.startsWith('gsk_');
+
+        let baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai';
+        let modelName = 'gemini-2.5-flash';
+        if (isOpenRouter) {
+            baseUrl = 'https://openrouter.ai/api/v1';
+            modelName = 'google/gemini-2.5-flash';
+        } else if (isOpenAi) {
+            baseUrl = 'https://api.openai.com/v1';
+            modelName = 'gpt-4o-mini';
+        } else if (isGroq) {
+            baseUrl = 'https://api.groq.com/openai/v1';
+            modelName = 'llama-3.3-70b-versatile';
+        }
+
+        const prompt = `Aşağıdaki doğrulanmış futbol istatistiklerini baz alarak akıcı bir Yusuf AI futbol yorumu oluştur.
+KURALLAR:
+1. Kesinlikle uydurma sakatlık, oyuncu veya veri ekleme.
+2. Sırasıyla şu 6 soruya cevap ver:
+   1. Maçın genel gidişatı ve temposu nasıl bekleniyor?
+   2. Hangi takım neden avantajlı?
+   3. İstatistikler ile piyasa oranları arasında çelişki var mı?
+   4. Beraberlik veya sürpriz ihtimali ne durumda?
+   5. Maç için en mantıklı tercih nedir ve matematiksel dayanağı nedir?
+   6. Karşılaşmanın ana risk faktörü nedir?
+3. Yanıtı markdown formatında ver.
+
+VERİLER:
+${JSON.stringify(base.statisticalSummary, null, 2)}
+MEVCUT YORUM:
+${base.yusufAiEditorial.fullText}`;
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${activeKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: modelName,
+                messages: [
+                    { role: 'system', content: 'Sen Yusuf AI futbol yorumcususun. Verilere sadık, analitik ve doğal futbol yorumları yaparsın.' },
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.3,
+                max_tokens: 1000
+            }),
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+            const json = await response.json();
+            const aiText = json.choices?.[0]?.message?.content?.trim();
+            if (aiText && aiText.length > 100) {
+                return {
+                    ...base,
+                    yusufAiEditorial: {
+                        ...base.yusufAiEditorial,
+                        fullText: aiText,
+                        enhancedByLlm: true
+                    }
+                };
+            }
+        }
+    } catch (_) {
+        // Fallback to deterministic commentary
+    }
+
+    return base;
+}
+
 module.exports = {
     buildModel,
     analyze,
@@ -3722,7 +4237,10 @@ module.exports = {
     analyzeH2HAndCommon,
     computeDataTrustMetrics,
     getSortedMatchesDesc,
-    getMatchTimestamp
+    getMatchTimestamp,
+    isMatchStrictlyPrior,
+    generateMatchCommentary,
+    generateAiCommentaryAsync
 };
 
 

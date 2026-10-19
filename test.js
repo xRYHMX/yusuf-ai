@@ -1650,6 +1650,225 @@ async function runTests() {
         assert.ok(trustMetrics.sufficiencyLabel.includes('Yetersiz Geçmiş'), `Yetersizlik etiketi açıkça belirtilmeli (Bulunan: ${trustMetrics.sufficiencyLabel})`);
     });
 
+    console.log('\n--- TEST 11: Hedef Maç Kickoff Hassasiyeti, Saat Bazlı Dinlenme & Yusuf AI Bağımsız Futbol Yorumu (engine.js) ---');
+
+    await it('11.1: Hedef maç kickoff saati dikkate alınmalı; aynı gün daha önce başlayan maç geçmiş veriye dahil edilmeli', () => {
+        const earlierSameDayMatch = {
+            id: 'EARLIER_SAME_DAY',
+            date: '2026-10-20',
+            time: '14:00',
+            kickoff: '2026-10-20T14:00:00Z',
+            gf: 2,
+            ga: 1
+        };
+        const targetMatch = {
+            id: 'TARGET_MATCH',
+            date: '2026-10-20',
+            time: '20:00',
+            kickoff: '2026-10-20T20:00:00Z'
+        };
+
+        const isPrior = engine.isMatchStrictlyPrior(earlierSameDayMatch, targetMatch);
+        assert.strictEqual(isPrior, true, 'Hedef maç 20:00 iken aynı gün 14:00te oynanmış maç geçmiş veriye dahil edilmelidir');
+    });
+
+    await it('11.2: Aynı gün hedef maçtan sonra başlayan veya aynı saatteki maç kesinlikle dışlanmalı', () => {
+        const laterSameDayMatch = {
+            id: 'LATER_SAME_DAY',
+            date: '2026-10-20',
+            time: '21:00',
+            kickoff: '2026-10-20T21:00:00Z',
+            gf: 1,
+            ga: 0
+        };
+        const sameTimeMatch = {
+            id: 'SAME_TIME',
+            date: '2026-10-20',
+            time: '20:00',
+            kickoff: '2026-10-20T20:00:00Z',
+            gf: 0,
+            ga: 0
+        };
+        const targetMatch = {
+            id: 'TARGET_MATCH',
+            date: '2026-10-20',
+            time: '20:00',
+            kickoff: '2026-10-20T20:00:00Z'
+        };
+
+        assert.strictEqual(engine.isMatchStrictlyPrior(laterSameDayMatch, targetMatch), false, 'Hedef maçtan sonra başlayan maç dışlanmalı');
+        assert.strictEqual(engine.isMatchStrictlyPrior(sameTimeMatch, targetMatch), false, 'Hedef maçla aynı saatte başlayan maç geçmiş veri sayılamaz');
+    });
+
+    await it('11.3: Hedef maçın kendisi (matchId eşleşmesi) asla geçmiş veri havuzuna dahil edilmemeli', () => {
+        const targetMatch = {
+            id: 'TARGET_100',
+            date: '2026-10-20',
+            time: '20:00',
+            kickoff: '2026-10-20T20:00:00Z'
+        };
+        const selfMatch = {
+            id: 'TARGET_100', // Aynı ID
+            date: '2026-10-20',
+            time: '20:00',
+            kickoff: '2026-10-20T20:00:00Z'
+        };
+
+        assert.strictEqual(engine.isMatchStrictlyPrior(selfMatch, targetMatch), false, 'Hedef maçın kendisi ASLA geçmiş veri olamaz');
+    });
+
+    await it('11.4: Güvenli geri dönüş (safe fallback): Kickoff bilgisi eksikse aynı günkü tüm maçlar dışlanmalı, önceki günler dahil edilmeli', () => {
+        // Hedef maçın kickoff saati bilinmiyor (yalnızca tarih mevcut)
+        const targetDateOnly = {
+            id: 'TARGET_DATE_ONLY',
+            date: '2026-10-20'
+        };
+
+        const sameDayMatch = {
+            id: 'SAME_DAY',
+            date: '2026-10-20',
+            kickoff: '2026-10-20T14:00:00Z'
+        };
+        const priorDayMatch = {
+            id: 'PRIOR_DAY',
+            date: '2026-10-19',
+            kickoff: '2026-10-19T20:00:00Z'
+        };
+        const futureDayMatch = {
+            id: 'FUTURE_DAY',
+            date: '2026-10-21',
+            kickoff: '2026-10-21T14:00:00Z'
+        };
+
+        assert.strictEqual(engine.isMatchStrictlyPrior(sameDayMatch, targetDateOnly), false, 'Kickoff bilinmiyorsa aynı günkü maç güvenli şekilde dışlanmalı');
+        assert.strictEqual(engine.isMatchStrictlyPrior(priorDayMatch, targetDateOnly), true, 'Önceki günkü maç dahil edilmeli');
+        assert.strictEqual(engine.isMatchStrictlyPrior(futureDayMatch, targetDateOnly), false, 'Gelecek günkü maç dışlanmalı');
+    });
+
+    await it('11.5: Saat bazlı dinlenme süresi (restHours) ve gün bazlı dinlenme süresi (restDays) gerçek başlama saatleri üzerinden hesaplanmalı', () => {
+        const teamTight = {
+            id: 'T-TIGHT',
+            last: [
+                {
+                    id: 'M-PREV',
+                    date: '2026-10-18',
+                    time: '18:00',
+                    kickoff: '2026-10-18T18:00:00Z',
+                    gf: 1, ga: 1
+                }
+            ]
+        };
+        const targetMatch = {
+            id: 'TARGET_TIGHT',
+            date: '2026-10-20',
+            time: '15:00',
+            kickoff: '2026-10-20T15:00:00Z'
+        };
+
+        // 18 Ekim 18:00 -> 20 Ekim 15:00 = 45.0 saat
+        const restTight = engine.computeRestAndFatigue(teamTight, targetMatch);
+        assert.strictEqual(restTight.restHours, 45.0, 'Dinlenme süresi 45.0 saat olarak hassas hesaplanmalı');
+        assert.strictEqual(restTight.restDays, 2, 'Gün bazında 2 gün dinlenme olmalı');
+        assert.strictEqual(restTight.isFatigued, true, '48 saatten az dinlenme aşırı yorgunluk riski olarak işaretlenmeli');
+        assert.ok(restTight.label.includes('45 saat') || restTight.label.includes('Aşırı Yorgunluk'), `Label saat bilgisini yansıtmalı (${restTight.label})`);
+    });
+
+    await it('11.6: generateMatchCommentary: Matematiksel istatistik katmanı, Yusuf AI bağımsız yorum katmanı ve nihai değerlendirme tam üretilmeli', () => {
+        const dummyMatch = {
+            id: 'M-VAL',
+            home: 'Galatasaray',
+            away: 'Fenerbahçe',
+            league: { full: 'Süper Lig' },
+            date: '2026-10-25',
+            time: '19:00',
+            kickoff: '2026-10-25T19:00:00Z',
+            oddsFresh: true,
+            oddsUpdatedAt: '18:30:00',
+            odds: { ms1: 2.10, msx: 3.40, ms2: 3.10, ust25: 1.85, alt25: 1.85, kgv: 1.70, kgy: 1.95 }
+        };
+        const dummyAnalysis = {
+            lh: 1.95,
+            la: 1.25,
+            p: { ms1: 0.54, msx: 0.24, ms2: 0.22, ust25: 0.62, alt25: 0.38, kgv: 0.60, kgy: 0.40, dc1x: 0.78, dcx2: 0.46 },
+            topScores: [{ s: '2-1', p: 0.14 }, { s: '2-0', p: 0.11 }],
+            momH: 1.05,
+            momA: 0.98,
+            facts: {
+                home: { formStr: 'GGGBG', form10Str: 'GGGBGMGGGG', last10Pts: 2.3, homeGf: 2.4, homeGa: 0.8, homeForm: 'GGGGG', htGoalSharePct: 42, cleanSheetPct: 40 },
+                away: { formStr: 'GBMMG', form10Str: 'GBMMGGGBMB', last10Pts: 1.6, awayGf: 1.3, awayGa: 1.5, awayForm: 'MBMBG', htGoalSharePct: 48, cleanSheetPct: 20 }
+            },
+            restH: { restHours: 96, restDays: 4, isFatigued: false, label: '🔋 Dinç Kadro (4 gün dinlenme)' },
+            restA: { restHours: 68, restDays: 3, isFatigued: true, label: '⚠️ Yorgunluk Riski (68 saat dinlenme)' },
+            squad: null, // Veri yok
+            dataTrust: { overallScore: 82, sufficiencyScore: 85, freshnessScore: 80, overallLabel: 'Yüksek Veri Güveni' }
+        };
+
+        const commentary = engine.generateMatchCommentary(dummyMatch, dummyAnalysis);
+        assert.ok(commentary.statisticalSummary, 'statisticalSummary alanı bulunmalı');
+        assert.ok(commentary.yusufAiEditorial, 'yusufAiEditorial alanı bulunmalı');
+        assert.ok(commentary.finalAssessment, 'finalAssessment alanı bulunmalı');
+
+        // finalAssessment zorunlu 4-5 alan kontrolü
+        assert.ok(typeof commentary.finalAssessment.statisticalOutcome === 'string', 'statisticalOutcome string olmalı');
+        assert.ok(typeof commentary.finalAssessment.yusufAiVerdict === 'string', 'yusufAiVerdict string olmalı');
+        assert.ok(commentary.finalAssessment.bestPick, 'bestPick nesnesi bulunmalı');
+        assert.ok(commentary.finalAssessment.bestPick.selection, 'bestPick.selection bulunmalı');
+        assert.ok(typeof commentary.finalAssessment.riskLevel === 'string', 'riskLevel string olmalı');
+        assert.ok(typeof commentary.finalAssessment.confidenceLevel === 'string', 'confidenceLevel string olmalı');
+    });
+
+    await it('11.7: Temiz ayrım & Sıfır uydurma veri: Sakatlık verisi yoksa açıkça doğrulanamadı yazmalı ve 6 soruya cevap verilmeli', () => {
+        const dummyMatch = {
+            id: 'M-HONEST',
+            home: 'Beşiktaş',
+            away: 'Trabzonspor',
+            league: { full: 'Süper Lig' }
+        };
+        const dummyAnalysis = {
+            lh: 1.40,
+            la: 1.20,
+            p: { ms1: 0.44, msx: 0.28, ms2: 0.28, ust25: 0.48, alt25: 0.52, kgv: 0.52, kgy: 0.48, dc1x: 0.72, dcx2: 0.56 },
+            topScores: [{ s: '1-1', p: 0.13 }],
+            squad: null // Kesinlikle sakatlık/ceza verisi yok
+        };
+
+        const commentary = engine.generateMatchCommentary(dummyMatch, dummyAnalysis);
+
+        // Uydurma sakatlık engeli
+        assert.strictEqual(commentary.statisticalSummary.squadAndInjuries.hasVerifiedData, false);
+        assert.ok(commentary.statisticalSummary.squadAndInjuries.status.includes('doğrulanmadı'), 'Sakatlık verisi yokken açıkça doğrulanmadı yazmalı');
+        assert.ok(commentary.yusufAiEditorial.question6_riskFactor.includes('sakatlık') || commentary.yusufAiEditorial.question6_riskFactor.includes('kadro'), 'Risk faktöründe teyit edilmemiş kadro bilgisi dürüstçe uyarılmalı');
+
+        // 6 soru kontrolü
+        assert.ok(commentary.yusufAiEditorial.question1_flowAndTempo.length > 20, 'Soru 1 cevaplanmalı');
+        assert.ok(commentary.yusufAiEditorial.question2_teamAdvantage.length > 20, 'Soru 2 cevaplanmalı');
+        assert.ok(commentary.yusufAiEditorial.question3_statsVsOdds.length > 20, 'Soru 3 cevaplanmalı');
+        assert.ok(commentary.yusufAiEditorial.question4_drawAndSurprise.length > 20, 'Soru 4 cevaplanmalı');
+        assert.ok(commentary.yusufAiEditorial.question5_bestPick.length > 20, 'Soru 5 cevaplanmalı');
+        assert.ok(commentary.yusufAiEditorial.question6_riskFactor.length > 20, 'Soru 6 cevaplanmalı');
+        assert.ok(commentary.yusufAiEditorial.fullText.includes('1. Maçın Genel Gidişatı'), 'fullText markdown 6 soruyu içermeli');
+    });
+
+    await it('11.8: generateAiCommentaryAsync: Anahtar yokken veya offline iken anında (0ms) deterministik yoruma düşmeli', async () => {
+        const dummyMatch = {
+            id: 'M-OFFLINE',
+            home: 'Arsenal',
+            away: 'Chelsea',
+            league: { full: 'Premier League' }
+        };
+        const dummyAnalysis = {
+            lh: 2.10,
+            la: 0.95,
+            p: { ms1: 0.62, msx: 0.22, ms2: 0.16, ust25: 0.58, alt25: 0.42, kgv: 0.55, kgy: 0.45, dc1x: 0.84, dcx2: 0.38 },
+            topScores: [{ s: '2-0', p: 0.15 }]
+        };
+
+        const asyncRes = await engine.generateAiCommentaryAsync(dummyMatch, dummyAnalysis, { forceDeterministic: true });
+        assert.ok(asyncRes.statisticalSummary, 'Async fallback statisticalSummary üretmeli');
+        assert.ok(asyncRes.yusufAiEditorial, 'Async fallback yusufAiEditorial üretmeli');
+        assert.strictEqual(asyncRes.finalAssessment.bestPick.selection, engine.generateMatchCommentary(dummyMatch, dummyAnalysis).finalAssessment.bestPick.selection);
+    });
+
     console.log('\n================================================================');
     console.log(`  SONUÇ: ${passedTests}/${totalTests} Test Başarıyla Geçti (%100 Başarı)`);
     console.log('================================================================\n');
