@@ -2472,7 +2472,11 @@ function recordPlacedCoupon(input) {
 
     const verifiedMatches = matches.map((m, idx) => {
         const matchId = m.matchId || m.id || (idx + 1);
-        const placedOdd = Number(m.placedOdd || m.settledOdd || m.odd);
+        // Jack Kuralı 1: m.odd fallback'i tamamen kaldırıldı. Yalnızca açıkça girilmiş placedOdd kabul edilir.
+        if (m.placedOdd === undefined || m.placedOdd === null) {
+            throw new Error(`Maç #${matchId} için onaylanan gerçek Nesine oranı (placedOdd) zorunludur; öneri oranı veya m.odd kabul edilemez.`);
+        }
+        const placedOdd = Number(m.placedOdd);
         if (!isFinite(placedOdd) || placedOdd <= 1.0) {
             throw new Error(`Maç #${matchId} için onaylanan gerçek Nesine oranı geçersiz`);
         }
@@ -2507,7 +2511,10 @@ function recordPlacedCoupon(input) {
     const existing = loadPlacedCoupons();
     const filtered = existing.filter(c => c.nesineRefCode !== nesineRefCode);
     filtered.push(record);
-    savePlacedCoupons(filtered);
+    const saveSuccess = savePlacedCoupons(filtered);
+    if (!saveSuccess) {
+        throw new Error('Kupon dosyaya kaydedilemedi (dosya yazma / disk hatası).');
+    }
 
     return record;
 }
@@ -2639,7 +2646,55 @@ function settleSystem345(system345, results, actualStake = {}) {
         };
     }
 
-    // 3. Kolonların sonuçlandırılması (Madde 4: Bahis türüne göre kesin matematiksel değerlendirme)
+    // 3. Bahis türüne göre kesin matematiksel sonuç doğrulaması (Madde 2: evaluateBetOutcome null ise res.won'a dönme)
+    const matchOutcomeMap = new Map();
+    for (const m of matches) {
+        const res = resultMap.get(String(m.matchId));
+        const isFinalVoid = Boolean(res && (res.void || res.cancelled || res.isVoid || res.isCancelled || res.state === 'canc'));
+        if (isFinalVoid) {
+            matchOutcomeMap.set(String(m.matchId), { isVoid: true, isWon: false });
+            continue;
+        }
+
+        // Skor verisi varsa evaluateBetOutcome ile kontrol et
+        if (res && res.score && typeof res.score.h === 'number' && typeof res.score.a === 'number') {
+            const evalOutcome = evaluateBetOutcome(m.key, res.score, res.ht, res.stats);
+            if (evalOutcome === null) {
+                // Jack Kuralı 2: evaluateBetOutcome null döndürürse res.won'a geri dönme, ödeme hesaplama!
+                return {
+                    isSettled: false,
+                    settlementStatus: 'Sonuçlandırma doğrulanamadı',
+                    reason: `Maç #${m.matchId} (${m.home} - ${m.away}) için '${m.key}' bahis türü skor verisiyle doğrulanamadı veya desteklenmeyen bahis türü tespit edildi. Gerçek ödeme hesaplanamaz.`,
+                    unverifiedMatchId: m.matchId,
+                    marketKey: m.key,
+                    settledPayout: null
+                };
+            }
+            matchOutcomeMap.set(String(m.matchId), { isVoid: false, isWon: evalOutcome });
+        } else if (res && typeof res.won === 'boolean') {
+            // Skor olmadan doğrudan won girilmişse dahi, m.key desteklenmeyen / bilinmeyen bir pazarsa doğrulanmış sayılamaz
+            if (m.key && evaluateBetOutcome(m.key, { h: 0, a: 0 }) === null && evaluateBetOutcome(m.key, { h: 1, a: 0 }) === null) {
+                return {
+                    isSettled: false,
+                    settlementStatus: 'Sonuçlandırma doğrulanamadı',
+                    reason: `Maç #${m.matchId} (${m.home} - ${m.away}) için '${m.key}' bilinmeyen veya desteklenmeyen bahis türüdür. Gerçek ödeme hesaplanamaz.`,
+                    unverifiedMatchId: m.matchId,
+                    marketKey: m.key,
+                    settledPayout: null
+                };
+            }
+            matchOutcomeMap.set(String(m.matchId), { isVoid: false, isWon: res.won });
+        } else {
+            return {
+                isSettled: false,
+                settlementStatus: 'Maçlar henüz tamamlanmadı',
+                reason: `Maç #${m.matchId} için kesin skor veya sonuç bilgisi bulunamadı.`,
+                settledPayout: null
+            };
+        }
+    }
+
+    // 4. Kolonların sonuçlandırılması
     let settledPayout = 0;
     let wonColumnsCount = 0;
     const settledColumns = system345.columns.map(col => {
@@ -2650,19 +2705,8 @@ function settleSystem345(system345, results, actualStake = {}) {
         for (const m of col.matches) {
             const res = resultMap.get(String(m.matchId));
             const isFinalVoid = Boolean(res && (res.void || res.cancelled || res.isVoid || res.isCancelled || res.state === 'canc'));
-
-            // Jack Kontrol 4: Gerçek maç skoru verilmişse, bahis türüne (m.key) göre değerlendir
-            let isWon = false;
-            if (res && res.score && typeof res.score.h === 'number' && typeof res.score.a === 'number') {
-                const evalOutcome = evaluateBetOutcome(m.key, res.score, res.ht, res.stats);
-                if (evalOutcome !== null) {
-                    isWon = evalOutcome;
-                } else {
-                    isWon = Boolean(res.won);
-                }
-            } else {
-                isWon = Boolean(res && res.won);
-            }
+            const outcomeInfo = matchOutcomeMap.get(String(m.matchId));
+            const isWon = outcomeInfo ? outcomeInfo.isWon : false;
 
             // Gerçek oynanan oran: m.odd fallback'i KESİNLİKLE YOKTUR!
             const placedFromCoupon = placedCoupon?.matches?.find(pm => String(pm.matchId) === String(m.matchId))?.placedOdd;
@@ -3091,7 +3135,8 @@ module.exports = {
     evaluateBetOutcome,
     recordPlacedCoupon,
     getPlacedCoupon,
-    loadPlacedCoupons
+    loadPlacedCoupons,
+    savePlacedCoupons
 };
 
 

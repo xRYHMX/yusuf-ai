@@ -12,6 +12,7 @@
  */
 
 const assert = require('assert');
+const fs = require('fs');
 const engine = require('./engine');
 const mackolik = require('./mackolik');
 
@@ -751,6 +752,85 @@ async function runTests() {
         assert.strictEqual(settlement.totalCost, 160);
         assert.strictEqual(settlement.costPerColumn, 10);
         assert.strictEqual(settlement.wonColumnsCount, 16);
+    });
+
+    await it('7.18: recordPlacedCoupon içinde m.odd fallback olmamalı; yalnızca açıkça girilmiş placedOdd kabul edilmeli', () => {
+        const ticketWithOnlyOdd = {
+            nesineRefCode: 'NES-NO-FALLBACK-1',
+            totalCost: 160,
+            costPerColumn: 10,
+            matches: [
+                { matchId: 101, home: 'Real Madrid', away: 'Sevilla', key: 'msx', odd: 3.20 }, // placedOdd YOK, sadece öneri odd var!
+                { matchId: 102, home: 'Arsenal', away: 'Chelsea', key: 'ms2', placedOdd: 3.40 },
+                { matchId: 103, home: 'Milan', away: 'Inter', key: 'ust35', placedOdd: 3.10 },
+                { matchId: 104, home: 'Ajax', away: 'PSV', key: 'kgv', placedOdd: 2.10 },
+                { matchId: 105, home: 'Porto', away: 'Benfica', key: 'dcx2', placedOdd: 2.30 }
+            ]
+        };
+
+        // placedOdd girilmediği için kesinlikle hata fırlatmalı, m.odd'u gerçek oran saymamalı
+        assert.throws(() => {
+            engine.recordPlacedCoupon(ticketWithOnlyOdd);
+        }, /placedOdd.*zorunludur/);
+    });
+
+    await it('7.19: settleSystem345 içinde evaluateBetOutcome null döndürürse res.won değerine geri dönülmemeli (doğrulanamadı)', () => {
+        // Bilinmeyen / desteklenmeyen pazar 'unsupported_market_xyz'
+        const matchesWithUnsupported = [
+            { id: 101, home: 'Real Madrid', away: 'Sevilla', key: 'msx', p: 0.35, hasRealOdd: true, realOdd: 3.20, oddsFresh: true },
+            { id: 102, home: 'Arsenal', away: 'Chelsea', key: 'ms2', p: 0.30, hasRealOdd: true, realOdd: 3.40, oddsFresh: true },
+            { id: 103, home: 'Milan', away: 'Inter', key: 'unsupported_market_xyz', p: 0.32, hasRealOdd: true, realOdd: 3.10, oddsFresh: true },
+            { id: 104, home: 'Ajax', away: 'PSV', key: 'kgv', p: 0.40, hasRealOdd: true, realOdd: 2.10, oddsFresh: true },
+            { id: 105, home: 'Porto', away: 'Benfica', key: 'dcx2', p: 0.38, hasRealOdd: true, realOdd: 2.30, oddsFresh: true }
+        ];
+
+        const sys = engine.buildSystem345(matchesWithUnsupported);
+        
+        // Sonuçlarda score verilse ve won: true dense dahi evaluateBetOutcome('unsupported_market_xyz') null döner
+        const results = [
+            { matchId: 101, score: { h: 1, a: 1 }, settledOdd: 3.20 },
+            { matchId: 102, score: { h: 0, a: 2 }, settledOdd: 3.40 },
+            { matchId: 103, won: true, score: { h: 2, a: 1 }, settledOdd: 3.10 }, // Desteklenmeyen pazar!
+            { matchId: 104, score: { h: 1, a: 1 }, settledOdd: 2.10 },
+            { matchId: 105, score: { h: 0, a: 1 }, settledOdd: 2.30 }
+        ];
+
+        const settlement = engine.settleSystem345(sys, results, { costPerColumn: 10, totalCost: 160 });
+        assert.strictEqual(settlement.isSettled, false);
+        assert.strictEqual(settlement.settlementStatus, 'Sonuçlandırma doğrulanamadı');
+        assert.strictEqual(settlement.settledPayout, null);
+        assert.ok(settlement.reason.includes('doğrulanamadı') || settlement.reason.includes('desteklenmeyen'));
+    });
+
+    await it('7.20: savePlacedCoupons dosyaya yazma başarısızsa açık hata verilmeli ve kupon kaydedilmemeli', () => {
+        const mockTicket = {
+            nesineRefCode: 'NES-DISK-FAIL-TEST',
+            totalCost: 160,
+            costPerColumn: 10,
+            matches: [
+                { matchId: 101, placedOdd: 3.20 },
+                { matchId: 102, placedOdd: 3.40 },
+                { matchId: 103, placedOdd: 3.10 },
+                { matchId: 104, placedOdd: 2.10 },
+                { matchId: 105, placedOdd: 2.30 }
+            ]
+        };
+
+        const originalWriteFileSync = fs.writeFileSync;
+        try {
+            fs.writeFileSync = () => {
+                throw new Error('EACCES: permission denied, disk read-only');
+            };
+
+            const saveRes = engine.savePlacedCoupons([]);
+            assert.strictEqual(saveRes, false, 'Dosya yazılamadığında savePlacedCoupons false dönmeli');
+
+            assert.throws(() => {
+                engine.recordPlacedCoupon(mockTicket);
+            }, /dosyaya kaydedilemedi/);
+        } finally {
+            fs.writeFileSync = originalWriteFileSync;
+        }
     });
 
     // ----------------------------------------------------

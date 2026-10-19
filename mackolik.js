@@ -202,60 +202,70 @@ async function getNesineOddsMap() {
 
     nesineInFlight = (async () => {
         let refreshed = false;
-        try {
-            const res = await fetch('https://cdnbulten.nesine.com/api/bulten/getprebultenfull', {
-                headers: { 'User-Agent': HEAD['User-Agent'], 'Accept': 'application/json' },
-                signal: AbortSignal.timeout(8000)
-            });
-            if (res.ok) {
-                const json = await res.json();
-                const ea = json?.sg?.EA;
-                if (Array.isArray(ea)) {
-                    const newMap = new Map();
-                    for (const ev of ea) {
-                        if (ev.C && Array.isArray(ev.MA) && ev.MA.length > 0) {
-                            const parsedOdds = parseNesineMarkets(ev.MA);
-                            if (Object.keys(parsedOdds).length > 0) {
-                                newMap.set(Number(ev.C), parsedOdds);
+        let lastErr = null;
+
+        // Render ve uzak sunucu gecikmeleri için 18 saniye timeout ve 2 deneme hakkı
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                const res = await fetch('https://cdnbulten.nesine.com/api/bulten/getprebultenfull', {
+                    headers: { 'User-Agent': HEAD['User-Agent'], 'Accept': 'application/json' },
+                    signal: AbortSignal.timeout(18000)
+                });
+                if (res.ok) {
+                    const json = await res.json();
+                    const ea = json?.sg?.EA;
+                    if (Array.isArray(ea)) {
+                        const newMap = new Map();
+                        for (const ev of ea) {
+                            if (ev.C && Array.isArray(ev.MA) && ev.MA.length > 0) {
+                                const parsedOdds = parseNesineMarkets(ev.MA);
+                                if (Object.keys(parsedOdds).length > 0) {
+                                    newMap.set(Number(ev.C), parsedOdds);
+                                }
                             }
                         }
-                    }
-                    if (newMap.size > 0) {
-                        const nowDate = new Date();
-                        const timeStr = nowDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
-                        nesineCache = {
-                            t: Date.now(),
-                            updatedAt: timeStr,
-                            updatedIso: nowDate.toISOString(),
-                            isFresh: true,
-                            error: null,
-                            map: newMap
-                        };
-                        refreshed = true;
-                        if (global.addSystemLog) {
-                            global.addSystemLog({
-                                level: 'info',
-                                category: 'nesine',
-                                scope: 'NesineCDN',
-                                message: `Nesine canlı bülteni güncellendi (${newMap.size} maçın oranları taze).`
-                            });
+                        if (newMap.size > 0) {
+                            const nowDate = new Date();
+                            const timeStr = nowDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Istanbul' });
+                            nesineCache = {
+                                t: Date.now(),
+                                updatedAt: timeStr,
+                                updatedIso: nowDate.toISOString(),
+                                isFresh: true,
+                                error: null,
+                                map: newMap
+                            };
+                            refreshed = true;
+                            if (global.addSystemLog) {
+                                global.addSystemLog({
+                                    level: 'info',
+                                    category: 'nesine',
+                                    scope: 'NesineCDN',
+                                    message: `Nesine canlı bülteni güncellendi (${newMap.size} maçın oranları taze).`
+                                });
+                            }
+                            break;
                         }
                     }
                 }
+            } catch (err) {
+                lastErr = err;
+                if (attempt === 1) {
+                    await sleep(1000);
+                }
             }
-        } catch (err) {
-            if (global.addSystemLog) {
-                global.addSystemLog({
-                    level: 'warn',
-                    category: 'nesine',
-                    scope: 'NesineCDN',
-                    message: 'Nesine canlı bülten bağlantı hatası: ' + err.message,
-                    details: err.stack || null
-                });
-            }
-        } finally {
-            nesineInFlight = null;
         }
+
+        if (!refreshed && lastErr && global.addSystemLog) {
+            global.addSystemLog({
+                level: 'warn',
+                category: 'nesine',
+                scope: 'NesineCDN',
+                message: 'Nesine canlı bülten bağlantı hatası: ' + lastErr.message,
+                details: lastErr.stack || null
+            });
+        }
+        nesineInFlight = null;
         // Kesin Kural (Madde 3 & Jack Kontrol 1): Oran yenilenemediğinde eski oranı ASLA kullanma; önbelleği temizle, son güncelleme zamanını koru
         if (!refreshed) {
             const preservedUpdatedAt = nesineCache.updatedAt || null;

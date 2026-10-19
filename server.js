@@ -198,7 +198,7 @@ const server = http.createServer(async (req, res) => {
                 res.end(JSON.stringify({ ok: true, coupon: record }));
             } catch (err) {
                 res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-                res.end(JSON.stringify({ error: err.message }));
+                res.end(JSON.stringify({ ok: false, error: err.message }));
             }
         });
         return;
