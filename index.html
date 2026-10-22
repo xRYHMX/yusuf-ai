@@ -34,19 +34,16 @@
             </div>
         </header>
 
-        <!-- Ana İçerik: Sadece Sürpriz Kupon, Maçlar ve Anlık Veriler -->
+        <!-- Ana İçerik: Sadece Sürpriz Kupon ve Maçlar -->
         <main class="coupons-main">
-            <!-- Nesine Canlı Oran Senkronizasyon Durum Çubuğu -->
-            <div id="nesineLiveStatusBar" class="nesine-status-bar" style="display: none;"></div>
-
-            <!-- Yükleniyor Durumu -->
-            <div id="couponsLoading" class="panel-loading">
+            <!-- Yükleniyor Durumu (Sadece önbellek yokken ilk açılışta) -->
+            <div id="couponsLoading" class="panel-loading" style="display: none;">
                 <div class="spinner"></div>
-                <span>Sürpriz maçlar ve anlık veriler yükleniyor...</span>
+                <span>Sürpriz maçlar yükleniyor...</span>
             </div>
 
             <!-- Kupon Alanı -->
-            <div id="couponsContent" class="coupons-cards-grid" style="display: none;">
+            <div id="couponsContent" class="coupons-cards-grid">
                 <!-- Sürpriz Kuponu Kartı -->
                 <div class="coupon-card surprise-card">
                     <div class="coupon-card-header">

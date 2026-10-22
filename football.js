@@ -1,6 +1,25 @@
+const fs = require('fs');
+const path = require('path');
 const mk = require('./mackolik');
 const engine = require('./engine');
 const intel = require('./intel');
+
+const COUPONS_DISK_CACHE_FILE = path.join(__dirname, '.cache', 'latest_coupons.json');
+let _latestCouponsMemoryCache = null;
+try {
+    if (fs.existsSync(COUPONS_DISK_CACHE_FILE)) {
+        _latestCouponsMemoryCache = JSON.parse(fs.readFileSync(COUPONS_DISK_CACHE_FILE, 'utf8'));
+    }
+} catch (_) {}
+
+function saveLatestCouponsToDisk(data) {
+    if (!data) return;
+    _latestCouponsMemoryCache = data;
+    try {
+        fs.mkdirSync(path.join(__dirname, '.cache'), { recursive: true });
+        fs.writeFileSync(COUPONS_DISK_CACHE_FILE, JSON.stringify(data), 'utf8');
+    } catch (_) {}
+}
 
 let cachedModel = null;
 let cachedModelDate = null;
@@ -162,6 +181,14 @@ async function _computeAnalyzedDay(date) {
     const data = { date, model, matches, items, couponItems, coupons, performance };
     dayAnalysisCache.set(date, { t: Date.now(), data });
 
+    const couponPayload = {
+        date,
+        totalMatches: matches.filter(x => x.inBulletin).length,
+        surprise: coupons.surprise,
+        updatedAt: new Date().toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    };
+    saveLatestCouponsToDisk(couponPayload);
+
     if (global.addSystemLog) {
         const inBullCount = matches.filter(x => x.inBulletin).length;
         global.addSystemLog({
@@ -263,20 +290,26 @@ async function listMatches({ date = mk.trToday(), filter = 'all', search = '', c
     };
 }
 
-// Kuponlar sorgusu
+// Kuponlar sorgusu (Anlık ve Kesintisiz)
 async function getCoupons(date = mk.trToday()) {
+    const isToday = date === mk.trToday();
+    // 1. ANLIK DÖNÜŞ: Bellekte veya diskte hazır kupon varsa 0ms'de anında dön, kullanıcıyı bekletme!
+    if (isToday && _latestCouponsMemoryCache && _latestCouponsMemoryCache.surprise?.matches?.length) {
+        // Arka planda analiz eskimişse sessizce yenilemeyi tetikle
+        getAnalyzedDay(date).catch(() => {});
+        return _latestCouponsMemoryCache;
+    }
+
     const day = await getAnalyzedDay(date);
-    const bulletinMatches = day.matches.filter(x => x.inBulletin);
-    return {
+    const bulletinMatches = (day && day.matches) ? day.matches.filter(x => x.inBulletin) : [];
+    const payload = {
         date,
-        nesineStatus: mk.getNesineStatus(),
         totalMatches: bulletinMatches.length,
-        preMatches: bulletinMatches.filter(x => x.state === 'pre').length,
-        liveMatches: bulletinMatches.filter(x => x.state === 'live').length,
-        banko: day.coupons.banko,
-        surprise: day.coupons.surprise,
-        performance: day.performance || null
+        surprise: day?.coupons?.surprise || { title: 'Sürpriz Kupon', matches: [] },
+        updatedAt: new Date().toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', second: '2-digit' })
     };
+    saveLatestCouponsToDisk(payload);
+    return payload;
 }
 
 // Tek maç detay analizi

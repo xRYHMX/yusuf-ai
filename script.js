@@ -1,5 +1,6 @@
-// Günün Sürpriz Kuponu - Sadece Sürpriz Kupon, Maçlar ve Anlık Veriler
+// Günün Sürpriz Kuponu - Anlık, Kesintisiz ve Yüksek Oranlı
 let currentTheme = localStorage.getItem('app_theme') || 'dark';
+const LOCAL_STORAGE_KEY = 'yusuf_ai_surprise_coupons';
 
 // DOM Elemanları
 const themeToggleBtn = document.getElementById('themeToggleBtn');
@@ -8,7 +9,6 @@ const themeBtnText = document.getElementById('themeBtnText');
 const refreshCouponsBtn = document.getElementById('refreshCouponsBtn');
 const couponsLoading = document.getElementById('couponsLoading');
 const couponsContent = document.getElementById('couponsContent');
-const nesineLiveStatusBar = document.getElementById('nesineLiveStatusBar');
 
 const surpriseTitle = document.getElementById('surpriseTitle');
 const surpriseMatchesList = document.getElementById('surpriseMatchesList');
@@ -19,12 +19,27 @@ init();
 function init() {
     initTheme();
     bindEvents();
-    loadCoupons(false);
-    
-    // Anlık verileri her 45 saniyede bir otomatik yenile (canlı skorlar & taze oranlar)
+
+    // 1. ANLIK YÜKLEME: Önce localStorage önbelleğinden anında (0ms) ekrana bas
+    try {
+        const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed && parsed.surprise && Array.isArray(parsed.surprise.matches) && parsed.surprise.matches.length > 0) {
+                renderCoupons(parsed);
+                if (couponsContent) couponsContent.style.display = 'grid';
+                if (couponsLoading) couponsLoading.style.display = 'none';
+            }
+        }
+    } catch (_) {}
+
+    // 2. Sunucudan güncel verileri hemen çek (sessizce güncelle)
+    loadCoupons(true);
+
+    // 3. Kesintisiz ve anlık güncelleme: Her 10 saniyede bir arka planda yenile
     setInterval(() => {
         loadCoupons(true);
-    }, 45000);
+    }, 10000);
 }
 
 function initTheme() {
@@ -58,8 +73,9 @@ function bindEvents() {
     }
 }
 
-async function loadCoupons(isSilent = false) {
-    if (!isSilent) {
+async function loadCoupons(isSilent = true) {
+    const hasRenderedMatches = surpriseMatchesList && surpriseMatchesList.children.length > 0;
+    if (!isSilent && !hasRenderedMatches) {
         if (couponsLoading) couponsLoading.style.display = 'flex';
         if (couponsContent) couponsContent.style.display = 'none';
     }
@@ -67,34 +83,19 @@ async function loadCoupons(isSilent = false) {
         const res = await fetch('/api/football/coupons');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        renderNesineStatus(data.nesineStatus);
         renderCoupons(data);
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+        } catch (_) {}
     } catch (err) {
         console.error('Kupon yükleme hatası:', err);
-        if (!isSilent && couponsLoading) {
+        if (!hasRenderedMatches && couponsLoading) {
             couponsLoading.innerHTML = `<div style="color:#ef4444;font-size:0.9rem;">Veriler yüklenirken hata oluştu: ${escapeHtml(err.message)}</div>`;
         }
     } finally {
-        if (!isSilent) {
-            if (couponsLoading) couponsLoading.style.display = 'none';
-            if (couponsContent) couponsContent.style.display = 'grid';
-        }
+        if (couponsLoading) couponsLoading.style.display = 'none';
+        if (couponsContent) couponsContent.style.display = 'grid';
     }
-}
-
-function renderNesineStatus(status) {
-    if (!nesineLiveStatusBar) return;
-    if (!status) {
-        nesineLiveStatusBar.style.display = 'none';
-        return;
-    }
-    const isFresh = Boolean(status.isFresh);
-    nesineLiveStatusBar.style.display = 'flex';
-    nesineLiveStatusBar.className = `nesine-status-bar ${isFresh ? 'live' : 'stale'}`;
-    
-    const dotHtml = `<span class="nesine-st-dot" style="background:${isFresh ? '#10b981' : '#ef4444'}"></span>`;
-    const textHtml = `<strong>Nesine Canlı Oranlar:</strong> ${status.activeMatchCount || 0} maç bültende • Son veri: ${status.updatedAt || 'Bilinmiyor'} (${status.ageSeconds ?? 0}s önce)`;
-    nesineLiveStatusBar.innerHTML = `<div class="nesine-st-pill">${dotHtml}<span>${textHtml}</span></div>`;
 }
 
 function renderCoupons(data) {
@@ -121,26 +122,7 @@ function createMatchItem(item, isSurprise) {
     const div = document.createElement('div');
     div.className = 'coupon-match-item';
 
-    // 1. Anlık Maç Durumu ve Canlı Skor
-    let statusClass = 'upcoming';
-    let statusText = '⏳ Başlamadı';
-    let scoreHtml = '';
-
-    if (m.state === 'live') {
-        statusClass = 'live';
-        statusText = `🔴 CANLI ${m.label || ''}`.trim();
-        if (m.score) {
-            scoreHtml = `<span class="match-score-badge live-score">${m.score.h} - ${m.score.a}</span>`;
-        }
-    } else if (m.state === 'post') {
-        statusClass = 'finished';
-        statusText = '🏁 Bitti';
-        if (m.score) {
-            scoreHtml = `<span class="match-score-badge">${m.score.h} - ${m.score.a}</span>`;
-        }
-    }
-
-    // 2. Anlık Oran & Olasılık & EV
+    // Oran & Olasılık & EV
     const probPct = Math.round((item.p || 0) * 100);
     const hasRealOdd = Boolean(item.hasRealOdd && typeof item.realOdd === 'number' && item.realOdd > 1.01);
     const isValueBet = Boolean(hasRealOdd && item.isValueBet && typeof item.evPct === 'number' && item.evPct > 0);
@@ -150,7 +132,7 @@ function createMatchItem(item, isSurprise) {
         : `<span style="color:var(--text-muted);">Oran Bekleniyor</span>`;
 
     const oddTimeDisplay = hasRealOdd && item.oddsUpdatedAt
-        ? `${item.oddsUpdatedAt} ${item.oddsFresh ? '• Canlı' : ''}`
+        ? item.oddsUpdatedAt
         : '';
 
     const evDisplay = isValueBet
@@ -160,11 +142,9 @@ function createMatchItem(item, isSurprise) {
     div.innerHTML = `
         <div class="match-item-top">
             <span class="match-item-time">${formatMatchDateTime(m)} • 🏆 ${escapeHtml(m.league?.full || m.league?.name || '')}</span>
-            <span class="match-live-tag ${statusClass}">${statusText}</span>
         </div>
         <div class="match-item-teams">
             <span class="team-names">${escapeHtml(m.home || '')} <span class="vs-label">vs</span> ${escapeHtml(m.away || '')}</span>
-            ${scoreHtml}
         </div>
         <div class="match-item-pick-row">
             <div class="pick-left">

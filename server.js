@@ -103,11 +103,11 @@ setInterval(() => {
     }
 }, 5 * 60 * 1000);
 
-// Sunucu kalktığında model ve günün İddaa bülteni arka planda ısınsın, her 2.5 dakikada bir taze kalsın
-football.getAnalyzedDay().catch(err => logServerError('FootballEngineInit', err));
+// Sunucu kalktığında model ve günün İddaa bülteni arka planda ısınsın, her 30 saniyede bir taze kalsın
+football.getCoupons().catch(err => logServerError('FootballEngineInit', err));
 setInterval(() => {
-    football.getAnalyzedDay().catch(() => {});
-}, 150 * 1000);
+    football.getCoupons().catch(() => {});
+}, 30 * 1000);
 
 const server = http.createServer(async (req, res) => {
     const reqOrigin = req.headers.origin;
