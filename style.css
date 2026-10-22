@@ -3981,3 +3981,197 @@ body.theme-light .drop-overlay {
     }
 }
 
+/* ----------------------------------------------------
+   Günün Kuponları - Sadeleştirilmiş Sayfa Düzeni
+   ---------------------------------------------------- */
+.coupons-layout {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    background-color: var(--bg-main);
+    overflow: hidden;
+}
+
+.coupons-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-sidebar);
+    flex-shrink: 0;
+    gap: 16px;
+}
+
+.coupons-header .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.coupons-header .brand-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.3px;
+}
+
+.coupons-header .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.coupons-main {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 24px;
+    max-width: 1360px;
+    width: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.match-item-teams {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 0.96rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.match-item-teams .vs-label {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 0.85rem;
+}
+
+.match-live-tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 5px;
+    letter-spacing: 0.2px;
+}
+
+.match-live-tag.live {
+    background: rgba(239, 68, 68, 0.16);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.match-live-tag.finished {
+    background: rgba(148, 163, 184, 0.14);
+    color: var(--text-secondary);
+}
+
+.match-live-tag.upcoming {
+    background: rgba(56, 189, 248, 0.12);
+    color: var(--accent-sky);
+}
+
+.match-score-badge {
+    font-size: 0.95rem;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+}
+
+.match-score-badge.live-score {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.match-item-pick-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: var(--bg-card);
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin-top: 2px;
+}
+
+.match-item-pick-row .pick-left,
+.match-item-pick-row .pick-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.match-prob {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.match-real-odd {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: #10b981;
+}
+
+.match-real-odd strong {
+    font-family: var(--font-mono);
+    font-size: 0.92rem;
+}
+
+.match-odd-time {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.match-ev-badge {
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.14);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+@media (max-width: 768px) {
+    .coupons-header {
+        padding: 12px 16px;
+    }
+    .coupons-main {
+        padding: 14px 12px;
+    }
+    .match-item-pick-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    .match-item-pick-row .pick-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+.coupons-cards-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 920px;
+    margin: 0 auto;
+    width: 100%;
+    gap: 18px;
+    padding-bottom: 24px;
+}
+
+
+

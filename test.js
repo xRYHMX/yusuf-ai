@@ -533,7 +533,7 @@ async function runTests() {
         const matches = [
             {
                 m: { id: 401, home: 'Everton', away: 'Brighton', mbs: 1, inBulletin: true, state: 'pre' },
-                an: { quality: 'B', lh: 1.20, la: 1.20, p: { msx: 0.32 } }
+                an: { quality: 'B', lh: 1.20, la: 1.20, p: { msx: 0.32, msx_kgv: 0.22, iykgv: 0.25 } }
             }
         ];
         const coupons = engine.buildCoupons(matches, {}, { surpN: 1, customTable: mockIncompleteMetricsTable });
@@ -546,7 +546,7 @@ async function runTests() {
         const matches = [
             {
                 m: { id: 401, home: 'Everton', away: 'Brighton', mbs: 1, inBulletin: true, state: 'pre' },
-                an: { quality: 'B', lh: 1.20, la: 1.20, p: { msx: 0.32 } }
+                an: { quality: 'B', lh: 1.20, la: 1.20, p: { msx: 0.32, msx_kgv: 0.22, iykgv: 0.25 } }
             }
         ];
         const coupons = engine.buildCoupons(matches, {}, { surpN: 1, customTable: mockDuplicateMatchesTable });
@@ -1867,6 +1867,166 @@ async function runTests() {
         assert.ok(asyncRes.statisticalSummary, 'Async fallback statisticalSummary üretmeli');
         assert.ok(asyncRes.yusufAiEditorial, 'Async fallback yusufAiEditorial üretmeli');
         assert.strictEqual(asyncRes.finalAssessment.bestPick.selection, engine.generateMatchCommentary(dummyMatch, dummyAnalysis).finalAssessment.bestPick.selection);
+    });
+
+    console.log('\n--- TEST 12: Yeni Yüksek Oranlı Sürpriz Kupon Pazarları & Eski Pazarların Temizlenmesi Doğrulaması ---');
+
+    await it('12.1: Eski düz ve düşük oranlı pazarların (ms1, ms2, msx, dc1x, ust25, alt25, kgv, korner, kart) sürpriz seçim havuzundan elendiği doğrulanmalı', () => {
+        const mockMatch = { id: 801, home: 'Real Madrid', away: 'Getafe', mbs: 1, inBulletin: true, state: 'pre', oddsFresh: true };
+        const mockAn = { lh: 2.1, la: 0.8, facts: {}, tactical: { boosts: {} } };
+        const mockModel = { base: { ms1: 0.45, ms2: 0.25, msx: 0.30, ust25: 0.50, kgv: 0.50, dc1x: 0.75 } };
+
+        // Test edilecek eski/düz pazarlar
+        const obsoletePicks = [
+            { key: 'ms1', group: 'ms', p: 0.55, hasRealOdd: true, realOdd: 2.20, ev: 0.10 },
+            { key: 'ms2', group: 'ms', p: 0.30, hasRealOdd: true, realOdd: 3.50, ev: 0.10 },
+            { key: 'msx', group: 'msx', p: 0.32, hasRealOdd: true, realOdd: 3.40, ev: 0.08 },
+            { key: 'dc1x', group: 'dc', p: 0.80, hasRealOdd: true, realOdd: 2.10, ev: 0.05 },
+            { key: 'ust25', group: 'ou', p: 0.60, hasRealOdd: true, realOdd: 2.15, ev: 0.10 },
+            { key: 'alt25', group: 'ou', p: 0.52, hasRealOdd: true, realOdd: 2.10, ev: 0.05 },
+            { key: 'kgv', group: 'kg', p: 0.58, hasRealOdd: true, realOdd: 2.10, ev: 0.08 },
+            { key: 'korner_ust95', group: 'korner', p: 0.50, hasRealOdd: true, realOdd: 2.20, ev: 0.05 },
+            { key: 'kart_ust35', group: 'kart', p: 0.48, hasRealOdd: true, realOdd: 2.15, ev: 0.05 }
+        ];
+
+        for (const pk of obsoletePicks) {
+            const scored = engine.scoreSurpriseCandidate(pk, mockMatch, mockAn, mockModel);
+            assert.strictEqual(scored, null, `Eski pazar [${pk.key} / ${pk.group}] sürpriz kupona giremez`);
+        }
+    });
+
+    await it('12.2: Yalnızca Jack\'in belirlediği 7 yüksek oranlı sürpriz pazarın kabul edildiği doğrulanmalı', () => {
+        const mockMatch = { id: 802, home: 'Dortmund', away: 'Leipzig', mbs: 1, inBulletin: true, state: 'pre', oddsFresh: true };
+        const mockAn = { lh: 1.8, la: 1.6, facts: {}, tactical: { boosts: {} } };
+        const mockModel = { base: {} };
+
+        const targetPicks = [
+            { key: 'htft_2/1', group: 'htft', label: 'İY/MS 2/1', p: 0.05, hasRealOdd: true, realOdd: 28.00, ev: 0.40 },
+            { key: 'htft_X/1', group: 'htft', label: 'İY/MS X/1', p: 0.22, hasRealOdd: true, realOdd: 4.80, ev: 0.05 },
+            { key: 'iyskor_1_1', group: 'iyskor', label: 'İY Skor 1-1', p: 0.14, hasRealOdd: true, realOdd: 7.50, ev: 0.05 },
+            { key: 'msskor_2_1', group: 'msskor', label: 'MS Skor 2-1', p: 0.11, hasRealOdd: true, realOdd: 8.50, ev: 0.05 },
+            { key: 'ikiyari_kgv', group: 'ikiyari_kg', label: '1. ve 2. Yarı KG Var', p: 0.07, hasRealOdd: true, realOdd: 15.00, ev: 0.05 },
+            { key: 'iykgv', group: 'iy_kg', label: 'İlk Yarı KG Var', p: 0.26, hasRealOdd: true, realOdd: 3.60, ev: 0.05 },
+            { key: 'y2kgv', group: 'y2_kg', label: '2. Yarı KG Var', p: 0.30, hasRealOdd: true, realOdd: 3.10, ev: 0.05 },
+            { key: 'ms1_kgv', group: 'ms_kg', label: 'MS 1 & KG Var', p: 0.25, hasRealOdd: true, realOdd: 3.80, ev: 0.05 },
+            { key: 'msx_kgv', group: 'ms_kg', label: 'MS X & KG Var', p: 0.18, hasRealOdd: true, realOdd: 4.40, ev: 0.05 },
+            { key: 'ms2_kgv', group: 'ms_kg', label: 'MS 2 & KG Var', p: 0.22, hasRealOdd: true, realOdd: 4.20, ev: 0.05 },
+            { key: 'iymsskor_1_0_2_1', group: 'iymsskor', label: 'İY/MS Skor: 1-0 / 2-1', p: 0.04, hasRealOdd: true, realOdd: 18.00, ev: 0.05 }
+        ];
+
+        for (const pk of targetPicks) {
+            const scored = engine.scoreSurpriseCandidate(pk, mockMatch, mockAn, mockModel);
+            assert.ok(scored !== null, `Jack'in onaylı pazarı [${pk.key} / ${pk.group}] geçerli sürpriz adayı olmalı`);
+            assert.ok(scored.score > 0, 'Skor pozitif olmalı');
+            assert.ok(typeof scored.contrarianType === 'string', 'contrarianType üretilmeli');
+        }
+    });
+
+    await it('12.3: evaluateBetOutcome içinde yeni sürpriz pazarlarının doğru skorlarla hatasız sonuçlandırıldığı doğrulanmalı', () => {
+        // İY/MS
+        assert.strictEqual(engine.evaluateBetOutcome('htft_1/X', { h: 1, a: 1 }, { h: 1, a: 0 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('htft_1/X', { h: 2, a: 0 }, { h: 1, a: 0 }), false);
+        assert.strictEqual(engine.evaluateBetOutcome('htft_2/1', { h: 3, a: 2 }, { h: 0, a: 1 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('htft_X/1', { h: 2, a: 1 }, { h: 1, a: 1 }), true);
+
+        // İY Skor & MS Skor
+        assert.strictEqual(engine.evaluateBetOutcome('iyskor_1_0', { h: 2, a: 1 }, { h: 1, a: 0 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('iyskor_1_0', { h: 2, a: 1 }, { h: 0, a: 0 }), false);
+        assert.strictEqual(engine.evaluateBetOutcome('msskor_2_1', { h: 2, a: 1 }, { h: 1, a: 0 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('msskor_2_1', { h: 3, a: 1 }, { h: 1, a: 0 }), false);
+
+        // İY KG Var
+        assert.strictEqual(engine.evaluateBetOutcome('iykgv', { h: 2, a: 1 }, { h: 1, a: 1 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('iykgv', { h: 2, a: 1 }, { h: 1, a: 0 }), false);
+
+        // 2. Yarı KG Var (İY 0-0, MS 1-1 -> 2. yarıda iki takım da gol attı)
+        assert.strictEqual(engine.evaluateBetOutcome('y2kgv', { h: 1, a: 1 }, { h: 0, a: 0 }), true);
+        // İY 1-1, MS 1-1 -> 2. yarı 0-0 bitti, false olmalı
+        assert.strictEqual(engine.evaluateBetOutcome('y2kgv', { h: 1, a: 1 }, { h: 1, a: 1 }), false);
+
+        // 1. ve 2. Yarı KG Var (Her iki yarıda KG Var)
+        // İY 1-1, MS 2-2 -> 1. yarı 1-1, 2. yarı 1-1 -> true
+        assert.strictEqual(engine.evaluateBetOutcome('ikiyari_kgv', { h: 2, a: 2 }, { h: 1, a: 1 }), true);
+        // İY 1-1, MS 2-1 -> 1. yarı 1-1, 2. yarı 1-0 -> dep 2. yarı gol atamadı -> false
+        assert.strictEqual(engine.evaluateBetOutcome('ikiyari_kgv', { h: 2, a: 1 }, { h: 1, a: 1 }), false);
+
+        // MS ve KG Var
+        assert.strictEqual(engine.evaluateBetOutcome('ms1_kgv', { h: 2, a: 1 }, { h: 1, a: 0 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('ms1_kgv', { h: 2, a: 0 }, { h: 1, a: 0 }), false);
+        assert.strictEqual(engine.evaluateBetOutcome('msx_kgv', { h: 2, a: 2 }, { h: 1, a: 1 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('msx_kgv', { h: 0, a: 0 }, { h: 0, a: 0 }), false);
+        assert.strictEqual(engine.evaluateBetOutcome('ms2_kgv', { h: 1, a: 3 }, { h: 1, a: 1 }), true);
+
+        // İlk Yarı / Maç Skoru (Çifte Skor)
+        assert.strictEqual(engine.evaluateBetOutcome('iymsskor_1_0_2_1', { h: 2, a: 1 }, { h: 1, a: 0 }), true);
+        assert.strictEqual(engine.evaluateBetOutcome('iymsskor_1_0_2_1', { h: 3, a: 1 }, { h: 1, a: 0 }), false);
+        assert.strictEqual(engine.evaluateBetOutcome('iymsskor_1_0_2_1', { h: 2, a: 1 }, { h: 0, a: 0 }), false);
+        assert.strictEqual(engine.evaluateBetOutcome('iymsskor_0_0_1_1', { h: 1, a: 1 }, { h: 0, a: 0 }), true);
+    });
+
+    await it('12.4: mackolik.parseNesineMarkets MTID 452, 591, 592, 414, 5, 777 ve 779 pazarlarını eksiksiz ayrıştırmalı', () => {
+        const sampleMA = [
+            { MTID: 452, SOV: 0, OCA: [{ N: 1, O: 3.25 }, { N: 2, O: 1.18 }] }, // İY KG Var / Yok
+            { MTID: 591, SOV: 0, OCA: [{ N: 1, O: 3.65 }, { N: 2, O: 1.10 }] }, // 2. Yarı KG Var / Yok
+            { MTID: 592, SOV: 0, OCA: [{ N: 1, O: 16.50 }, { N: 2, O: 1.01 }] }, // 1. ve 2. Yarı KG Var / Yok
+            { MTID: 414, SOV: 0, OCA: [{ N: 1, O: 3.80 }, { N: 2, O: 2.10 }, { N: 3, O: 4.50 }, { N: 4, O: 11.00 }, { N: 5, O: 5.20 }, { N: 6, O: 3.10 }] }, // MS ve KG
+            { MTID: 5, SOV: 0, OCA: [{ N: 1, O: 2.10 }, { N: 2, O: 14.00 }, { N: 7, O: 28.00 }] }, // İY/MS
+            { MTID: 777, SOV: 0, OCA: [{ N: 1, ON: '2:1', O: 8.50 }, { N: 2, ON: '1:1', O: 7.20 }] }, // MS Skor
+            { MTID: 779, SOV: 0, OCA: [{ N: 1, ON: '1:0', O: 3.80 }, { N: 2, ON: '1:1', O: 7.00 }] }  // İY Skor
+        ];
+
+        const parsed = mackolik.parseNesineMarkets(sampleMA);
+        assert.strictEqual(parsed.iykgv, 3.25);
+        assert.strictEqual(parsed.iykgy, 1.18);
+        assert.strictEqual(parsed.y2kgv, 3.65);
+        assert.strictEqual(parsed.y2kgy, 1.10);
+        assert.strictEqual(parsed.ikiyari_kgv, 16.50);
+        assert.strictEqual(parsed.ms1_kgv, 3.80);
+        assert.strictEqual(parsed.msx_kgv, 4.50);
+        assert.strictEqual(parsed.ms2_kgv, 5.20);
+        assert.strictEqual(parsed['htft_1/1'], 2.10);
+        assert.strictEqual(parsed['htft_1/X'], 14.00);
+        assert.strictEqual(parsed['htft_2/1'], 28.00);
+        assert.strictEqual(parsed.msskor_2_1, 8.50);
+        assert.strictEqual(parsed.msskor_1_1, 7.20);
+        assert.strictEqual(parsed.iyskor_1_0, 3.80);
+        assert.strictEqual(parsed.iyskor_1_1, 7.00);
+    });
+
+    await it('12.5: buildCoupons sürpriz kuponunda yalnızca ve yalnızca onaylı 7 pazar grubundan maç seçmeli', () => {
+        const allowedGroups = new Set(['htft', 'iyskor', 'msskor', 'iymsskor', 'ikiyari_kg', 'iy_kg', 'y2_kg', 'ms_kg']);
+        const fixtureMatches = [];
+
+        for (let i = 1; i <= 6; i++) {
+            fixtureMatches.push({
+                m: { id: 900 + i, home: `Home-${i}`, away: `Away-${i}`, mbs: 1, inBulletin: true, state: 'pre', oddsFresh: true },
+                an: {
+                    quality: 'B',
+                    lh: 1.70,
+                    la: 1.40,
+                    facts: {},
+                    tactical: { boosts: {} },
+                    p: {
+                        ms1: 0.50, ms2: 0.25, msx: 0.25, ust25: 0.55, kgv: 0.55, // eski pazarlar
+                        'htft_X/1': 0.22,
+                        iyskor_1_0: 0.18,
+                        msskor_2_1: 0.12,
+                        ikiyari_kgv: 0.06,
+                        iykgv: 0.25,
+                        y2kgv: 0.28,
+                        ms1_kgv: 0.24
+                    }
+                }
+            });
+        }
+
+        const coupons = engine.buildCoupons(fixtureMatches, {}, { surpN: 5 });
+        assert.strictEqual(coupons.surprise.matches.length, 5, 'Tam 5 maç seçilmeli');
+
+        for (const item of coupons.surprise.matches) {
+            assert.ok(allowedGroups.has(item.group), `Seçilen maç grubu [${item.group} / ${item.key}] Jack'in onayladığı pazarlardan biri olmalı`);
+            assert.ok(!['ms', 'msx', 'dc', 'ou', 'kg', 'korner', 'kart'].includes(item.group), `Eski pazar grubu [${item.group}] ASLA seçilemez`);
+        }
     });
 
     console.log('\n================================================================');

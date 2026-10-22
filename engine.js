@@ -286,6 +286,7 @@ function outcomeKeys(gh, ga, h1, a1) {
     k.push(t1 > 0.5 ? 'iyust05' : 'iyalt05', t1 > 1.5 ? 'iyust15' : 'iyalt15');
     if (h1 > 0 && a1 > 0) k.push('iykgv');
     if (gh2 > 0 && ga2 > 0) k.push('y2kgv');
+    if (h1 > 0 && a1 > 0 && gh2 > 0 && ga2 > 0) k.push('ikiyari_kgv');
     if (t1 > 0 && t2 > 0) k.push('ikiyari_gol');
     if (t2 > 0.5) k.push('y2ust05'); if (t2 > 1.5) k.push('y2ust15');
     k.push(t1 > t2 ? 'yari1' : t1 < t2 ? 'yari2' : 'yarix');
@@ -318,6 +319,7 @@ function outcomeKeys(gh, ga, h1, a1) {
     // İlk yarı ve maç sonucu kesin skor pazarları
     if (h1 <= 2 && a1 <= 2) k.push(`iyskor_${h1}_${a1}`);
     if (gh <= 3 && ga <= 3) k.push(`msskor_${gh}_${ga}`);
+    if (h1 <= 2 && a1 <= 2 && gh <= 4 && ga <= 4) k.push(`iymsskor_${h1}_${a1}_${gh}_${ga}`);
 
     return k;
 }
@@ -330,7 +332,7 @@ const LABEL = {
     dep_ust05: 'Dep 0,5 Üst', dep_ust15: 'Dep 1,5 Üst', dep_ust25: 'Dep 2,5 Üst',
     kgv: 'KG Var', kgy: 'KG Yok',
     iy1: 'İY 1', iyx: 'İY X', iy2: 'İY 2', iyust05: 'İY 0,5 Üst', iyalt05: 'İY 0,5 Alt', iyust15: 'İlk Yarı 1,5 Üst', iyalt15: 'İY 1,5 Alt',
-    iykgv: 'İlk Yarı KG Var', y2kgv: '2. Yarı KG Var', ikiyari_gol: 'Her İki Yarıda Gol',
+    iykgv: 'İlk Yarı KG Var', y2kgv: '2. Yarı KG Var', ikiyari_kgv: '1. ve 2. Yarı KG Var', ikiyari_gol: 'Her İki Yarıda Gol',
     y2ust05: '2. Yarı 0,5 Üst', y2ust15: '2. Yarı 1,5 Üst',
     yari1: 'Daha Çok Gol: 1. Yarı', yari2: 'Daha Çok Gol: 2. Yarı', yarix: 'Daha Çok Gol: Eşit',
     ms1_ust25: 'MS 1 & 2,5 Üst', ms2_ust25: 'MS 2 & 2,5 Üst',
@@ -350,7 +352,7 @@ const GROUP = {
     ev_ust05: 'team_ou', ev_ust15: 'team_ou', ev_ust25: 'team_ou', dep_ust05: 'team_ou', dep_ust15: 'team_ou', dep_ust25: 'team_ou',
     kgv: 'kg', kgy: 'kg',
     iy1: 'iy', iyx: 'iy', iy2: 'iy', iyust05: 'iyou', iyalt05: 'iyou', iyust15: 'iy_ust', iyalt15: 'iyou',
-    iykgv: 'iy_kg', y2kgv: 'y2_kg', ikiyari_gol: 'iki_yari',
+    iykgv: 'iy_kg', y2kgv: 'y2_kg', ikiyari_kgv: 'ikiyari_kg', ikiyari_gol: 'iki_yari',
     y2ust05: 'y2', y2ust15: 'y2_ust', yari1: 'yari', yari2: 'yari', yarix: 'yari',
     ms1_ust25: 'ms_ou', ms2_ust25: 'ms_ou',
     ms1_kgv: 'ms_kg', ms2_kgv: 'ms_kg', msx_kgv: 'ms_kg',
@@ -456,11 +458,14 @@ function computeMarkets(lh, la, sh, sa, rho = -0.08) {
     p.ah_h_15 = hms1; p.ah_a_15 = hms2;
     p.tg01 = tg01; p.tg23 = tg23; p.tg46 = tg46; p.tg7p = tg7p;
 
-    // MS kesin skor pazarları
-    p.msskor_1_0 = G[1][0]; p.msskor_2_0 = G[2][0]; p.msskor_2_1 = G[2][1];
-    p.msskor_1_1 = G[1][1]; p.msskor_0_1 = G[0][1]; p.msskor_0_2 = G[0][2];
-    p.msskor_1_2 = G[1][2]; p.msskor_2_2 = G[2][2];
-    p.msskor_3_1 = G[3][1]; p.msskor_1_3 = G[1][3];
+    // MS kesin skor pazarları (Dixon-Coles matrisi)
+    for (let i = 0; i <= 4; i++) {
+        for (let j = 0; j <= 4; j++) {
+            if (G[i] && typeof G[i][j] === 'number') {
+                p[`msskor_${i}_${j}`] = G[i][j];
+            }
+        }
+    }
 
     // Devreler (1. yarı Dixon-Coles kalibrasyonlu matris + 2. yarı matrisi)
     const pt1 = pmfArr(L1, 14), pt2 = pmfArr(L2, 14);
@@ -475,6 +480,7 @@ function computeMarkets(lh, la, sh, sa, rho = -0.08) {
     for (let i = 1; i <= N1; i++) for (let j = 1; j <= N1; j++) iyKg += G1[i][j];
     p.iykgv = iyKg;
     p.y2kgv = (1 - Math.exp(-lh2)) * (1 - Math.exp(-la2));
+    p.ikiyari_kgv = p.iykgv * p.y2kgv;
     p.y2ust05 = 1 - pt2[0]; p.y2ust15 = 1 - pt2[0] - pt2[1];
     p.ikiyari_gol = p.iyust05 * p.y2ust05;
 
@@ -483,8 +489,34 @@ function computeMarkets(lh, la, sh, sa, rho = -0.08) {
     p.yari1 = y1; p.yari2 = y2; p.yarix = yx;
 
     // İY kesin skorlar (Dixon-Coles 1. yarı matrisinden)
-    p.iyskor_0_0 = G1[0][0]; p.iyskor_1_0 = G1[1][0]; p.iyskor_0_1 = G1[0][1];
-    p.iyskor_1_1 = G1[1][1]; p.iyskor_2_0 = G1[2][0]; p.iyskor_0_2 = G1[0][2];
+    for (let i = 0; i <= 2; i++) {
+        for (let j = 0; j <= 2; j++) {
+            if (G1[i] && typeof G1[i][j] === 'number') {
+                p[`iyskor_${i}_${j}`] = G1[i][j];
+            }
+        }
+    }
+
+    // İlk Yarı / Maç Skoru (Çifte Skor: İY Skoru ve MS Skoru Kombinasyonu)
+    for (let h1 = 0; h1 <= 2; h1++) {
+        for (let a1 = 0; a1 <= 2; a1++) {
+            const q1 = G1[h1] && G1[h1][a1];
+            if (!q1 || q1 < 0.01) continue;
+            for (let h2 = 0; h2 <= 3; h2++) {
+                for (let a2 = 0; a2 <= 3; a2++) {
+                    const q2 = P2[h2] * Q2[a2];
+                    const qBoth = q1 * q2;
+                    if (qBoth >= 0.005) {
+                        const gh = h1 + h2;
+                        const ga = a1 + a2;
+                        if (gh <= 4 && ga <= 4) {
+                            p[`iymsskor_${h1}_${a1}_${gh}_${ga}`] = qBoth;
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     const D2 = {};
     for (let i = 0; i <= N1; i++) for (let j = 0; j <= N1; j++) D2[i - j] = (D2[i - j] || 0) + P2[i] * Q2[j];
@@ -1561,6 +1593,24 @@ const MARKET_COMPANIONS = {
     iyust15: ['iyalt15', 'iyust15'],
     kgv: ['kgv', 'kgy'],
     kgy: ['kgv', 'kgy'],
+    iykgv: ['iykgv', 'iykgy'],
+    iykgy: ['iykgv', 'iykgy'],
+    y2kgv: ['y2kgv', 'y2kgy'],
+    y2kgy: ['y2kgv', 'y2kgy'],
+    ikiyari_kgv: ['ikiyari_kgv', 'ikiyari_kgy'],
+    ikiyari_kgy: ['ikiyari_kgv', 'ikiyari_kgy'],
+    ms1_kgv: ['ms1_kgv', 'ms1_kgy', 'msx_kgv', 'msx_kgy', 'ms2_kgv', 'ms2_kgy'],
+    msx_kgv: ['ms1_kgv', 'ms1_kgy', 'msx_kgv', 'msx_kgy', 'ms2_kgv', 'ms2_kgy'],
+    ms2_kgv: ['ms1_kgv', 'ms1_kgy', 'msx_kgv', 'msx_kgy', 'ms2_kgv', 'ms2_kgy'],
+    'htft_1/1': ['htft_1/1', 'htft_1/X', 'htft_1/2', 'htft_X/1', 'htft_X/X', 'htft_X/2', 'htft_2/1', 'htft_2/X', 'htft_2/2'],
+    'htft_1/X': ['htft_1/1', 'htft_1/X', 'htft_1/2', 'htft_X/1', 'htft_X/X', 'htft_X/2', 'htft_2/1', 'htft_2/X', 'htft_2/2'],
+    'htft_1/2': ['htft_1/1', 'htft_1/X', 'htft_1/2', 'htft_X/1', 'htft_X/X', 'htft_X/2', 'htft_2/1', 'htft_2/X', 'htft_2/2'],
+    'htft_X/1': ['htft_1/1', 'htft_1/X', 'htft_1/2', 'htft_X/1', 'htft_X/X', 'htft_X/2', 'htft_2/1', 'htft_2/X', 'htft_2/2'],
+    'htft_X/X': ['htft_1/1', 'htft_1/X', 'htft_1/2', 'htft_X/1', 'htft_X/X', 'htft_X/2', 'htft_2/1', 'htft_2/X', 'htft_2/2'],
+    'htft_X/2': ['htft_1/1', 'htft_1/X', 'htft_1/2', 'htft_X/1', 'htft_X/X', 'htft_X/2', 'htft_2/1', 'htft_2/X', 'htft_2/2'],
+    'htft_2/1': ['htft_1/1', 'htft_1/X', 'htft_1/2', 'htft_X/1', 'htft_X/X', 'htft_X/2', 'htft_2/1', 'htft_2/X', 'htft_2/2'],
+    'htft_2/X': ['htft_1/1', 'htft_1/X', 'htft_1/2', 'htft_X/1', 'htft_X/X', 'htft_X/2', 'htft_2/1', 'htft_2/X', 'htft_2/2'],
+    'htft_2/2': ['htft_1/1', 'htft_1/X', 'htft_1/2', 'htft_X/1', 'htft_X/X', 'htft_X/2', 'htft_2/1', 'htft_2/X', 'htft_2/2'],
     tg01: ['tg01', 'tg23', 'tg46', 'tg7p'],
     tg23: ['tg01', 'tg23', 'tg46', 'tg7p'],
     tg46: ['tg01', 'tg23', 'tg46', 'tg7p'],
@@ -1635,6 +1685,13 @@ function picksOf(match, an) {
     for (const [key, pv] of Object.entries(an.p)) {
         let label, group;
         if (key.startsWith('htft_')) { label = 'İY/MS ' + key.slice(5); group = 'htft'; }
+        else if (key.startsWith('iyskor_')) { label = 'İY Skor ' + key.slice(7).replace('_', '-'); group = 'iyskor'; }
+        else if (key.startsWith('msskor_')) { label = 'MS Skor ' + key.slice(7).replace('_', '-'); group = 'msskor'; }
+        else if (key.startsWith('iymsskor_')) {
+            const parts = key.slice(9).split('_');
+            label = `İY/MS Skor: ${parts[0]}-${parts[1]} / ${parts[2]}-${parts[3]}`;
+            group = 'iymsskor';
+        }
         else { label = LABEL[key]; group = GROUP[key]; }
         if (!label) continue;
         // Madde 3: Yalnızca oranlar güncel (oddsFresh) ve bu pazar için gerçek Nesine oranı varsa kullan; yenilenemediyse eski oranı kullanma!
@@ -1679,7 +1736,7 @@ function picksOf(match, an) {
 
 const BANKO_PRIMARY_KEYS = new Set(['ms1', 'ms2', 'ust25', 'kgv', 'alt25', 'iyust05', 'ev_ust15', 'dep_ust15']);
 const BANKO_KEYS = ['ms1', 'ms2', 'ust25', 'kgv', 'alt25', 'iyust05', 'ust15', 'dc1x', 'dcx2', 'alt35', 'ev_ust15', 'dep_ust15', 'korner_ust85'];
-const SURPRISE_GROUPS = ['ms', 'msx', 'dc', 'iy', 'ms_kg', 'ms_ou', 'iy_kg', 'y2_kg', 'iy_ust', 'iyskor', 'msskor', 'tg', 'htft', 'ou_kg', 'korner', 'kart'];
+const SURPRISE_GROUPS = ['htft', 'iyskor', 'msskor', 'iymsskor', 'ikiyari_kg', 'iy_kg', 'y2_kg', 'ms_kg'];
 
 function qualifies(match, an, minQ = 'B') {
     if (match.state !== 'pre') return false;
@@ -1725,7 +1782,7 @@ function generateRationale(pk, m, an) {
         : an.h2hSummary
             ? ` [${an.h2hSummary}]`
             : '';
-    const dnaNote = an.tactical
+    const dnaNote = an.tactical?.homeTags?.[0] && an.tactical?.awayTags?.[0]
         ? ` 🧬 Kimlik: ${m.home} (${an.tactical.homeTags[0]}) vs ${m.away} (${an.tactical.awayTags[0]}).`
         : '';
     const fatigueNote = (an.restH?.isFatigued || an.restA?.isFatigued)
@@ -1766,6 +1823,9 @@ function generateRationale(pk, m, an) {
     if (pk.key === 'y2kgv') {
         return `${contrarianPrefix}İkinci yarılarda savunma disiplini düşen ve skoru çift taraflı üreten iki ekip. 2. Yarı KG Var olasılığı ${pStr} (${liftStr} istatistiksel çarpan).${tailNotes}`;
     }
+    if (pk.key === 'ikiyari_kgv') {
+        return `${contrarianPrefix}İki takımın da 90 dakika boyunca kesintisiz hücum üretimi ve savunma zaafı analizi; her iki yarıda da karşılıklı gol (1. ve 2. Yarı KG Var) senaryosu ${pStr} olasılık ve ${liftStr} yüksek çarpan sunuyor.${tailNotes}`;
+    }
     if (pk.key === 'iyust15') {
         return `${contrarianPrefix}İlk yarı gol beklentisi çok yüksek; devre bitmeden en az 2 gol (İY 1,5 Üst) çıkma ihtimali ${pStr} (${liftStr} çarpan).${tailNotes}`;
     }
@@ -1785,6 +1845,11 @@ function generateRationale(pk, m, an) {
     if (pk.key.startsWith('msskor_')) {
         const sc = pk.key.slice(7).replace('_', '-');
         return `${contrarianPrefix}Bağımsız Dixon-Coles skor matrisinde ${sc} maç skoru yüksek oranlı hedef olarak öne çıkıyor (${pStr} olasılık, ${liftStr} çarpan).${tailNotes}`;
+    }
+    if (pk.key.startsWith('iymsskor_')) {
+        const parts = pk.key.slice(9).split('_');
+        const sc = `${parts[0]}-${parts[1]} / ${parts[2]}-${parts[3]}`;
+        return `${contrarianPrefix}Dixon-Coles devre ve maç skoru matrisinde ${sc} çifte skoru ${pStr} olasılık ve ${liftStr} yüksek sürpriz çarpanı barındırıyor.${tailNotes}`;
     }
     if (pk.key === 'ust15') {
         return `Bağımsız xG modeli toplam ${totG} gol (Ev ${lhStr} - Dep ${laStr}) hesapladı (${pStr} güven, İstikrar: %${an.avgConsistency || 75}).${tailNotes}`;
@@ -1834,153 +1899,102 @@ function isMainstreamMatch(m) {
 // ---------------- Madde 6: Sürpriz Kupon Algoritması (Favori Takımlar Yerine Yüksek Oranlı, İstatistiksel Ters Sonuçlar) ----------------
 function scoreSurpriseCandidate(pk, m, an, model) {
     if (!SURPRISE_GROUPS.includes(pk.group)) return null;
-    const baseRate = (model && model.base && model.base[pk.key]) || 0.08;
-    const lift = pk.p / baseRate;
+
+    // Grup bazında mantıklı default base rate belirle (lift hesabında sapmaları engelle)
+    const defaultBaseRate = pk.group === 'htft' ? 0.05
+        : pk.group === 'iyskor' ? 0.08
+        : pk.group === 'msskor' ? 0.05
+        : pk.group === 'iymsskor' ? 0.03
+        : pk.group === 'ikiyari_kg' ? 0.04
+        : pk.group === 'iy_kg' ? 0.18
+        : pk.group === 'y2_kg' ? 0.22
+        : pk.group === 'ms_kg' ? 0.12
+        : 0.08;
+    const baseRate = (model && model.base && model.base[pk.key]) || defaultBaseRate;
+    const lift = pk.p / Math.max(0.01, baseRate);
 
     const hasRealOdd = Boolean(pk.hasRealOdd && typeof pk.realOdd === 'number' && pk.realOdd > 1.01 && typeof pk.ev === 'number');
     // Sürpriz kuponda düşük oranlı (< 2.05) düz seçimleri kesinlikle ele
     if (hasRealOdd && pk.realOdd < 2.05) return null;
-    if (hasRealOdd && pk.ev < -0.02) return null;
-    if (!hasRealOdd && lift < 1.32) return null;
+    if (hasRealOdd && pk.ev < -0.05) return null;
 
-    // Piyasanın (Nesine oranlarının) favori gördüğü tarafı tespit et
-    const odd1 = (m.oddsFresh && m.odds?.ms1 > 1.01) ? m.odds.ms1 : null;
-    const odd2 = (m.oddsFresh && m.odds?.ms2 > 1.01) ? m.odds.ms2 : null;
-    const homeIsMarketFav = (odd1 !== null && odd2 !== null) ? (odd1 < odd2 - 0.25 && odd1 < 1.95) : (an.lh - an.la > 0.40);
-    const awayIsMarketFav = (odd1 !== null && odd2 !== null) ? (odd2 < odd1 - 0.25 && odd2 < 1.95) : (an.la - an.lh > 0.40);
-
-    // KESİN KURAL (Madde 6): Favori takımların düz/beklenen galibiyetlerini Sürpriz Kupona ASLA alma!
-    // Ev sahibi piyasa favorisiyse düz ev sahibi tercihlerini ele:
-    if (homeIsMarketFav && ['ms1', 'dc1x', 'iy1', 'ms1_ust25', 'hms1', 'ah_h_15', 'htft_1/1'].includes(pk.key)) {
-        return null;
-    }
-    // Deplasman piyasa favorisiyse düz deplasman tercihlerini ele:
-    if (awayIsMarketFav && ['ms2', 'dcx2', 'iy2', 'ms2_ust25', 'hms2', 'ah_a_15', 'htft_2/2'].includes(pk.key)) {
-        return null;
-    }
-
-    const tot = an.lh + an.la;
-    const diff = an.lh - an.la;
-    const hf = an.facts?.home, af = an.facts?.away;
     let tacticalMult = 1.0;
     let contrarianType = null;
     let contrarianThesis = null;
 
-    // 1. TERS TARAF GALİBİYETİ (Underdog / Piyasa Sürprizi: MS 1 veya MS 2 Yüksek Oranlı Ters Sonuç)
-    if (pk.key === 'ms1' || pk.key === 'ms2') {
-        const isUnderdogHome = pk.key === 'ms1' && (awayIsMarketFav || (hasRealOdd && pk.realOdd >= 2.45));
-        const isUnderdogAway = pk.key === 'ms2' && (homeIsMarketFav || (hasRealOdd && pk.realOdd >= 2.45));
-        if (!isUnderdogHome && !isUnderdogAway) return null;
-        if (pk.p < 0.24 || pk.p > 0.52) return null;
-        if (hasRealOdd && pk.ev < 0.04) return null;
-        const dogTeam = pk.key === 'ms1' ? m.home : m.away;
-        const favTeam = pk.key === 'ms1' ? m.away : m.home;
-        tacticalMult = 1.52;
-        contrarianType = 'Ters Taraf Sürprizi (Underdog Value)';
-        contrarianThesis = `[Ters Sonuç Analizi]: Piyasa ${favTeam} tarafını favori fiyatlasa da, ${dogTeam} son maç form ivmesi, ortak rakipler karnesi ve saha içi üretimle (${pk.realOdd ? pk.realOdd.toFixed(2) + ' oranda ' : ''}+%${pk.evPct || Math.round((lift - 1) * 100)} değer farkı) istatistiksel ters sonuç fırsatı veriyor.`;
-    }
-    // 2. FAVORİYE KARŞI SÜRPRİZ ÇİFTE ŞANS (Underdog 1X / X2 Direnci)
-    else if (pk.key === 'dc1x' || pk.key === 'dcx2') {
-        const isDog1X = pk.key === 'dc1x' && awayIsMarketFav;
-        const isDogX2 = pk.key === 'dcx2' && homeIsMarketFav;
-        if (!isDog1X && !isDogX2) return null;
-        if (!hasRealOdd || pk.realOdd < 2.05 || pk.ev < 0.04) return null;
-        const dogTeam = pk.key === 'dc1x' ? m.home : m.away;
-        const favTeam = pk.key === 'dc1x' ? m.away : m.home;
-        tacticalMult = 1.44;
-        contrarianType = 'Favoriye Karşı Sürpriz Direnç (Ters Çifte Şans)';
-        contrarianThesis = `[Favoriye Karşı Ters Direnç]: Piyasa favorisi ${favTeam} karşısında ${dogTeam} yüksek savunma direnci ve form istikrarıyla yenilmeme (%${Math.round(pk.p * 100)}) değerine sahip.`;
-    }
-    // 3. YÜKSEK ORANLI DENGE / GOLLÜ BERABERLİK SÜRPRİZİ (MS X ve MS X & KG Var)
-    else if (pk.key === 'msx' || pk.key === 'msx_kgv') {
-        if (Math.abs(diff) > 0.28 || pk.p < 0.14) return null;
-        if (pk.key === 'msx_kgv' && (an.lh < 1.12 || an.la < 1.12)) return null;
-        tacticalMult = pk.key === 'msx_kgv' ? 1.42 : 1.35;
-        contrarianType = 'Yüksek Oranlı Denge / Beraberlik Sürprizi';
-        contrarianThesis = `[Ters Denge Sürprizi]: Taraf bahislerinin aksine iki takımın güç, form ve xG dengesi (${an.lh.toFixed(2)} - ${an.la.toFixed(2)}) yüksek oranlı beraberlik senaryosunu öne çıkarıyor.`;
-    }
-    // 4. DEVRE SÜRPRİZİ & GERİ DÖNÜŞLER (İY/MS X/1, X/2, 2/1, 1/2 ve Ters İlk Yarı)
-    else if (pk.group === 'htft' || pk.group === 'iy') {
-        if (pk.group === 'htft') {
-            const sub = pk.key.slice(5);
-            if (sub === '1/1' || sub === '2/2' || sub === 'X/X') return null; // Düz favori devre/maç sonuçlarını ele
-            if (sub === '2/1' || sub === '1/2') {
-                if (pk.p < 0.045) return null;
-                tacticalMult = 1.46;
-                contrarianType = 'İY/MS Geri Dönüş Sürprizi (1/2 - 2/1)';
-                contrarianThesis = `[Ters Devre / Geri Dönüş]: İlk yarı ve ikinci yarı gol dağılım karakterleri zıt olan iki takımda devre arası skor dönüşü (${sub}) yüksek istatistiksel çarpan taşıyor.`;
-            } else {
-                // X/1 veya X/2 (İlk yarı kilitli beraberlik, 2. yarı patlama)
-                if (pk.p < 0.13 || pk.p > 0.38) return null;
-                tacticalMult = 1.34;
-                contrarianType = 'İlk Yarı Kilitli / 2. Yarı Çözülme Sürprizi';
-                contrarianThesis = `[Devre Karakteri Farkı]: İlk yarıda dengeli/kilitli başlayan oyunun 2. yarı gol payı üstünlüğüyle (${sub}) çözülmesi bekleniyor.`;
-            }
-        } else {
-            // iy1 veya iy2: Sadece piyasa favorisi OLMAYAN takımın ilk yarı sürprizi
-            const isDogIy1 = pk.key === 'iy1' && !homeIsMarketFav && (hasRealOdd ? pk.realOdd >= 2.60 : pk.p >= 0.24);
-            const isDogIy2 = pk.key === 'iy2' && !awayIsMarketFav && (hasRealOdd ? pk.realOdd >= 2.60 : pk.p >= 0.24);
-            if (!isDogIy1 && !isDogIy2) return null;
-            const dogTeam = pk.key === 'iy1' ? m.home : m.away;
+    // 1. İLK YARI / MAÇ SONUCU (HT/FT)
+    if (pk.group === 'htft') {
+        const sub = pk.key.slice(5);
+        if (sub === '2/1' || sub === '1/2') {
+            if (pk.p < 0.035) return null;
+            tacticalMult = 1.48;
+            contrarianType = 'İY/MS Devre Dönüşü (1/2 - 2/1)';
+            contrarianThesis = `[Ters Devre / Geri Dönüş]: İlk yarı ve ikinci yarı tempoları zıt olan iki takımda devre arası skor dönüşü (${sub}) çok yüksek sürpriz oran sağlıyor.`;
+        } else if (sub === 'X/1' || sub === 'X/2' || sub === '1/X' || sub === '2/X' || sub === 'X/X') {
+            if (pk.p < 0.07 || pk.p > 0.40) return null;
             tacticalMult = 1.36;
-            contrarianType = 'İlk Yarı Sürpriz Taraf Üstünlüğü';
-            contrarianThesis = `[İlk Yarı Ters Sonuç]: ${dogTeam} maça erken baskıyla başlayan yapısı sayesinde ilk devreyi sürpriz şekilde önde kapatmaya aday.`;
+            contrarianType = 'İY/MS Yüksek Oran Sürprizi';
+            contrarianThesis = `[Devre Karakteri Farkı]: İlk yarıda dengeli başlayan oyunun ikinci yarıdaki tempo artışıyla (${sub}) sonuçlanması yüksek değer taşıyor.`;
+        } else {
+            // 1/1 veya 2/2 yalnızca yüksek oranlı/underdog durumunda
+            if (!hasRealOdd || pk.realOdd < 2.40) return null;
+            if (pk.p < 0.12) return null;
+            tacticalMult = 1.30;
+            contrarianType = 'İY/MS Devre Üstünlüğü';
+            contrarianThesis = `[Devre Hakimiyeti]: Maça hızlı başlayan takımın ilk yarıyı ve maçı (${sub}) önde bitirmesi cazip oran fırsatı sağlıyor.`;
         }
     }
-    // 5. SÜRPRİZ TARAF + KG VAR / ÜST KOMBİNASYONLARI (Ağır favori olmayan eşleşmelerde)
-    else if (pk.key === 'ms1_kgv' || pk.key === 'ms2_kgv') {
-        if (pk.key === 'ms1_kgv' && homeIsMarketFav && odd1 && odd1 < 1.60) return null;
-        if (pk.key === 'ms2_kgv' && awayIsMarketFav && odd2 && odd2 < 1.60) return null;
-        if (an.lh < 1.15 || an.la < 1.05 || pk.p < 0.15) return null;
-        tacticalMult = 1.32;
-        contrarianType = 'Çift Taraflı Skor & Sürpriz Galibiyet';
-        contrarianThesis = `[Yüksek Oranlı Kombinasyon]: Savunmaların açık verdiği eşleşmede hem karşılıklı gol hem taraf galibiyeti yüksek değer üretiyor.`;
-    }
-    else if (pk.key === 'ms1_ust25' || pk.key === 'ms2_ust25') {
-        // Yalnızca sürpriz/dengeli tarafın (oran >= 2.50) üstlü galibiyetini kabul et
-        if (hasRealOdd && pk.realOdd < 2.50) return null;
-        if (tot < 2.85 || pk.p < 0.22 || pk.p > 0.45) return null;
-        tacticalMult = 1.24;
-        contrarianType = 'Yüksek Oranlı Tempo & Taraf Sürprizi';
-        contrarianThesis = `[Yüksek Oranlı Tempo Sürprizi]: Piyasa beklentisinin üzerinde açık geçmeye aday maçta yüksek oranlı galibiyet + 2.5 Üst fırsatı.`;
-    }
-    // 6. İLK YARI KG VAR / 2. YARI KG VAR / 4-6 GOL / KESİN SKOR / GERÇEK KORNER & KArt ÜST
-    else if (pk.key === 'iykgv') {
-        if (an.lh < 1.18 || an.la < 1.08 || tot < 2.75 || pk.p < 0.16) return null;
-        tacticalMult = 1.34;
-        contrarianType = 'İlk Yarı Karşılıklı Gol Sürprizi';
-        contrarianThesis = `[İlk Yarı Tempo Sürprizi]: İki takımın da ilk 45 dakikadaki yüksek gol yüzdesi İY KG Var seçeneğinde pozitif değer yaratıyor.`;
-    } else if (pk.key === 'y2kgv') {
-        if (an.lh < 1.18 || an.la < 1.08 || tot < 2.70 || pk.p < 0.22 || pk.p > 0.46) return null;
-        tacticalMult = 1.28;
-        contrarianType = '2. Yarı Karşılıklı Gol Sürprizi';
-        contrarianThesis = `[2. Yarı Çözülme Sürprizi]: İkinci devrelerde savunma disiplini düşen iki takımda 2. Yarı KG Var yüksek değer taşıyor.`;
-    } else if (pk.key === 'ust25_kgv' || pk.key === 'iyust15' || pk.key === 'tg46') {
-        if (hasRealOdd && pk.realOdd < 2.25) return null;
-        if (tot < 2.95 || pk.p < 0.24 || pk.p > 0.46) return null;
-        tacticalMult = 1.25;
-        contrarianType = 'Yüksek Baraj Gol Sürprizi';
-        contrarianThesis = `[Yüksek Gol Barajı Sürprizi]: Hücum verimliliği piyasa barajının üzerinde olan iki takımın eşleşmesinde yüksek gol çarpanı.`;
-    } else if (pk.group === 'korner') {
-        if (!an.projections?.hasRealCorners) return null;
-        if (pk.key !== 'korner_ust105' && pk.key !== 'korner_ust95' && pk.key !== 'iy_korner_ust45') return null;
-        if (hasRealOdd && pk.realOdd < 2.05) return null;
-        if (pk.p < 0.32 || pk.p > 0.62) return null;
-        tacticalMult = 1.32;
-        contrarianType = 'Gerçek Korner Ortalaması Destekli Sürpriz';
-        contrarianThesis = `[Gerçek Korner Verisi Fırsatı]: Takımların son maçlardaki gerçek korner ortalamaları (${an.projections.realCornersHFor || '-'} ve ${an.projections.realCornersAFor || '-'}) yüksek korner barajını destekliyor.`;
-    } else if (pk.group === 'kart') {
-        if (pk.key !== 'kart_ust45' && pk.key !== 'kart_ust35') return null;
-        if (hasRealOdd && pk.realOdd < 2.05) return null;
-        if (pk.p < 0.30 || pk.p > 0.62) return null;
-        tacticalMult = 1.26;
-        contrarianType = 'Yüksek Kart & Sertlik Sürprizi';
-        contrarianThesis = `[Yüksek Kart Beklentisi]: Sıralama stresi ve takımların son maç kart ortalamaları üst barajını öne çıkarıyor.`;
-    } else if (pk.group === 'iyskor' || pk.group === 'msskor') {
-        if (pk.p < 0.09 || pk.p > 0.28 || lift < 1.35) return null;
+    // 2. İLK YARI SKORU (iyskor)
+    else if (pk.group === 'iyskor') {
+        if (pk.p < 0.05 || pk.p > 0.45) return null;
         tacticalMult = 1.38;
-        contrarianType = 'Dixon-Coles Kesin Skor Sürprizi';
-        contrarianThesis = `[Kesin Skor Yoğunlaşması]: Bağımsız olasılık matrisinde bu skor kümesi piyasa oranının üzerinde yoğunlaşıyor.`;
+        const scoreLabel = pk.label ? pk.label.replace('İY Skor ', '') : pk.key.slice(7).replace('_', '-');
+        contrarianType = 'İlk Yarı Kesin Skor Sürprizi';
+        contrarianThesis = `[İlk Yarı Kesin Skor]: Takımların ilk 45 dakikadaki gol dağılımı ve savunma disiplini ${scoreLabel} skorunda yüksek oran değeri yaratıyor.`;
+    }
+    // 3. MAÇ SONU SKORU (msskor)
+    else if (pk.group === 'msskor') {
+        if (pk.p < 0.035 || pk.p > 0.35) return null;
+        tacticalMult = 1.40;
+        const scoreLabel = pk.label ? pk.label.replace('MS Skor ', '') : pk.key.slice(7).replace('_', '-');
+        contrarianType = 'Maç Sonu Kesin Skor Sürprizi';
+        contrarianThesis = `[Dixon-Coles Kesin Skor]: İki takımın gol beklentisi ve xG skor matrisinde ${scoreLabel} skoru yüksek sürpriz oran çarpanı barındırıyor.`;
+    }
+    // 4. İLK YARI / MAÇ SKORU (iymsskor)
+    else if (pk.group === 'iymsskor') {
+        if (pk.p < 0.012 || pk.p > 0.25) return null;
+        tacticalMult = 1.48;
+        const scoreLabel = pk.label ? pk.label.replace('İY/MS Skor: ', '') : pk.key.slice(9).replace(/_/g, '-');
+        contrarianType = 'İlk Yarı / Maç Skoru Sürprizi';
+        contrarianThesis = `[Devre ve Maç Skoru]: Takımların ilk ve ikinci yarı skor olasılık matrisinde ${scoreLabel} çifte skoru çok yüksek çarpanla öne çıkıyor.`;
+    }
+    // 4. 1. YARI / 2. YARI KG VAR (ikiyari_kgv)
+    else if (pk.group === 'ikiyari_kg' || pk.key === 'ikiyari_kgv') {
+        if (pk.p < 0.02) return null;
+        tacticalMult = 1.46;
+        contrarianType = '1. ve 2. Yarı KG Var Sürprizi';
+        contrarianThesis = `[Her İki Yarıda Karşılıklı Gol]: Karşılıklı hücum tempoları yüksek iki takımın hem ilk hem ikinci yarıda gol bulması (${pk.realOdd ? pk.realOdd.toFixed(2) + ' oranla ' : ''}) devasa sürpriz kazanç çarpanı sunuyor.`;
+    }
+    // 5. İLK YARI KG VAR (iykgv)
+    else if (pk.group === 'iy_kg' || pk.key === 'iykgv') {
+        if (an.lh < 1.12 || an.la < 1.05 || pk.p < 0.12) return null;
+        tacticalMult = 1.36;
+        contrarianType = 'İlk Yarı Karşılıklı Gol Sürprizi';
+        contrarianThesis = `[İlk Yarı Hızlı Skor]: Maça yüksek tempoyla ve erken presle başlayan ekiplerin ilk 45 dakikada karşılıklı gol bulması yüksek oran üretiyor.`;
+    }
+    // 6. 2. YARI KG VAR (y2kgv)
+    else if (pk.group === 'y2_kg' || pk.key === 'y2kgv') {
+        if (an.lh < 1.12 || an.la < 1.05 || pk.p < 0.15) return null;
+        tacticalMult = 1.34;
+        contrarianType = '2. Yarı Karşılıklı Gol Sürprizi';
+        contrarianThesis = `[2. Yarı Savunma Boşlukları]: İkinci devrede yorgunluk ve risk alma faktörüyle her iki takımın da fileleri havalandırması yüksek değer taşıyor.`;
+    }
+    // 7. MAÇ SONUCU VE KG (ms1_kgv, msx_kgv, ms2_kgv)
+    else if (pk.group === 'ms_kg' || ['ms1_kgv', 'msx_kgv', 'ms2_kgv'].includes(pk.key)) {
+        if (pk.p < 0.10) return null;
+        tacticalMult = 1.35;
+        contrarianType = 'Maç Sonucu & KG Var Kombinasyonu';
+        contrarianThesis = `[MS ve KG Var Değeri]: İki ekibin de skor ürettiği açık bir oyunda taraf veya beraberlikle birleşen ${pk.label} seçimi yüksek sürpriz çarpanı barındırıyor.`;
     } else {
         return null;
     }
@@ -2620,6 +2634,42 @@ function evaluateBetOutcome(marketKey, score, htScore = null, stats = null) {
 
     const normKey = String(marketKey).toLowerCase().trim();
 
+    // İlk Yarı / Maç Sonucu (HT/FT)
+    if (normKey.startsWith('htft_')) {
+        if (htH === null || htA === null) return null;
+        const htRes = htH > htA ? '1' : (htH === htA ? 'x' : '2');
+        const ftRes = h > a ? '1' : (h === a ? 'x' : '2');
+        const target = normKey.slice(5).replace('/', '_');
+        return target === `${htRes}_${ftRes}` || target === `${htRes}/${ftRes}`;
+    }
+
+    // Skor Pazarları (İY Skor ve MS Skor)
+    if (normKey.startsWith('iyskor_')) {
+        if (htH === null || htA === null) return null;
+        const parts = normKey.slice(7).split('_');
+        if (parts.length === 2) {
+            return htH === Number(parts[0]) && htA === Number(parts[1]);
+        }
+        return null;
+    }
+    if (normKey.startsWith('msskor_')) {
+        const parts = normKey.slice(7).split('_');
+        if (parts.length === 2) {
+            return h === Number(parts[0]) && a === Number(parts[1]);
+        }
+        return null;
+    }
+    if (normKey.startsWith('iymsskor_')) {
+        if (htH === null || htA === null) return null;
+        const parts = normKey.slice(9).split('_');
+        if (parts.length === 4) {
+            const expH1 = Number(parts[0]), expA1 = Number(parts[1]);
+            const expGh = Number(parts[2]), expGa = Number(parts[3]);
+            return htH === expH1 && htA === expA1 && h === expGh && a === expGa;
+        }
+        return null;
+    }
+
     switch (normKey) {
         // Maç Sonucu (1X2)
         case 'ms1':
@@ -2667,6 +2717,20 @@ function evaluateBetOutcome(marketKey, score, htScore = null, stats = null) {
             return h > 0 && a > 0;
         case 'kgy':
             return h === 0 || a === 0;
+
+        // İlk Yarı / 2. Yarı KG & Her İki Yarıda KG
+        case 'iykgv':
+            return htH !== null && htA !== null ? (htH > 0 && htA > 0) : null;
+        case 'iykgy':
+            return htH !== null && htA !== null ? (htH === 0 || htA === 0) : null;
+        case 'y2kgv':
+            return htH !== null && htA !== null ? ((h - htH) > 0 && (a - htA) > 0) : null;
+        case 'y2kgy':
+            return htH !== null && htA !== null ? ((h - htH) === 0 || (a - htA) === 0) : null;
+        case 'ikiyari_kgv':
+            return htH !== null && htA !== null ? (htH > 0 && htA > 0 && (h - htH) > 0 && (a - htA) > 0) : null;
+        case 'ikiyari_kgy':
+            return htH !== null && htA !== null ? !(htH > 0 && htA > 0 && (h - htH) > 0 && (a - htA) > 0) : null;
 
         // İlk Yarı Sonucu (İY 1X2)
         case 'iy1':
@@ -4240,7 +4304,9 @@ module.exports = {
     getMatchTimestamp,
     isMatchStrictlyPrior,
     generateMatchCommentary,
-    generateAiCommentaryAsync
+    generateAiCommentaryAsync,
+    scoreSurpriseCandidate,
+    SURPRISE_GROUPS
 };
 
 

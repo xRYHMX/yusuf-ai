@@ -121,8 +121,13 @@ function parseNesineMarkets(maList) {
             setIf('kgy', getO(oca, 2));
         } else if (mtid === 452) {
             setIf('iykgv', getO(oca, 1));
-        } else if (mtid === 590) {
+            setIf('iykgy', getO(oca, 2));
+        } else if (mtid === 590 || mtid === 591) {
             setIf('y2kgv', getO(oca, 1));
+            setIf('y2kgy', getO(oca, 2));
+        } else if (mtid === 592) {
+            setIf('ikiyari_kgv', getO(oca, 1));
+            setIf('ikiyari_kgy', getO(oca, 2));
         } else if (mtid === 528) {
             setIf('ikiyari_gol', getO(oca, 1));
         } else if (mtid === 455 && sov === 0.5) {
@@ -145,8 +150,11 @@ function parseNesineMarkets(maList) {
             else if (sov === 1.5) setIf('ah_a_15', getO(oca, 2));
         } else if (mtid === 414) {
             setIf('ms1_kgv', getO(oca, 1));
+            setIf('ms1_kgy', getO(oca, 2));
             setIf('msx_kgv', getO(oca, 3));
+            setIf('msx_kgy', getO(oca, 4));
             setIf('ms2_kgv', getO(oca, 5));
+            setIf('ms2_kgy', getO(oca, 6));
         } else if (mtid === 343 && sov === 2.5) {
             setIf('ms1_ust25', getO(oca, 2));
             setIf('ms2_ust25', getO(oca, 6));
@@ -458,5 +466,5 @@ async function getRange(fromIso, toIso, concurrency = 10) {
     return out;
 }
 
-module.exports = { getDay, getRange, getNesineOddsMap, getNesineStatus, trToday, addDays, rawFetch, memCache };
+module.exports = { getDay, getRange, getNesineOddsMap, getNesineStatus, trToday, addDays, rawFetch, memCache, parseNesineMarkets };
 
